@@ -35,7 +35,7 @@ impl Default for AppSettings {
             custom_reply_instruction: String::new(),
             save_history: true,
             retain_images: false,
-            show_preview: true,
+            show_preview: false,
             default_provider_id: "openai".into(),
             default_analysis_mode: "explain".into(),
             default_output_format: "adaptive".into(),

@@ -87,7 +87,7 @@ export const defaultSettings: AppSettings = {
   customReplyInstruction: '',
   saveHistory: true,
   retainImages: false,
-  showPreview: true,
+  showPreview: false,
   defaultProviderId: 'openai',
   defaultAnalysisMode: 'explain',
   defaultOutputFormat: 'adaptive',

@@ -10,7 +10,7 @@ LensQuery is an open-source resident utility for Windows and macOS. Press a glob
 
 1. Leave LensQuery running in the system tray/menu bar and press `Ctrl+Shift+Space` (`Command+Shift+Space` is configurable on macOS).
 2. Choose object, word, paragraph, whole-page, or screen context; optionally add a one-line annotation.
-3. Click an object or drag a rectangle. LensQuery hides the picker, captures bounded context, and starts the selected agent in the background.
+3. Click an object or drag a rectangle. LensQuery hides the picker, captures bounded context, and starts the selected agent in the background. Outbound preview is optional and off by default so the core path remains one shortcut plus one selection.
 4. By default the answer arrives as a native notification; choose notification, window, or both in Settings.
 5. Open the conversation timeline to copy, hear, retry, or continue the same query.
 
