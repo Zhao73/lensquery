@@ -1,4 +1,5 @@
 mod capture;
+mod cli;
 mod commands;
 mod files;
 mod models;
@@ -8,8 +9,8 @@ mod state;
 mod video;
 
 use commands::{
-    analyze, bootstrap, inspect_files, prepare_video, probe_video, save_provider, save_settings,
-    set_provider_secret, start_capture, test_provider,
+    analyze, bootstrap, discover_cli_providers, inspect_files, prepare_video, probe_video,
+    save_provider, save_settings, set_provider_secret, start_capture, test_provider,
 };
 use state::AppState;
 
@@ -25,6 +26,7 @@ pub fn run() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             bootstrap,
+            discover_cli_providers,
             start_capture,
             save_settings,
             save_provider,

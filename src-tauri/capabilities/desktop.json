@@ -10,6 +10,7 @@
   ],
   "permissions": [
     "global-shortcut:default",
-    "dialog:allow-open"
+    "dialog:allow-open",
+    "store:default"
   ]
 }

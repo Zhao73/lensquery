@@ -14,11 +14,13 @@ import {
   FilmStrip,
   Key,
   Monitor,
+  Path,
   PaperPlaneTilt,
   Plus,
   Scan,
   ShieldCheck,
   Sparkle,
+  TerminalWindow,
   Trash,
   WarningCircle,
   X,
@@ -26,9 +28,11 @@ import {
 import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import { evidenceAccept, formatBytes, formatDuration, normalizeBrowserFiles } from './lib/files'
+import { createTranslator } from './lib/i18n'
 import {
   analyze,
   bootstrap,
+  discoverCliProviders,
   saveProvider,
   saveSettings,
   setProviderSecret,
@@ -51,13 +55,6 @@ const prompts = [
   { id: 'video', label: '分析视频', hint: '关键内容、时间点与客户答复' },
 ]
 
-const nav: Array<{ id: View; label: string; icon: typeof Aperture }> = [
-  { id: 'home', label: '询问', icon: Aperture },
-  { id: 'history', label: '历史', icon: ClockCounterClockwise },
-  { id: 'providers', label: '模型', icon: Sparkle },
-  { id: 'settings', label: '设置', icon: Gear },
-]
-
 function App() {
   const {
     ready,
@@ -70,6 +67,7 @@ function App() {
     setView,
     hydrate,
     setSettings,
+    setProviders,
     upsertProvider,
     addFiles,
     addCapture,
@@ -90,6 +88,11 @@ function App() {
   useEffect(() => {
     bootstrap().then(hydrate).catch((cause: unknown) => setError(String(cause)))
   }, [hydrate])
+
+  useEffect(() => {
+    if (!settings) return
+    document.documentElement.lang = settings.language
+  }, [settings])
 
   useEffect(() => {
     let dispose: (() => void) | undefined
@@ -142,6 +145,13 @@ function App() {
   }
 
   if (!ready || !settings) return <LoadingScreen />
+  const t = createTranslator(settings.language)
+  const nav: Array<{ id: View; label: string; icon: typeof Aperture }> = [
+    { id: 'home', label: t('home'), icon: Aperture },
+    { id: 'history', label: t('history'), icon: ClockCounterClockwise },
+    { id: 'providers', label: t('providers'), icon: Sparkle },
+    { id: 'settings', label: t('settings'), icon: Gear },
+  ]
 
   return (
     <div className="app-frame">
@@ -160,7 +170,7 @@ function App() {
         </button>
         <div className="titlebar-center">
           <span className="status-light" aria-hidden="true" />
-          本地待命
+          {t('localReady')}
           <kbd>Ctrl</kbd><span>+</span><kbd>Shift</kbd><span>+</span><kbd>Space</kbd>
         </div>
         <div className="window-meta">WIN 10/11 · v0.1</div>
@@ -182,9 +192,9 @@ function App() {
             </button>
           )
         })}
-        <div className="rail-privacy" title="发送前始终预览">
+        <div className="rail-privacy" title={t('privacyTitle')}>
           <ShieldCheck size={22} weight="fill" />
-          <span>隐私</span>
+          <span>{t('privacy')}</span>
         </div>
       </aside>
 
@@ -251,6 +261,11 @@ function App() {
               upsertProvider(profile)
               return saveProvider(profile)
             }}
+            onRescan={async () => {
+              const detected = await discoverCliProviders()
+              setProviders(detected)
+              return detected
+            }}
           />
         )}
         {view === 'settings' && (
@@ -277,12 +292,20 @@ function App() {
 }
 
 function LoadingScreen() {
+  const storedLanguage = (() => {
+    try {
+      return JSON.parse(localStorage.getItem('lensquery.settings') ?? '{}').language
+    } catch {
+      return 'zh-CN'
+    }
+  })()
+  const t = createTranslator(storedLanguage === 'en' ? 'en' : 'zh-CN')
   return (
     <div className="loading-screen" role="status">
       <div className="loading-grid" />
       <Scan size={36} weight="bold" />
       <strong>LENSQUERY</strong>
-      <span>正在初始化本地服务</span>
+      <span>{t('initializing')}</span>
     </div>
   )
 }
@@ -313,6 +336,7 @@ interface HomeViewProps {
 function HomeView(props: HomeViewProps) {
   const [dragging, setDragging] = useState(false)
   const hasEvidence = props.files.length > 0 || props.captures.length > 0
+  const isCli = props.provider?.kind.endsWith('cli') ?? false
 
   return (
     <div className="home-layout">
@@ -432,7 +456,7 @@ function HomeView(props: HomeViewProps) {
           <p><span>视觉输入</span><b className={props.provider?.capabilities?.vision ? '' : 'muted'}>{props.provider?.capabilities?.vision ? <Check size={14} /> : <X size={14} />}{props.provider?.ready ? props.provider.capabilities?.vision ? '支持' : '不可用' : '未配置'}</b></p>
           <p><span>视频快析</span><b className={props.provider?.capabilities?.video ? '' : 'muted'}>{props.provider?.capabilities?.video ? <Check size={14} /> : <X size={14} />}{props.provider?.ready ? props.provider.capabilities?.video ? '关键帧' : '不可用' : '未配置'}</b></p>
           <p><span>PDF</span><b className={props.provider?.capabilities?.pdf ? '' : 'muted'}>{props.provider?.capabilities?.pdf ? <Check size={14} /> : <X size={14} />}{props.provider?.ready ? props.provider.capabilities?.pdf ? '支持' : '不可用' : '未配置'}</b></p>
-          <p><span>密钥</span><b className={props.provider?.secretConfigured ? '' : 'muted'}><Key size={14} />{props.provider?.secretConfigured ? '系统保险库' : '未配置'}</b></p>
+          <p><span>{isCli ? '运行方式' : '密钥'}</span><b className={props.provider?.ready || props.provider?.secretConfigured ? '' : 'muted'}>{isCli ? <TerminalWindow size={14} /> : <Key size={14} />}{isCli ? props.provider?.ready ? '本机 CLI' : '未发现' : props.provider?.secretConfigured ? '系统保险库' : '未配置'}</b></p>
         </div>
         <button type="button" className="configure-link" onClick={props.onOpenProviders}>配置模型与 API <CaretRight size={15} /></button>
       </aside>
@@ -532,12 +556,14 @@ interface ProvidersViewProps {
   selectedId: string
   onSelect: (id: string) => void
   onSave: (profile: ProviderProfile) => Promise<ProviderProfile>
+  onRescan: () => Promise<ProviderProfile[]>
 }
 
-function ProvidersView({ providers, selectedId, onSelect, onSave }: ProvidersViewProps) {
+function ProvidersView({ providers, selectedId, onSelect, onSave, onRescan }: ProvidersViewProps) {
   const [editing, setEditing] = useState<ProviderProfile | null>(null)
   const [secret, setSecret] = useState('')
   const [message, setMessage] = useState('')
+  const [scanning, setScanning] = useState(false)
 
   const save = async () => {
     if (!editing) return
@@ -552,7 +578,23 @@ function ProvidersView({ providers, selectedId, onSelect, onSave }: ProvidersVie
   }
 
   return (
-    <Page title="模型通道" description="连接直接 API、兼容端点，或本机已安装的 Codex 与 Claude Code。">
+    <Page title="模型通道" description="自动发现 Codex、Claude Code、OpenCode 与 Grok，也可连接直接 API。">
+      <div className="provider-toolbar">
+        <div><strong>CLI AUTO DISCOVERY</strong><small>并行扫描 PATH 与常见用户安装目录；版本探测最多等待 2 秒，登录状态在首次请求时校验。</small></div>
+        <button type="button" className="secondary-action compact" disabled={scanning} onClick={async () => {
+          setScanning(true)
+          setMessage('')
+          try {
+            const detected = await onRescan()
+            setMessage(`扫描完成：发现 ${detected.filter((item) => item.kind.endsWith('cli') && item.ready).length} 个可用 CLI。`)
+          } catch (cause) {
+            setMessage(String(cause))
+          } finally {
+            setScanning(false)
+          }
+        }}><ArrowClockwise className={scanning ? 'spin' : ''} size={17} />{scanning ? '正在扫描' : '重新扫描 CLI'}</button>
+      </div>
+      {message && !editing && <p className="discovery-message" role="status">{message}</p>}
       <div className="provider-grid">
         {providers.map((provider) => (
           <article key={provider.id} className={selectedId === provider.id ? 'provider-card selected' : 'provider-card'}>
@@ -562,7 +604,7 @@ function ProvidersView({ providers, selectedId, onSelect, onSave }: ProvidersVie
               {selectedId === provider.id && <span className="default-tag"><Check size={13} />默认</span>}
             </button>
             <div className="provider-card-footer">
-              <span>{provider.kind.endsWith('cli') ? '本地 CLI' : provider.secretConfigured ? '密钥已保存' : '需要 API Key'}</span>
+              <span>{provider.kind.endsWith('cli') ? provider.ready ? `已发现${provider.cli?.version ? ` · ${provider.cli.version}` : ''}` : '未安装' : provider.secretConfigured ? '密钥已保存' : '需要 API Key'}</span>
               <button type="button" onClick={() => { setEditing(provider); setMessage('') }}>配置</button>
             </div>
           </article>
@@ -578,12 +620,13 @@ function ProvidersView({ providers, selectedId, onSelect, onSave }: ProvidersVie
           <div className="form-grid">
             <label>显示名称<input value={editing.name} onChange={(event) => setEditing({ ...editing, name: event.target.value })} /></label>
             <label>模型 ID<input value={editing.model} onChange={(event) => setEditing({ ...editing, model: event.target.value })} /></label>
+            {editing.kind.endsWith('cli') && <label className="full cli-path-field">自动发现路径<span><Path size={16} />{editing.cli?.executablePath ?? `${editing.cli?.command ?? 'CLI'} 尚未发现`}</span><small>命令由内置适配器固定生成，不通过 Shell 拼接。</small></label>}
             {!editing.kind.endsWith('cli') && <label className="full">API 地址<input value={editing.baseUrl ?? ''} placeholder={editing.kind === 'openai' ? 'https://api.openai.com/v1' : editing.kind === 'anthropic' ? 'https://api.anthropic.com' : 'https://HOST/v1'} onChange={(event) => setEditing({ ...editing, baseUrl: event.target.value })} /></label>}
             {!editing.kind.endsWith('cli') && <label className="full">API Key<input type="password" autoComplete="off" value={secret} placeholder={editing.secretConfigured ? '已保存在系统保险库；留空即不修改' : '保存到系统保险库'} onChange={(event) => setSecret(event.target.value)} /></label>}
           </div>
-          {message && <p className="test-message">{message}</p>}
+          {message && <p className="test-message" role="status">{message}</p>}
           <div className="editor-actions">
-            <button type="button" className="secondary-action" onClick={async () => setMessage(await testProvider(editing))}>测试连接</button>
+            <button type="button" className="secondary-action" onClick={async () => setMessage(await testProvider(editing))}>{editing.kind.endsWith('cli') ? '检查路径' : '测试连接'}</button>
             <button type="button" className="primary-action compact" onClick={save}><Check size={18} />保存配置</button>
           </div>
         </div>
@@ -600,24 +643,33 @@ function SettingsView({ settings, onSave }: { settings: AppSettings; onSave: (se
     setSaved(true)
     window.setTimeout(() => setSaved(false), 1500)
   }
+  const t = createTranslator(draft.language)
   return (
-    <Page title="本地设置" description="快捷键、隐私与历史策略都保存在当前电脑。">
+    <Page title={t('settingsTitle')} description={t('settingsDescription')}>
       <div className="settings-sheet">
         <section>
-          <h2>捕获</h2>
-          <label className="field-row"><span><strong>全局快捷键</strong><small>在任何应用中打开框选层</small></span><input value={draft.shortcut} onChange={(event) => setDraft({ ...draft, shortcut: event.target.value })} /></label>
-          <Toggle label="提交前预览" detail="显示截图、文件与提取到的上下文" checked={draft.showPreview} onChange={(showPreview) => setDraft({ ...draft, showPreview })} />
+          <h2>{t('capture')}</h2>
+          <label className="field-row"><span><strong>{t('shortcut')}</strong><small>{t('shortcutHelp')}</small></span><input value={draft.shortcut} onChange={(event) => setDraft({ ...draft, shortcut: event.target.value })} /></label>
+          <Toggle label={t('preview')} detail={t('previewHelp')} checked={draft.showPreview} onChange={(showPreview) => setDraft({ ...draft, showPreview })} />
         </section>
         <section>
-          <h2>本地数据</h2>
-          <Toggle label="保存回答历史" detail="只保存在本机应用数据目录" checked={draft.saveHistory} onChange={(saveHistory) => setDraft({ ...draft, saveHistory })} />
-          <Toggle label="保留捕获图片" detail="默认关闭；关闭时请求结束即删除临时图片" checked={draft.retainImages} onChange={(retainImages) => setDraft({ ...draft, retainImages })} />
+          <h2>{t('localData')}</h2>
+          <Toggle label={t('historySave')} detail={t('historySaveHelp')} checked={draft.saveHistory} onChange={(saveHistory) => setDraft({ ...draft, saveHistory })} />
+          <Toggle label={t('retain')} detail={t('retainHelp')} checked={draft.retainImages} onChange={(retainImages) => setDraft({ ...draft, retainImages })} />
         </section>
         <section>
-          <h2>界面</h2>
-          <label className="field-row"><span><strong>语言</strong><small>首发支持简体中文与 English</small></span><select value={draft.language} onChange={(event) => setDraft({ ...draft, language: event.target.value as AppSettings['language'] })}><option value="zh-CN">简体中文</option><option value="en">English</option></select></label>
+          <h2>{t('interface')}</h2>
+          <label className="field-row"><span><strong>{t('interfaceLanguage')}</strong><small>{t('interfaceLanguageHelp')}</small></span><select value={draft.language} onChange={(event) => setDraft({ ...draft, language: event.target.value as AppSettings['language'] })}><option value="zh-CN">简体中文</option><option value="en">English</option></select></label>
         </section>
-        <button type="button" className="primary-action compact save-settings" onClick={commit}>{saved ? <Check size={18} /> : <Gear size={18} />}{saved ? '已保存' : '保存设置'}</button>
+        <section>
+          <h2>{t('customerReply')}</h2>
+          <Toggle label={t('followCustomer')} detail={t('followCustomerHelp')} checked={draft.detectCustomerLanguage} onChange={(detectCustomerLanguage) => setDraft({ ...draft, detectCustomerLanguage })} />
+          <label className="field-row"><span><strong>{t('fallbackLanguage')}</strong><small>{t('fallbackLanguageHelp')}</small></span><select value={draft.responseLanguage} onChange={(event) => setDraft({ ...draft, responseLanguage: event.target.value as AppSettings['responseLanguage'] })}><option value="zh-CN">简体中文</option><option value="en">English</option><option value="ja-JP">日本語</option><option value="ko-KR">한국어</option><option value="es-ES">Español</option><option value="fr-FR">Français</option><option value="de-DE">Deutsch</option></select></label>
+          <label className="field-row"><span><strong>{t('replyStyle')}</strong><small>{t('replyStyleHelp')}</small></span><select value={draft.replyStyle} onChange={(event) => setDraft({ ...draft, replyStyle: event.target.value as AppSettings['replyStyle'] })}><option value="customer-ready">{t('customerReady')}</option><option value="concise">{t('concise')}</option><option value="detailed">{t('detailed')}</option></select></label>
+          <label className="text-field-row"><span><strong>{t('customInstruction')}</strong><small>{t('customInstructionHelp')}</small></span><textarea maxLength={1000} value={draft.customReplyInstruction} placeholder={t('optional')} onChange={(event) => setDraft({ ...draft, customReplyInstruction: event.target.value })} /><b>{draft.customReplyInstruction.length}/1000</b></label>
+          <div className="language-preview"><span>AUTO LANGUAGE</span><strong>{draft.detectCustomerLanguage ? t('autoLanguage') : `${t('fixedLanguage')} ${draft.responseLanguage}`}</strong><small>{t('languagePriority')}</small></div>
+        </section>
+        <button type="button" className="primary-action compact save-settings" onClick={commit}>{saved ? <Check size={18} /> : <Gear size={18} />}{saved ? t('saved') : t('save')}</button>
       </div>
     </Page>
   )

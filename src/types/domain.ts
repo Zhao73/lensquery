@@ -6,6 +6,8 @@ export type ProviderKind =
   | 'compatible'
   | 'codex-cli'
   | 'claude-cli'
+  | 'opencode-cli'
+  | 'grok-cli'
 
 export interface Bounds {
   x: number
@@ -81,6 +83,13 @@ export interface ProviderProfile {
     audioTranscription: boolean
     streaming: boolean
   }
+  cli?: {
+    command: string
+    executablePath?: string
+    version?: string
+    status: 'missing' | 'ready' | 'version-timeout'
+    autoDetected: boolean
+  }
 }
 
 export interface AnalysisRequest {
@@ -103,6 +112,10 @@ export interface AnalysisResult {
 export interface AppSettings {
   shortcut: string
   language: 'zh-CN' | 'en'
+  responseLanguage: 'zh-CN' | 'en' | 'ja-JP' | 'ko-KR' | 'es-ES' | 'fr-FR' | 'de-DE'
+  detectCustomerLanguage: boolean
+  replyStyle: 'concise' | 'customer-ready' | 'detailed'
+  customReplyInstruction: string
   saveHistory: boolean
   retainImages: boolean
   showPreview: boolean

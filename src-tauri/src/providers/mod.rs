@@ -4,16 +4,21 @@ use chrono::Utc;
 use tokio::{io::AsyncWriteExt, process::Command, time::timeout};
 use uuid::Uuid;
 
-use crate::models::{AnalysisRequest, AnalysisResult, ProviderProfile};
+use crate::{
+    cli,
+    models::{AnalysisRequest, AnalysisResult, AppSettings, ProviderProfile},
+};
 
 pub async fn analyze(
     request: AnalysisRequest,
     profile: ProviderProfile,
+    settings: AppSettings,
 ) -> Result<AnalysisResult, String> {
     let started = Instant::now();
     let answer = match profile.kind.as_str() {
-        "codex-cli" => run_cli("codex", &request, true).await?,
-        "claude-cli" => run_cli("claude", &request, false).await?,
+        "codex-cli" | "claude-cli" | "opencode-cli" | "grok-cli" => {
+            run_cli(&profile, &request, &settings).await?
+        }
         "openai" | "anthropic" | "compatible" => {
             return Err(format!(
                 "{} 适配器已定义，但实时请求会在凭据保险库与出站预览完成后启用。当前不会上传内容。",
@@ -34,15 +39,25 @@ pub async fn analyze(
 }
 
 async fn run_cli(
-    executable: &str,
+    profile: &ProviderProfile,
     request: &AnalysisRequest,
-    is_codex: bool,
+    settings: &AppSettings,
 ) -> Result<String, String> {
-    let image_paths = collect_image_paths(request)?;
-    if !is_codex && !image_paths.is_empty() {
+    let executable = cli::resolve_profile_executable(profile)?;
+    validate_evidence_for_profile(profile, request)?;
+    let image_paths = if profile.kind == "codex-cli" || profile.kind == "claude-cli" {
+        collect_image_paths(request)?
+    } else {
+        Vec::new()
+    };
+    if profile.kind == "claude-cli" && !image_paths.is_empty() {
         return Err(
-            "Claude Code CLI 的本地图片附件通道尚未启用；请选择 Codex CLI 或直接视觉 API。".into(),
+            "Claude Code CLI 的本地图片附件通道尚未启用；请选择 Codex、OpenCode 或直接视觉 API。"
+                .into(),
         );
+    }
+    if profile.kind == "grok-cli" && !collect_attachment_paths(request).is_empty() {
+        return Err("Grok CLI 的本地附件内容块仍在适配中；当前可分析文字问题，请对图片、PDF 或视频选择 Codex、OpenCode 或直接视觉 API。".into());
     }
 
     let evidence_manifest = build_evidence_manifest(request);
@@ -51,34 +66,81 @@ async fn run_cli(
     } else {
         "Use only the supplied evidence and distinguish direct observation from inference."
     };
+    let language_instruction = language_instruction(settings);
+    let style_instruction = style_instruction(settings);
+    let custom_instruction = settings.custom_reply_instruction.trim();
     let prompt = format!(
-        "You are LensQuery's read-only analyst. Do not execute commands or modify files. {video_instruction}\n\nPreset: {}\nQuestion: {}\n\nEvidence manifest:\n{evidence_manifest}",
+        "You are LensQuery's read-only analyst. Do not execute commands, call tools, access the network, or modify files. {video_instruction} {language_instruction} {style_instruction}\nUser reply instruction: {custom_instruction}\n\nPreset: {}\nQuestion: {}\n\nEvidence manifest:\n{evidence_manifest}",
         request.prompt_id, request.question
     );
 
-    let mut command = Command::new(executable);
-    if is_codex {
-        command.args([
-            "exec",
-            "--skip-git-repo-check",
-            "--sandbox",
-            "read-only",
-            "--ephemeral",
-        ]);
-        for image_path in &image_paths {
-            command.arg("--image").arg(image_path);
+    let mut command = Command::new(&executable);
+    match profile.kind.as_str() {
+        "codex-cli" => {
+            command.args([
+                "exec",
+                "--skip-git-repo-check",
+                "--sandbox",
+                "read-only",
+                "--ephemeral",
+            ]);
+            if profile.model != "default" && !profile.model.trim().is_empty() {
+                command.arg("--model").arg(&profile.model);
+            }
+            for image_path in &image_paths {
+                command.arg("--image").arg(image_path);
+            }
+            command.arg("-");
         }
-        command.arg("-");
-    } else {
-        command.args([
-            "-p",
-            "--output-format",
-            "text",
-            "--max-turns",
-            "1",
-            "--disallowedTools",
-            "Bash,Edit,Write,NotebookEdit",
-        ]);
+        "claude-cli" => {
+            command.args([
+                "-p",
+                "--output-format",
+                "text",
+                "--no-session-persistence",
+                "--tools",
+                "",
+                "--disallowedTools",
+                "mcp__*",
+            ]);
+            if profile.model != "default" && !profile.model.trim().is_empty() {
+                command.arg("--model").arg(&profile.model);
+            }
+            command.arg(&prompt);
+        }
+        "opencode-cli" => {
+            command.args(["run", "--format", "default"]);
+            command.env(
+                "OPENCODE_CONFIG_CONTENT",
+                r#"{"permission":{"*":"deny"},"share":"disabled"}"#,
+            );
+            if profile.model != "default" && !profile.model.trim().is_empty() {
+                command.arg("--model").arg(&profile.model);
+            }
+            for path in collect_attachment_paths(request) {
+                command.arg("--file").arg(path);
+            }
+            command.arg(&prompt);
+        }
+        "grok-cli" => {
+            command.args([
+                "-p",
+                &prompt,
+                "--output-format",
+                "plain",
+                "--tools",
+                "",
+                "--disallowed-tools",
+                "Agent,run_terminal_cmd,grep,read_file,search_replace,list_dir,web_search,web_fetch,todo_write,task",
+                "--max-turns",
+                "1",
+                "--no-memory",
+            ]);
+            if profile.model != "default" && !profile.model.trim().is_empty() {
+                command.arg("--model").arg(&profile.model);
+            }
+        }
+        _ => return Err("未知 CLI 通道。".into()),
     }
     command
         .stdin(Stdio::piped())
@@ -88,28 +150,70 @@ async fn run_cli(
 
     let mut child = command
         .spawn()
-        .map_err(|error| format!("无法启动 {executable}: {error}"))?;
-    if let Some(mut stdin) = child.stdin.take() {
+        .map_err(|error| format!("无法启动 {}: {error}", executable.display()))?;
+    if profile.kind == "codex-cli" {
+        let mut stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| "Codex CLI 输入通道不可用。".to_string())?;
         stdin
             .write_all(prompt.as_bytes())
             .await
-            .map_err(|error| format!("写入 {executable} 输入失败: {error}"))?;
+            .map_err(|error| format!("写入 {} 输入失败: {error}", executable.display()))?;
     }
 
     let output = timeout(std::time::Duration::from_secs(90), child.wait_with_output())
         .await
-        .map_err(|_| format!("{executable} 分析超时，已终止。"))?
-        .map_err(|error| format!("{executable} 运行失败: {error}"))?;
+        .map_err(|_| format!("{} 分析超时，已终止。", executable.display()))?
+        .map_err(|error| format!("{} 运行失败: {error}", executable.display()))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("{executable} 返回错误: {}", truncate(&stderr, 600)));
+        return Err(format!(
+            "{} 返回错误: {}",
+            executable.display(),
+            truncate(&stderr, 600)
+        ));
     }
     let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
     if stdout.is_empty() {
-        return Err(format!("{executable} 没有返回可显示的文字。"));
+        return Err(format!("{} 没有返回可显示的文字。", executable.display()));
     }
     Ok(stdout)
+}
+
+fn collect_attachment_paths(request: &AnalysisRequest) -> Vec<String> {
+    let mut paths = Vec::new();
+    for file in &request.files {
+        if let Some(preparation) = &file.video_preparation {
+            paths.extend(preparation.frames.iter().map(|frame| frame.path.clone()));
+        } else {
+            paths.push(file.path.clone());
+        }
+    }
+    paths
+}
+
+fn language_instruction(settings: &AppSettings) -> String {
+    if settings.detect_customer_language {
+        format!(
+            "Detect the customer's primary language from their text and visible evidence. Reply in that language. When no customer language can be inferred, use the configured fallback language: {}.",
+            settings.response_language
+        )
+    } else {
+        format!(
+            "Reply in the configured language: {}.",
+            settings.response_language
+        )
+    }
+}
+
+fn style_instruction(settings: &AppSettings) -> &'static str {
+    match settings.reply_style.as_str() {
+        "concise" => "Keep the answer concise and action-oriented.",
+        "detailed" => "Give a structured, detailed analysis and clearly mark uncertainty.",
+        _ => "Write a polite, natural, customer-ready answer first, followed by brief analyst notes only when useful.",
+    }
 }
 
 fn collect_image_paths(request: &AnalysisRequest) -> Result<Vec<String>, String> {
@@ -138,6 +242,27 @@ fn collect_image_paths(request: &AnalysisRequest) -> Result<Vec<String>, String>
         }
     }
     Ok(images)
+}
+
+fn validate_evidence_for_profile(
+    profile: &ProviderProfile,
+    request: &AnalysisRequest,
+) -> Result<(), String> {
+    if !request.captures.is_empty() {
+        return Err(
+            "屏幕捕获到 CLI 的图片落盘通道尚未启用；请先使用本地文件或直接视觉 API。".into(),
+        );
+    }
+    if profile.kind == "codex-cli" || profile.kind == "claude-cli" {
+        let _ = collect_image_paths(request)?;
+    } else {
+        for file in &request.files {
+            if file.kind == "video" && file.video_preparation.is_none() {
+                return Err(format!("请先对视频 {} 执行“快速准备视频”。", file.name));
+            }
+        }
+    }
+    Ok(())
 }
 
 fn build_evidence_manifest(request: &AnalysisRequest) -> String {
@@ -222,5 +347,21 @@ mod tests {
         let manifest = build_evidence_manifest(&request);
         assert!(manifest.contains("at 0.00s"));
         assert!(manifest.contains("audio derivative: absent"));
+    }
+
+    #[test]
+    fn automatic_language_policy_prefers_customer_language() {
+        let settings = AppSettings::default();
+        assert!(language_instruction(&settings).contains("customer's primary language"));
+    }
+
+    #[test]
+    fn fixed_language_policy_uses_configured_language() {
+        let settings = AppSettings {
+            detect_customer_language: false,
+            response_language: "ja-JP".into(),
+            ..AppSettings::default()
+        };
+        assert!(language_instruction(&settings).contains("ja-JP"));
     }
 }

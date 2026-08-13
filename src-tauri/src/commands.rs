@@ -1,7 +1,7 @@
 use tauri::State;
 
 use crate::{
-    capture, files,
+    capture, cli, files,
     models::{
         AnalysisRequest, AnalysisResult, AppSettings, BootstrapState, CaptureResponse,
         ProviderProfile, VideoMetadata, VideoPreparation,
@@ -12,25 +12,57 @@ use crate::{
 };
 
 #[tauri::command]
-pub fn bootstrap(state: State<'_, AppState>) -> Result<BootstrapState, String> {
+pub async fn bootstrap(state: State<'_, AppState>) -> Result<BootstrapState, String> {
     let settings = state
         .settings
         .lock()
         .map_err(|_| "设置存储被锁定。".to_string())?
         .clone();
-    let providers = state
+    let configured = state
         .providers
         .lock()
         .map_err(|_| "模型存储被锁定。".to_string())?
-        .values()
-        .cloned()
-        .collect();
+        .clone();
+    let providers = cli::merge_discovered(&configured, cli::discover_profiles().await);
+    {
+        let mut stored = state
+            .providers
+            .lock()
+            .map_err(|_| "模型存储被锁定。".to_string())?;
+        *stored = providers
+            .iter()
+            .cloned()
+            .map(|profile| (profile.id.clone(), profile))
+            .collect();
+    }
     Ok(BootstrapState {
         platform: std::env::consts::OS.into(),
         version: env!("CARGO_PKG_VERSION").into(),
         providers,
         settings,
     })
+}
+
+#[tauri::command]
+pub async fn discover_cli_providers(
+    state: State<'_, AppState>,
+) -> Result<Vec<ProviderProfile>, String> {
+    let configured = state
+        .providers
+        .lock()
+        .map_err(|_| "模型存储被锁定。".to_string())?
+        .clone();
+    let providers = cli::merge_discovered(&configured, cli::discover_profiles().await);
+    let mut stored = state
+        .providers
+        .lock()
+        .map_err(|_| "模型存储被锁定。".to_string())?;
+    *stored = providers
+        .iter()
+        .cloned()
+        .map(|profile| (profile.id.clone(), profile))
+        .collect();
+    Ok(providers)
 }
 
 #[tauri::command]
@@ -48,6 +80,24 @@ pub fn save_settings(
 ) -> Result<AppSettings, String> {
     if settings.shortcut.trim().is_empty() {
         return Err("快捷键不能为空。".into());
+    }
+    if !matches!(settings.language.as_str(), "zh-CN" | "en") {
+        return Err("界面语言不受支持。".into());
+    }
+    if !matches!(
+        settings.response_language.as_str(),
+        "zh-CN" | "en" | "ja-JP" | "ko-KR" | "es-ES" | "fr-FR" | "de-DE"
+    ) {
+        return Err("回复语言不受支持。".into());
+    }
+    if !matches!(
+        settings.reply_style.as_str(),
+        "concise" | "customer-ready" | "detailed"
+    ) {
+        return Err("回答风格不受支持。".into());
+    }
+    if settings.custom_reply_instruction.chars().count() > 1_000 {
+        return Err("自定义回复要求最多 1000 个字符。".into());
     }
     *state
         .settings
@@ -84,22 +134,13 @@ pub fn set_provider_secret(provider_id: String, secret: String) -> Result<bool, 
 #[tauri::command]
 pub fn test_provider(profile: ProviderProfile) -> Result<String, String> {
     if profile.kind.ends_with("cli") {
-        let executable = if profile.kind == "codex-cli" {
-            "codex"
-        } else {
-            "claude"
-        };
-        let probe = if cfg!(windows) { "where" } else { "which" };
-        let exists = std::process::Command::new(probe)
-            .arg(executable)
-            .output()
-            .map(|output| output.status.success())
-            .unwrap_or(false);
-        return if exists {
-            Ok(format!("已找到 {executable} 可执行文件。"))
-        } else {
-            Err(format!("没有在 PATH 中找到 {executable}。"))
-        };
+        let executable = cli::resolve_profile_executable(&profile)?;
+        let version = profile
+            .cli
+            .as_ref()
+            .and_then(|value| value.version.as_deref())
+            .unwrap_or("版本探测超时，但可执行文件存在");
+        return Ok(format!("已找到 {} · {version}", executable.display()));
     }
     Err("直接 API 的无内容连接测试将在凭据保险库完成后启用。".into())
 }
@@ -116,7 +157,12 @@ pub async fn analyze(
         .get(&request.provider_id)
         .cloned()
         .ok_or_else(|| "没有找到所选模型提供商。".to_string())?;
-    providers::analyze(request, profile).await
+    let settings = state
+        .settings
+        .lock()
+        .map_err(|_| "设置存储被锁定。".to_string())?
+        .clone();
+    providers::analyze(request, profile, settings).await
 }
 
 #[tauri::command]

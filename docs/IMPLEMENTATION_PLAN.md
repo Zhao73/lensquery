@@ -11,7 +11,7 @@ The first public release is a Windows-first open-source desktop application that
 5. accept local images, videos, PDFs, and text-oriented files;
 6. preview exactly what will be submitted;
 7. send multimodal requests through OpenAI, Anthropic, or an OpenAI-compatible endpoint;
-8. optionally invoke an installed Codex or Claude Code CLI in non-interactive analysis mode;
+8. automatically discover and optionally invoke Codex, Claude Code, OpenCode, or Grok CLI in non-interactive analysis mode;
 9. show, copy, and continue an answer in a compact result window;
 10. keep secrets in the operating-system credential store and history locally.
 
@@ -31,7 +31,7 @@ flowchart LR
     H --> I["OpenAI Responses"]
     H --> J["Anthropic Messages"]
     H --> K["OpenAI-compatible API"]
-    H --> L["Codex / Claude Code CLI"]
+    H --> L["Codex / Claude / OpenCode / Grok CLI"]
     I --> M["Result overlay and local history"]
     J --> M
     K --> M
@@ -83,7 +83,8 @@ flowchart LR
 - OpenAI Responses adapter using image data URLs and direct file inputs where supported.
 - Anthropic Messages adapter using base64 image/document blocks where supported.
 - OpenAI-compatible adapter with configurable base URL, headers, model ID, and vision capability toggle.
-- CLI adapters: executable discovery, bounded timeout, sanitized environment, non-interactive arguments, stdout/stderr parsing, and no tool permissions by default.
+- CLI adapters: PATH/common-directory discovery, two-second version timeout, bounded analysis timeout, fixed non-shell arguments, stdout/stderr parsing, and no tool permissions by default.
+- Reply-language policy: automatic customer-language matching, explicit fallback language, response style, and bounded custom instructions.
 - Streaming normalized into provider-independent events.
 
 ### M5: Answer workflow

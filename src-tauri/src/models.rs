@@ -2,9 +2,14 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[serde(default)]
 pub struct AppSettings {
     pub shortcut: String,
     pub language: String,
+    pub response_language: String,
+    pub detect_customer_language: bool,
+    pub reply_style: String,
+    pub custom_reply_instruction: String,
     pub save_history: bool,
     pub retain_images: bool,
     pub show_preview: bool,
@@ -16,6 +21,10 @@ impl Default for AppSettings {
         Self {
             shortcut: "CommandOrControl+Shift+Space".into(),
             language: "zh-CN".into(),
+            response_language: "zh-CN".into(),
+            detect_customer_language: true,
+            reply_style: "customer-ready".into(),
+            custom_reply_instruction: String::new(),
             save_history: true,
             retain_images: false,
             show_preview: true,
@@ -35,6 +44,18 @@ pub struct ProviderProfile {
     pub ready: bool,
     pub secret_configured: bool,
     pub capabilities: Option<ProviderCapabilities>,
+    #[serde(default)]
+    pub cli: Option<CliInstallation>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CliInstallation {
+    pub command: String,
+    pub executable_path: Option<String>,
+    pub version: Option<String>,
+    pub status: String,
+    pub auto_detected: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -67,6 +88,7 @@ impl ProviderProfile {
                     audio_transcription: true,
                     streaming: true,
                 }),
+                cli: None,
             },
             Self {
                 id: "anthropic".into(),
@@ -84,32 +106,34 @@ impl ProviderProfile {
                     audio_transcription: false,
                     streaming: true,
                 }),
+                cli: None,
             },
             Self {
                 id: "codex-cli".into(),
                 name: "Codex CLI".into(),
                 kind: "codex-cli".into(),
-                model: "configured CLI model".into(),
+                model: "default".into(),
                 base_url: None,
-                ready: executable_exists("codex"),
-                secret_configured: true,
+                ready: false,
+                secret_configured: false,
                 capabilities: Some(ProviderCapabilities {
-                    vision: false,
+                    vision: true,
                     pdf: false,
                     files: false,
-                    video: false,
+                    video: true,
                     audio_transcription: false,
                     streaming: false,
                 }),
+                cli: Some(CliInstallation::missing("codex")),
             },
             Self {
                 id: "claude-cli".into(),
                 name: "Claude Code".into(),
                 kind: "claude-cli".into(),
-                model: "configured CLI model".into(),
+                model: "default".into(),
                 base_url: None,
-                ready: executable_exists("claude"),
-                secret_configured: true,
+                ready: false,
+                secret_configured: false,
                 capabilities: Some(ProviderCapabilities {
                     vision: false,
                     pdf: false,
@@ -118,18 +142,58 @@ impl ProviderProfile {
                     audio_transcription: false,
                     streaming: false,
                 }),
+                cli: Some(CliInstallation::missing("claude")),
+            },
+            Self {
+                id: "opencode-cli".into(),
+                name: "OpenCode".into(),
+                kind: "opencode-cli".into(),
+                model: "default".into(),
+                base_url: None,
+                ready: false,
+                secret_configured: false,
+                capabilities: Some(ProviderCapabilities {
+                    vision: true,
+                    pdf: true,
+                    files: true,
+                    video: true,
+                    audio_transcription: false,
+                    streaming: false,
+                }),
+                cli: Some(CliInstallation::missing("opencode")),
+            },
+            Self {
+                id: "grok-cli".into(),
+                name: "Grok CLI".into(),
+                kind: "grok-cli".into(),
+                model: "grok-build".into(),
+                base_url: None,
+                ready: false,
+                secret_configured: false,
+                capabilities: Some(ProviderCapabilities {
+                    vision: false,
+                    pdf: false,
+                    files: false,
+                    video: false,
+                    audio_transcription: false,
+                    streaming: false,
+                }),
+                cli: Some(CliInstallation::missing("grok")),
             },
         ]
     }
 }
 
-fn executable_exists(name: &str) -> bool {
-    let command = if cfg!(windows) { "where" } else { "which" };
-    std::process::Command::new(command)
-        .arg(name)
-        .output()
-        .map(|output| output.status.success())
-        .unwrap_or(false)
+impl CliInstallation {
+    pub fn missing(command: &str) -> Self {
+        Self {
+            command: command.into(),
+            executable_path: None,
+            version: None,
+            status: "missing".into(),
+            auto_detected: true,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]

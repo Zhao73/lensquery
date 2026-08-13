@@ -24,7 +24,7 @@ src-tauri/src/
     openai.rs             Responses API
     anthropic.rs          Messages API
     compatible.rs         OpenAI-compatible endpoint
-    cli.rs                Codex and Claude Code adapters
+    cli.rs                CLI discovery for Codex, Claude Code, OpenCode, and Grok
   files/
     mod.rs               classification and limits
     pdf.rs               metadata, text, bounded page rendering
@@ -95,3 +95,9 @@ The first implementation expects `ffmpeg` and `ffprobe` on `PATH`; packaging a v
 - File reads require a picker result, drop event, shell invocation, or user-approved folder scope.
 - CLI processes use an argument array rather than shell interpolation, a clean environment allowlist, a temporary evidence directory, and cancellation/timeout.
 - The application never enables broad Codex or Claude Code tool permissions merely to analyze evidence.
+
+## Local CLI routing
+
+The native core discovers known executable names from `PATH` plus conventional user-local binary directories on Windows, macOS, and Linux. Version probes run concurrently. Discovery, version health, and authentication are separate: finding a path marks the route selectable even when a two-second version probe times out, while authentication is confirmed only by a real request. Resolved paths and versions are display metadata only; execution resolves from the fixed allowlist again so edited profile JSON cannot point the app at an arbitrary binary.
+
+Each adapter uses its documented headless interface: `codex exec`, `claude -p`, `opencode run`, or `grok -p`. Prompt text is passed as a single argument or stdin, never through a shell. The request prompt includes the configured language policy, customer-ready style, and bounded custom instruction.

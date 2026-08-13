@@ -29,7 +29,7 @@ tauri-plugin-store = "2"
 tauri-plugin-clipboard-manager = "2"
 tauri-plugin-fs = "2"
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
-tokio = { version = "1", features = ["io-util", "process", "time"] }
+tokio = { version = "1", features = ["io-util", "macros", "process", "rt", "time"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 keyring = "4.1.6"
 base64 = "0.22"

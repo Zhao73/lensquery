@@ -37,25 +37,51 @@ const demoProviders: ProviderProfile[] = [
     id: 'codex-cli',
     name: 'Codex CLI',
     kind: 'codex-cli',
-    model: 'configured CLI model',
+    model: 'default',
     ready: false,
     secretConfigured: true,
     capabilities: { vision: true, pdf: false, files: false, video: true, audioTranscription: false, streaming: false },
+    cli: { command: 'codex', status: 'missing', autoDetected: true },
   },
   {
     id: 'claude-cli',
     name: 'Claude Code',
     kind: 'claude-cli',
-    model: 'configured CLI model',
+    model: 'default',
     ready: false,
     secretConfigured: true,
     capabilities: { vision: false, pdf: false, files: false, video: false, audioTranscription: false, streaming: false },
+    cli: { command: 'claude', status: 'missing', autoDetected: true },
+  },
+  {
+    id: 'opencode-cli',
+    name: 'OpenCode',
+    kind: 'opencode-cli',
+    model: 'default',
+    ready: false,
+    secretConfigured: false,
+    capabilities: { vision: true, pdf: true, files: true, video: true, audioTranscription: false, streaming: false },
+    cli: { command: 'opencode', status: 'missing', autoDetected: true },
+  },
+  {
+    id: 'grok-cli',
+    name: 'Grok CLI',
+    kind: 'grok-cli',
+    model: 'grok-build',
+    ready: false,
+    secretConfigured: false,
+    capabilities: { vision: false, pdf: false, files: false, video: false, audioTranscription: false, streaming: false },
+    cli: { command: 'grok', status: 'missing', autoDetected: true },
   },
 ]
 
 export const defaultSettings: AppSettings = {
   shortcut: 'CommandOrControl+Shift+Space',
   language: 'zh-CN',
+  responseLanguage: 'zh-CN',
+  detectCustomerLanguage: true,
+  replyStyle: 'customer-ready',
+  customReplyInstruction: '',
   saveHistory: true,
   retainImages: false,
   showPreview: true,
@@ -63,13 +89,58 @@ export const defaultSettings: AppSettings = {
 }
 
 export async function bootstrap(): Promise<BootstrapState> {
-  if (isDesktopRuntime()) return invoke<BootstrapState>('bootstrap')
+  if (isDesktopRuntime()) {
+    const state = await invoke<BootstrapState>('bootstrap')
+    const { load } = await import('@tauri-apps/plugin-store')
+    const store = await load('settings.json', { autoSave: false })
+    const persisted = await store.get<Partial<AppSettings>>('settings')
+    const persistedProviders = await store.get<ProviderProfile[]>('providers')
+    if (persistedProviders?.length) {
+      await Promise.all(persistedProviders.map((profile) => invoke('save_provider', { profile })))
+      state.providers = await invoke<ProviderProfile[]>('discover_cli_providers')
+    }
+    if (persisted) {
+      state.settings = { ...state.settings, ...persisted }
+      await invoke('save_settings', { settings: state.settings })
+    }
+    return state
+  }
+  const persisted = readBrowserSettings()
+  const persistedProviders = readBrowserProviders()
   return {
     platform: navigator.platform || 'browser preview',
     version: '0.1.0-preview',
-    providers: demoProviders,
-    settings: defaultSettings,
+    providers: mergeProviders(demoProviders, persistedProviders),
+    settings: { ...defaultSettings, ...persisted },
   }
+}
+
+function readBrowserSettings(): Partial<AppSettings> {
+  try {
+    return JSON.parse(localStorage.getItem('lensquery.settings') ?? '{}') as Partial<AppSettings>
+  } catch {
+    return {}
+  }
+}
+
+function readBrowserProviders(): ProviderProfile[] {
+  try {
+    return JSON.parse(localStorage.getItem('lensquery.providers') ?? '[]') as ProviderProfile[]
+  } catch {
+    return []
+  }
+}
+
+function mergeProviders(base: ProviderProfile[], configured: ProviderProfile[]) {
+  const profiles = new Map(base.map((profile) => [profile.id, profile]))
+  for (const profile of configured) profiles.set(profile.id, profile)
+  return [...profiles.values()]
+}
+
+export async function discoverCliProviders(): Promise<ProviderProfile[]> {
+  if (isDesktopRuntime()) return invoke<ProviderProfile[]>('discover_cli_providers')
+  await new Promise((resolve) => window.setTimeout(resolve, 450))
+  return demoProviders
 }
 
 export async function startCapture(mode: CaptureMode): Promise<CaptureResponse> {
@@ -98,13 +169,29 @@ export async function analyze(request: AnalysisRequest): Promise<AnalysisResult>
 }
 
 export async function saveSettings(settings: AppSettings): Promise<AppSettings> {
-  if (isDesktopRuntime()) return invoke<AppSettings>('save_settings', { settings })
+  if (isDesktopRuntime()) {
+    const saved = await invoke<AppSettings>('save_settings', { settings })
+    const { load } = await import('@tauri-apps/plugin-store')
+    const store = await load('settings.json', { autoSave: false })
+    await store.set('settings', saved)
+    await store.save()
+    return saved
+  }
   localStorage.setItem('lensquery.settings', JSON.stringify(settings))
   return settings
 }
 
 export async function saveProvider(profile: ProviderProfile): Promise<ProviderProfile> {
-  if (isDesktopRuntime()) return invoke<ProviderProfile>('save_provider', { profile })
+  if (isDesktopRuntime()) {
+    const saved = await invoke<ProviderProfile>('save_provider', { profile })
+    const { load } = await import('@tauri-apps/plugin-store')
+    const store = await load('settings.json', { autoSave: false })
+    const providers = mergeProviders(await store.get<ProviderProfile[]>('providers') ?? [], [saved])
+    await store.set('providers', providers)
+    await store.save()
+    return saved
+  }
+  localStorage.setItem('lensquery.providers', JSON.stringify(mergeProviders(readBrowserProviders(), [profile])))
   return profile
 }
 

@@ -20,6 +20,7 @@ interface AppStore {
   history: AnalysisResult[]
   setView: (view: View) => void
   hydrate: (state: BootstrapState) => void
+  setProviders: (providers: ProviderProfile[]) => void
   setSettings: (settings: AppSettings) => void
   upsertProvider: (profile: ProviderProfile) => void
   addFiles: (files: FileEvidence[]) => void
@@ -42,6 +43,7 @@ export const useAppStore = create<AppStore>((set) => ({
   setView: (view) => set({ view }),
   hydrate: (state) =>
     set({ ready: true, providers: state.providers, settings: state.settings }),
+  setProviders: (providers) => set({ providers }),
   setSettings: (settings) => set({ settings }),
   upsertProvider: (profile) =>
     set((state) => ({

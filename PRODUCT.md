@@ -37,7 +37,8 @@ The product treats the desktop itself as the input surface. One capture action p
 
 - Windows 10/11 is the first supported release target.
 - Direct providers: OpenAI Responses API, Anthropic Messages API, and OpenAI-compatible endpoints.
-- Local-agent adapters: Codex CLI and Claude Code print mode, with explicit executable detection and no implicit command-execution permission.
+- Local-agent adapters: Codex CLI, Claude Code, OpenCode, and Grok headless modes, with explicit executable detection, bounded probes, and no implicit command-execution permission.
+- Customer-response language can follow the detected language in the customer's text/evidence or use a configured fallback; reply style and custom guidance remain user-controlled.
 - API secrets must use the operating-system credential vault; configuration files store only non-secret metadata.
 - Screen and file content stays local until the user confirms a request. History is local and can be disabled or cleared.
 - Browser-page understanding in the first release combines the selected screenshot, window title/process, and accessible text when available. A companion browser extension for DOM and URL capture is a later milestone.
