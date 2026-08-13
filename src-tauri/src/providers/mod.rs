@@ -45,8 +45,14 @@ async fn run_cli(
         );
     }
 
+    let evidence_manifest = build_evidence_manifest(request);
+    let video_instruction = if request.prompt_id == "video" {
+        "For video evidence, reconstruct the sequence in timestamp order. Return: concise summary, key moments with timestamps, visible text or objects, audio limitations, and a customer-ready answer when relevant. Never claim continuous motion that the sampled frames do not prove."
+    } else {
+        "Use only the supplied evidence and distinguish direct observation from inference."
+    };
     let prompt = format!(
-        "You are LensQuery's read-only analyst. Do not execute commands or modify files. Answer the user's question concisely and distinguish observation from inference.\n\nPreset: {}\nQuestion: {}",
+        "You are LensQuery's read-only analyst. Do not execute commands or modify files. {video_instruction}\n\nPreset: {}\nQuestion: {}\n\nEvidence manifest:\n{evidence_manifest}",
         request.prompt_id, request.question
     );
 
@@ -134,6 +140,40 @@ fn collect_image_paths(request: &AnalysisRequest) -> Result<Vec<String>, String>
     Ok(images)
 }
 
+fn build_evidence_manifest(request: &AnalysisRequest) -> String {
+    let mut lines = Vec::new();
+    for file in &request.files {
+        if let Some(preparation) = &file.video_preparation {
+            lines.push(format!(
+                "Video: {} | duration {:.2}s | sampled every {:.2}s | audio derivative: {}",
+                file.name,
+                preparation.original_duration_seconds,
+                preparation.sample_interval_seconds,
+                if preparation.audio_path.is_some() {
+                    "present but not transcribed by this CLI route"
+                } else {
+                    "absent"
+                }
+            ));
+            for (index, frame) in preparation.frames.iter().enumerate() {
+                lines.push(format!(
+                    "  Attached image {} = frame {} at {:.2}s",
+                    index + 1,
+                    frame.path,
+                    frame.timestamp_seconds
+                ));
+            }
+        } else {
+            lines.push(format!("File: {} | type {}", file.name, file.media_type));
+        }
+    }
+    if lines.is_empty() {
+        "No file evidence; answer from the user's text only.".into()
+    } else {
+        lines.join("\n")
+    }
+}
+
 fn truncate(value: &str, max_chars: usize) -> String {
     value.chars().take(max_chars).collect()
 }
@@ -179,5 +219,8 @@ mod tests {
             collect_image_paths(&request).expect("prepared video"),
             vec!["/tmp/frames/frame-001.jpg"]
         );
+        let manifest = build_evidence_manifest(&request);
+        assert!(manifest.contains("at 0.00s"));
+        assert!(manifest.contains("audio derivative: absent"));
     }
 }

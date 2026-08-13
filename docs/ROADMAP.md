@@ -31,7 +31,8 @@
 - [ ] Image, PDF, and text file ingestion
 - [x] Video classification and provider-independent evidence contract
 - [x] Local FFprobe metadata and bounded FFmpeg keyframe/audio preparation
-- [ ] Timestamped keyframe gallery and audio-transcription transport
+- [x] Timestamped keyframe gallery
+- [ ] Audio-transcription transport
 - [ ] Customer-answer prompt template
 - [ ] Result overlay and follow-up
 - [ ] Local history and retention controls
