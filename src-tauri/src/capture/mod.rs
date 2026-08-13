@@ -1,12 +1,12 @@
 use crate::models::CaptureResponse;
 
+#[cfg(target_os = "windows")]
 pub fn start(mode: &str) -> CaptureResponse {
-    #[cfg(target_os = "windows")]
-    {
-        return windows::start(mode);
-    }
+    windows::start(mode)
+}
 
-    #[cfg(not(target_os = "windows"))]
+#[cfg(not(target_os = "windows"))]
+pub fn start(mode: &str) -> CaptureResponse {
     CaptureResponse {
         status: "unavailable".into(),
         message: format!(
