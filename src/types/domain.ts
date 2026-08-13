@@ -41,6 +41,12 @@ export interface ProviderProfile {
   baseUrl?: string
   ready: boolean
   secretConfigured: boolean
+  capabilities?: {
+    vision: boolean
+    pdf: boolean
+    files: boolean
+    streaming: boolean
+  }
 }
 
 export interface AnalysisRequest {
@@ -81,4 +87,3 @@ export interface CaptureResponse {
   message: string
   evidence?: CaptureEvidence
 }
-

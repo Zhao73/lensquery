@@ -58,12 +58,15 @@ function App() {
     providers,
     settings,
     files,
+    captures,
     history,
     setView,
     hydrate,
     setSettings,
     upsertProvider,
     addFiles,
+    addCapture,
+    removeCapture,
     removeFile,
     clearEvidence,
     addResult,
@@ -91,6 +94,7 @@ function App() {
     try {
       const response = await startCapture(mode)
       setCaptureMessage(response.message)
+      if (response.evidence) addCapture(response.evidence)
     } catch (cause) {
       setError(String(cause))
       setCaptureMessage('')
@@ -111,7 +115,7 @@ function App() {
         question: question.trim() || prompts.find(({ id }) => id === promptId)?.label || '这是什么？',
         promptId,
         providerId: selectedProvider.id,
-        captures: [],
+        captures,
         files,
       })
       setResult(next)
@@ -174,6 +178,7 @@ function App() {
         {view === 'home' && (
           <HomeView
             files={files}
+            captures={captures}
             question={question}
             promptId={promptId}
             provider={selectedProvider}
@@ -186,6 +191,7 @@ function App() {
             onCapture={handleCapture}
             onAddFiles={(next) => addFiles(normalizeBrowserFiles(next))}
             onRemoveFile={removeFile}
+            onRemoveCapture={removeCapture}
             onClear={clearEvidence}
             onSubmit={handleSubmit}
             onOpenFiles={() => fileInputRef.current?.click()}
@@ -244,6 +250,7 @@ function LoadingScreen() {
 
 interface HomeViewProps {
   files: ReturnType<typeof normalizeBrowserFiles>
+  captures: import('./types/domain').CaptureEvidence[]
   question: string
   promptId: string
   provider?: ProviderProfile
@@ -256,6 +263,7 @@ interface HomeViewProps {
   onCapture: (mode: CaptureMode) => void
   onAddFiles: (files: FileList | File[]) => void
   onRemoveFile: (id: string) => void
+  onRemoveCapture: (id: string) => void
   onClear: () => void
   onSubmit: () => void
   onOpenFiles: () => void
@@ -264,7 +272,7 @@ interface HomeViewProps {
 
 function HomeView(props: HomeViewProps) {
   const [dragging, setDragging] = useState(false)
-  const hasEvidence = props.files.length > 0
+  const hasEvidence = props.files.length > 0 || props.captures.length > 0
 
   return (
     <div className="home-layout">
@@ -313,6 +321,7 @@ function HomeView(props: HomeViewProps) {
         </div>
         {hasEvidence ? (
           <div className="file-list">
+            {props.captures.map((capture) => <CaptureRow key={capture.id} capture={capture} onRemove={() => props.onRemoveCapture(capture.id)} />)}
             {props.files.map((file) => <FileRow key={file.id} file={file} onRemove={() => props.onRemoveFile(file.id)} />)}
             <button type="button" className="add-more" onClick={props.onOpenFiles}><Plus size={17} />继续添加</button>
           </div>
@@ -333,7 +342,7 @@ function HomeView(props: HomeViewProps) {
       <section className="command-window" aria-label="提问面板">
         <div className="window-caption">
           <span>MESSAGE.LOG</span>
-          <span>{props.files.length} ATTACHMENTS</span>
+          <span>{props.files.length + props.captures.length} ATTACHMENTS</span>
         </div>
         <div className="prompt-tabs" role="tablist" aria-label="提问模板">
           {prompts.map((prompt) => (
@@ -364,9 +373,9 @@ function HomeView(props: HomeViewProps) {
               {props.provider?.name ?? '选择模型'}
               <span className="provider-model">{props.provider?.model ?? '未配置'}</span>
             </button>
-            <button type="button" className="send-button" disabled={props.busy} onClick={props.onSubmit}>
+            <button type="button" className="send-button" disabled={props.busy} onClick={props.provider?.ready ? props.onSubmit : props.onOpenProviders}>
               {props.busy ? <ArrowClockwise className="spin" size={20} /> : <PaperPlaneTilt size={20} weight="fill" />}
-              {props.busy ? '分析中' : '开始分析'}
+              {props.busy ? '分析中' : props.provider?.ready ? '开始分析' : '先配置模型'}
             </button>
           </div>
         </div>
@@ -380,14 +389,28 @@ function HomeView(props: HomeViewProps) {
           <div><strong>{props.provider?.name ?? '尚未选择'}</strong><small>{props.provider?.model ?? '打开设置完成配置'}</small></div>
         </div>
         <div className="provider-facts">
-          <p><span>视觉输入</span><b><Check size={14} />支持</b></p>
-          <p><span>PDF</span><b><Check size={14} />自动路由</b></p>
-          <p><span>密钥</span><b><Key size={14} />系统保险库</b></p>
+          <p><span>视觉输入</span><b className={props.provider?.capabilities?.vision ? '' : 'muted'}>{props.provider?.capabilities?.vision ? <Check size={14} /> : <X size={14} />}{props.provider?.ready ? props.provider.capabilities?.vision ? '支持' : '不可用' : '未配置'}</b></p>
+          <p><span>PDF</span><b className={props.provider?.capabilities?.pdf ? '' : 'muted'}>{props.provider?.capabilities?.pdf ? <Check size={14} /> : <X size={14} />}{props.provider?.ready ? props.provider.capabilities?.pdf ? '支持' : '不可用' : '未配置'}</b></p>
+          <p><span>密钥</span><b className={props.provider?.secretConfigured ? '' : 'muted'}><Key size={14} />{props.provider?.secretConfigured ? '系统保险库' : '未配置'}</b></p>
         </div>
         <button type="button" className="configure-link" onClick={props.onOpenProviders}>配置模型与 API <CaretRight size={15} /></button>
       </aside>
 
       {props.result && <ResultPanel result={props.result} />}
+    </div>
+  )
+}
+
+function CaptureRow({ capture, onRemove }: { capture: import('./types/domain').CaptureEvidence; onRemove: () => void }) {
+  return (
+    <div className="capture-row">
+      <img src={capture.previewUrl} alt="捕获区域预览" />
+      <div>
+        <strong>{capture.windowTitle || (capture.kind === 'region' ? '屏幕区域' : '界面元素')}</strong>
+        <small>{Math.round(capture.bounds.width)} × {Math.round(capture.bounds.height)} · {capture.processName || '桌面'}</small>
+        {capture.accessibleText && <small className="capture-text">{capture.accessibleText}</small>}
+      </div>
+      <button type="button" onClick={onRemove} aria-label="移除捕获内容"><X size={16} /></button>
     </div>
   )
 }
@@ -481,7 +504,7 @@ function ProvidersView({ providers, selectedId, onSelect, onSave }: ProvidersVie
             </div>
           </article>
         ))}
-        <button type="button" className="new-provider" onClick={() => setEditing({ id: crypto.randomUUID(), name: '兼容 API', kind: 'compatible', model: '', baseUrl: 'https://api.example.com/v1', ready: false, secretConfigured: false })}>
+        <button type="button" className="new-provider" onClick={() => setEditing({ id: crypto.randomUUID(), name: '兼容 API', kind: 'compatible', model: '', baseUrl: 'https://api.example.com/v1', ready: false, secretConfigured: false, capabilities: { vision: true, pdf: false, files: false, streaming: true } })}>
           <Plus size={24} />添加兼容端点
         </button>
       </div>

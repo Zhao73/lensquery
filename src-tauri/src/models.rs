@@ -34,6 +34,16 @@ pub struct ProviderProfile {
     pub base_url: Option<String>,
     pub ready: bool,
     pub secret_configured: bool,
+    pub capabilities: Option<ProviderCapabilities>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderCapabilities {
+    pub vision: bool,
+    pub pdf: bool,
+    pub files: bool,
+    pub streaming: bool,
 }
 
 impl ProviderProfile {
@@ -47,6 +57,12 @@ impl ProviderProfile {
                 base_url: Some("https://api.openai.com/v1".into()),
                 ready: false,
                 secret_configured: false,
+                capabilities: Some(ProviderCapabilities {
+                    vision: true,
+                    pdf: true,
+                    files: true,
+                    streaming: true,
+                }),
             },
             Self {
                 id: "anthropic".into(),
@@ -56,6 +72,12 @@ impl ProviderProfile {
                 base_url: Some("https://api.anthropic.com".into()),
                 ready: false,
                 secret_configured: false,
+                capabilities: Some(ProviderCapabilities {
+                    vision: true,
+                    pdf: true,
+                    files: true,
+                    streaming: true,
+                }),
             },
             Self {
                 id: "codex-cli".into(),
@@ -65,6 +87,12 @@ impl ProviderProfile {
                 base_url: None,
                 ready: executable_exists("codex"),
                 secret_configured: true,
+                capabilities: Some(ProviderCapabilities {
+                    vision: false,
+                    pdf: false,
+                    files: false,
+                    streaming: false,
+                }),
             },
             Self {
                 id: "claude-cli".into(),
@@ -74,6 +102,12 @@ impl ProviderProfile {
                 base_url: None,
                 ready: executable_exists("claude"),
                 secret_configured: true,
+                capabilities: Some(ProviderCapabilities {
+                    vision: false,
+                    pdf: false,
+                    files: false,
+                    streaming: false,
+                }),
             },
         ]
     }

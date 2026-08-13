@@ -19,6 +19,7 @@ const demoProviders: ProviderProfile[] = [
     model: 'gpt-5',
     ready: false,
     secretConfigured: false,
+    capabilities: { vision: true, pdf: true, files: true, streaming: true },
   },
   {
     id: 'anthropic',
@@ -27,6 +28,7 @@ const demoProviders: ProviderProfile[] = [
     model: 'claude-sonnet-4-5',
     ready: false,
     secretConfigured: false,
+    capabilities: { vision: true, pdf: true, files: true, streaming: true },
   },
   {
     id: 'codex-cli',
@@ -35,6 +37,7 @@ const demoProviders: ProviderProfile[] = [
     model: 'configured CLI model',
     ready: false,
     secretConfigured: true,
+    capabilities: { vision: false, pdf: false, files: false, streaming: false },
   },
   {
     id: 'claude-cli',
@@ -43,6 +46,7 @@ const demoProviders: ProviderProfile[] = [
     model: 'configured CLI model',
     ready: false,
     secretConfigured: true,
+    capabilities: { vision: false, pdf: false, files: false, streaming: false },
   },
 ]
 
@@ -113,4 +117,3 @@ export async function testProvider(profile: ProviderProfile): Promise<string> {
     ? '桌面构建会检查可执行文件路径。'
     : '浏览器预览不会发送连接测试。'
 }
-
