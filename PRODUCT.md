@@ -29,7 +29,7 @@ The product treats the desktop itself as the input surface. One capture action p
 
 - Lives in the Windows system tray and starts capture from a configurable global shortcut.
 - Supports click-to-inspect and drag-to-capture interactions over the current desktop.
-- Accepts screenshots, images, PDFs, and other local files via picker, drag-and-drop, or shell integration.
+- Accepts screenshots, images, videos, PDFs, and other local files via picker, drag-and-drop, or shell integration.
 - Shows the outbound context before submission and returns a compact answer overlay with copy and follow-up actions.
 - Routes requests to direct model APIs or installed local agent CLIs when available.
 
@@ -43,6 +43,7 @@ The product treats the desktop itself as the input surface. One capture action p
 - Browser-page understanding in the first release combines the selected screenshot, window title/process, and accessible text when available. A companion browser extension for DOM and URL capture is a later milestone.
 - Desktop element identification uses Windows UI Automation when available and pixel-region fallback otherwise.
 - PDF analysis uses native model file input when supported and local text/page-image extraction otherwise.
+- Video analysis is provider-independent: LensQuery locally probes the file, samples bounded time-coded frames, extracts a compact mono audio track when present, optionally transcribes it, and sends only previewed derivative evidence rather than assuming a model accepts raw video.
 - No invented live model availability: users enter model IDs and endpoints, with tested presets supplied as editable defaults.
 
 ## Brand Commitments

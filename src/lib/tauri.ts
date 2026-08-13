@@ -7,9 +7,12 @@ import type {
   CaptureMode,
   CaptureResponse,
   ProviderProfile,
+  FileEvidence,
+  VideoMetadata,
+  VideoPreparation,
 } from '../types/domain'
 
-const isTauri = () => '__TAURI_INTERNALS__' in window
+export const isDesktopRuntime = () => '__TAURI_INTERNALS__' in window
 
 const demoProviders: ProviderProfile[] = [
   {
@@ -19,7 +22,7 @@ const demoProviders: ProviderProfile[] = [
     model: 'gpt-5',
     ready: false,
     secretConfigured: false,
-    capabilities: { vision: true, pdf: true, files: true, streaming: true },
+    capabilities: { vision: true, pdf: true, files: true, video: true, audioTranscription: true, streaming: true },
   },
   {
     id: 'anthropic',
@@ -28,7 +31,7 @@ const demoProviders: ProviderProfile[] = [
     model: 'claude-sonnet-4-5',
     ready: false,
     secretConfigured: false,
-    capabilities: { vision: true, pdf: true, files: true, streaming: true },
+    capabilities: { vision: true, pdf: true, files: true, video: true, audioTranscription: false, streaming: true },
   },
   {
     id: 'codex-cli',
@@ -37,7 +40,7 @@ const demoProviders: ProviderProfile[] = [
     model: 'configured CLI model',
     ready: false,
     secretConfigured: true,
-    capabilities: { vision: false, pdf: false, files: false, streaming: false },
+    capabilities: { vision: true, pdf: false, files: false, video: true, audioTranscription: false, streaming: false },
   },
   {
     id: 'claude-cli',
@@ -46,7 +49,7 @@ const demoProviders: ProviderProfile[] = [
     model: 'configured CLI model',
     ready: false,
     secretConfigured: true,
-    capabilities: { vision: false, pdf: false, files: false, streaming: false },
+    capabilities: { vision: false, pdf: false, files: false, video: false, audioTranscription: false, streaming: false },
   },
 ]
 
@@ -60,7 +63,7 @@ export const defaultSettings: AppSettings = {
 }
 
 export async function bootstrap(): Promise<BootstrapState> {
-  if (isTauri()) return invoke<BootstrapState>('bootstrap')
+  if (isDesktopRuntime()) return invoke<BootstrapState>('bootstrap')
   return {
     platform: navigator.platform || 'browser preview',
     version: '0.1.0-preview',
@@ -70,7 +73,7 @@ export async function bootstrap(): Promise<BootstrapState> {
 }
 
 export async function startCapture(mode: CaptureMode): Promise<CaptureResponse> {
-  if (isTauri()) return invoke<CaptureResponse>('start_capture', { mode })
+  if (isDesktopRuntime()) return invoke<CaptureResponse>('start_capture', { mode })
   return {
     status: 'mocked',
     message:
@@ -81,7 +84,7 @@ export async function startCapture(mode: CaptureMode): Promise<CaptureResponse> 
 }
 
 export async function analyze(request: AnalysisRequest): Promise<AnalysisResult> {
-  if (isTauri()) return invoke<AnalysisResult>('analyze', { request })
+  if (isDesktopRuntime()) return invoke<AnalysisResult>('analyze', { request })
   await new Promise((resolve) => window.setTimeout(resolve, 900))
   const source = request.files[0]?.name ?? request.captures[0]?.windowTitle ?? '当前选择'
   return {
@@ -95,25 +98,71 @@ export async function analyze(request: AnalysisRequest): Promise<AnalysisResult>
 }
 
 export async function saveSettings(settings: AppSettings): Promise<AppSettings> {
-  if (isTauri()) return invoke<AppSettings>('save_settings', { settings })
+  if (isDesktopRuntime()) return invoke<AppSettings>('save_settings', { settings })
   localStorage.setItem('lensquery.settings', JSON.stringify(settings))
   return settings
 }
 
 export async function saveProvider(profile: ProviderProfile): Promise<ProviderProfile> {
-  if (isTauri()) return invoke<ProviderProfile>('save_provider', { profile })
+  if (isDesktopRuntime()) return invoke<ProviderProfile>('save_provider', { profile })
   return profile
 }
 
 export async function setProviderSecret(providerId: string, secret: string): Promise<boolean> {
-  if (isTauri()) return invoke<boolean>('set_provider_secret', { providerId, secret })
+  if (isDesktopRuntime()) return invoke<boolean>('set_provider_secret', { providerId, secret })
   return secret.trim().length > 0
 }
 
 export async function testProvider(profile: ProviderProfile): Promise<string> {
-  if (isTauri()) return invoke<string>('test_provider', { profile })
+  if (isDesktopRuntime()) return invoke<string>('test_provider', { profile })
   await new Promise((resolve) => window.setTimeout(resolve, 500))
   return profile.kind.endsWith('cli')
     ? '桌面构建会检查可执行文件路径。'
     : '浏览器预览不会发送连接测试。'
+}
+
+export async function probeVideo(path: string): Promise<VideoMetadata> {
+  if (isDesktopRuntime()) return invoke<VideoMetadata>('probe_video', { path })
+  throw new Error('浏览器预览不能读取视频路径；桌面版将使用本地 FFprobe 检测。')
+}
+
+export async function prepareVideo(
+  path: string,
+  maxFrames = 12,
+): Promise<VideoPreparation> {
+  if (isDesktopRuntime()) return invoke<VideoPreparation>('prepare_video', { path, maxFrames })
+  throw new Error('浏览器预览不会处理视频；桌面版将在本地抽取关键帧与音轨。')
+}
+
+export async function inspectEvidencePaths(paths: string[]): Promise<FileEvidence[]> {
+  if (!isDesktopRuntime()) return []
+  return invoke<FileEvidence[]>('inspect_files', { paths })
+}
+
+export async function pickEvidenceFiles(): Promise<FileEvidence[] | null> {
+  if (!isDesktopRuntime()) return null
+  const { open } = await import('@tauri-apps/plugin-dialog')
+  const selected = await open({
+    multiple: true,
+    directory: false,
+    filters: [
+      { name: '支持的证据', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'mp4', 'mov', 'm4v', 'webm', 'mkv', 'avi', 'wmv', 'mpeg', 'mpg', 'pdf', 'txt', 'md', 'json', 'csv', 'log', 'xml', 'html', 'css', 'js', 'ts', 'tsx'] },
+      { name: '视频', extensions: ['mp4', 'mov', 'm4v', 'webm', 'mkv', 'avi', 'wmv', 'mpeg', 'mpg'] },
+      { name: '所有文件', extensions: ['*'] },
+    ],
+  })
+  if (!selected) return []
+  return inspectEvidencePaths(Array.isArray(selected) ? selected : [selected])
+}
+
+export async function listenForEvidenceDrops(
+  onFiles: (files: FileEvidence[]) => void,
+): Promise<() => void> {
+  if (!isDesktopRuntime()) return () => undefined
+  const { getCurrentWebview } = await import('@tauri-apps/api/webview')
+  return getCurrentWebview().onDragDropEvent(async ({ payload }) => {
+    if (payload.type !== 'drop') return
+    const files = await inspectEvidencePaths(payload.paths)
+    onFiles(files)
+  })
 }

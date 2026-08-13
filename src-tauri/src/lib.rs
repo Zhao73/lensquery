@@ -1,13 +1,15 @@
 mod capture;
 mod commands;
+mod files;
 mod models;
 mod providers;
 mod secrets;
 mod state;
+mod video;
 
 use commands::{
-    analyze, bootstrap, save_provider, save_settings, set_provider_secret, start_capture,
-    test_provider,
+    analyze, bootstrap, inspect_files, prepare_video, probe_video, save_provider, save_settings,
+    set_provider_secret, start_capture, test_provider,
 };
 use state::AppState;
 
@@ -28,6 +30,9 @@ pub fn run() {
             save_provider,
             set_provider_secret,
             test_provider,
+            probe_video,
+            prepare_video,
+            inspect_files,
             analyze
         ])
         .setup(|app| {

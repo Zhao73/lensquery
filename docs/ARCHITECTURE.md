@@ -28,6 +28,7 @@ src-tauri/src/
   files/
     mod.rs               classification and limits
     pdf.rs               metadata, text, bounded page rendering
+  video.rs               FFprobe metadata, bounded frame sampling, compact audio extraction
   secrets.rs             OS credential vault abstraction
   storage.rs             settings and optional local history
 ```
@@ -75,6 +76,17 @@ src/
 
 The extension is additive. Screen capture continues to work without it.
 
+## Video analysis pipeline
+
+1. Validate the user-selected path and inspect it locally with `ffprobe`.
+2. Compute a bounded uniform sampling interval from duration, defaulting to 12 frames and enforcing a hard maximum of 24.
+3. Use `ffmpeg` to produce downscaled JPEG frames carrying explicit timestamps.
+4. If audio exists, extract a compact 16 kHz mono track. Transcription is optional and routed only to a provider that declares audio-transcription support.
+5. The outbound preview lists every frame timestamp, the audio derivative, metadata, and endpoint before submission.
+6. Vision providers receive ordered images plus timestamp labels and transcript text. This avoids claiming raw-video support where the provider documents only image input.
+
+The first implementation expects `ffmpeg` and `ffprobe` on `PATH`; packaging a verified sidecar is a release-hardening task.
+
 ## Security model
 
 - Tauri capabilities allow only commands required by named windows.
@@ -83,4 +95,3 @@ The extension is additive. Screen capture continues to work without it.
 - File reads require a picker result, drop event, shell invocation, or user-approved folder scope.
 - CLI processes use an argument array rather than shell interpolation, a clean environment allowlist, a temporary evidence directory, and cancellation/timeout.
 - The application never enables broad Codex or Claude Code tool permissions merely to analyze evidence.
-

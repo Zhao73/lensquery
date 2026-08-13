@@ -411,6 +411,17 @@ kbd {
 .file-row small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .file-row strong { color: var(--paper); font-size: 12px; }
 .file-row small { margin-top: 3px; color: var(--muted); font-family: "Cascadia Mono", monospace; font-size: 9px; }
+.file-row .prepare-video { display: inline-flex; width: auto; height: 25px; align-items: center; margin-top: 6px; padding: 0 7px; border-color: var(--cyan); color: var(--cyan); background: var(--ink); font-size: 10px; white-space: nowrap; }
+.file-row .prepare-video:hover { color: var(--space); background: var(--cyan); }
+.file-row .prepare-video:disabled { color: var(--muted); background: var(--indigo); cursor: wait; }
+.file-row .file-error { color: var(--coral); white-space: normal; }
+.video-preparation { margin-top: 7px; }
+.video-preparation > span { display: block; color: var(--cyan); font-size: 10px; }
+.video-frame-strip { display: flex; max-width: 100%; gap: 5px; margin-top: 6px; overflow-x: auto; padding-bottom: 4px; }
+.video-frame-strip figure { position: relative; width: 68px; height: 48px; flex: 0 0 auto; margin: 0; border: 1px solid var(--line); background: var(--ink); }
+.video-frame-strip img { width: 100%; height: 100%; object-fit: cover; }
+.video-frame-strip figure > svg { display: block; margin: 9px auto; color: var(--sky); }
+.video-frame-strip figcaption { position: absolute; right: 2px; bottom: 2px; padding: 1px 3px; color: var(--paper); background: rgb(7 13 43 / 0.9); font-family: "Cascadia Mono", monospace; font-size: 8px; }
 .add-more { display: flex; width: 100%; min-height: 36px; align-items: center; justify-content: center; gap: 6px; margin-top: 7px; border: 1px solid var(--line); color: var(--paper); background: var(--indigo); }
 
 .context-lines { padding: 2px 12px 10px; }

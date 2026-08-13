@@ -43,6 +43,8 @@ pub struct ProviderCapabilities {
     pub vision: bool,
     pub pdf: bool,
     pub files: bool,
+    pub video: bool,
+    pub audio_transcription: bool,
     pub streaming: bool,
 }
 
@@ -61,6 +63,8 @@ impl ProviderProfile {
                     vision: true,
                     pdf: true,
                     files: true,
+                    video: true,
+                    audio_transcription: true,
                     streaming: true,
                 }),
             },
@@ -76,6 +80,8 @@ impl ProviderProfile {
                     vision: true,
                     pdf: true,
                     files: true,
+                    video: true,
+                    audio_transcription: false,
                     streaming: true,
                 }),
             },
@@ -91,6 +97,8 @@ impl ProviderProfile {
                     vision: false,
                     pdf: false,
                     files: false,
+                    video: false,
+                    audio_transcription: false,
                     streaming: false,
                 }),
             },
@@ -106,6 +114,8 @@ impl ProviderProfile {
                     vision: false,
                     pdf: false,
                     files: false,
+                    video: false,
+                    audio_transcription: false,
                     streaming: false,
                 }),
             },
@@ -161,6 +171,43 @@ pub struct FileEvidence {
     pub media_type: String,
     pub size: u64,
     pub kind: String,
+    pub video: Option<VideoMetadata>,
+    pub video_preparation: Option<VideoPreparation>,
+    pub processing_error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VideoMetadata {
+    pub duration_seconds: f64,
+    pub width: Option<u32>,
+    pub height: Option<u32>,
+    pub frame_rate: Option<f64>,
+    pub video_codec: Option<String>,
+    pub audio_codec: Option<String>,
+    pub has_audio: bool,
+    pub rotation: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VideoFrame {
+    pub path: String,
+    pub preview_url: Option<String>,
+    pub timestamp_seconds: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VideoPreparation {
+    pub id: String,
+    pub source_path: String,
+    pub output_directory: String,
+    pub frames: Vec<VideoFrame>,
+    pub audio_path: Option<String>,
+    pub sample_interval_seconds: f64,
+    pub original_duration_seconds: f64,
+    pub strategy: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

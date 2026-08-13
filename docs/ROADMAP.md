@@ -29,6 +29,9 @@
 ## 0.4 Documents and workflow
 
 - [ ] Image, PDF, and text file ingestion
+- [x] Video classification and provider-independent evidence contract
+- [x] Local FFprobe metadata and bounded FFmpeg keyframe/audio preparation
+- [ ] Timestamped keyframe gallery and audio-transcription transport
 - [ ] Customer-answer prompt template
 - [ ] Result overlay and follow-up
 - [ ] Local history and retention controls
@@ -47,4 +50,5 @@
 - Browser companion extension
 - macOS native capture and accessibility backend
 - Offline OCR and local-model adapters
+- Scene-change-aware video sampling and bundled verified FFmpeg sidecar
 - Organization-managed policies

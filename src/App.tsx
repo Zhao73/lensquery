@@ -11,6 +11,7 @@ import {
   FileImage,
   FilePdf,
   Gear,
+  FilmStrip,
   Key,
   Monitor,
   PaperPlaneTilt,
@@ -24,7 +25,7 @@ import {
 } from '@phosphor-icons/react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
-import { formatBytes, normalizeBrowserFiles } from './lib/files'
+import { evidenceAccept, formatBytes, formatDuration, normalizeBrowserFiles } from './lib/files'
 import {
   analyze,
   bootstrap,
@@ -33,6 +34,11 @@ import {
   setProviderSecret,
   startCapture,
   testProvider,
+  prepareVideo,
+  isDesktopRuntime,
+  listenForEvidenceDrops,
+  pickEvidenceFiles,
+  probeVideo,
 } from './lib/tauri'
 import { useAppStore, type View } from './store/app'
 import type { AnalysisResult, AppSettings, CaptureMode, ProviderProfile } from './types/domain'
@@ -42,6 +48,7 @@ const prompts = [
   { id: 'customer', label: '客户回答', hint: '生成可直接使用的答复' },
   { id: 'troubleshoot', label: '排查问题', hint: '定位报错与下一步' },
   { id: 'summarize', label: '总结文件', hint: '提取重点、决定和缺口' },
+  { id: 'video', label: '分析视频', hint: '关键内容、时间点与客户答复' },
 ]
 
 const nav: Array<{ id: View; label: string; icon: typeof Aperture }> = [
@@ -68,6 +75,7 @@ function App() {
     addCapture,
     removeCapture,
     removeFile,
+    updateFile,
     clearEvidence,
     addResult,
   } = useAppStore()
@@ -82,6 +90,12 @@ function App() {
   useEffect(() => {
     bootstrap().then(hydrate).catch((cause: unknown) => setError(String(cause)))
   }, [hydrate])
+
+  useEffect(() => {
+    let dispose: (() => void) | undefined
+    void listenForEvidenceDrops(addFiles).then((unlisten) => { dispose = unlisten })
+    return () => dispose?.()
+  }, [addFiles])
 
   const selectedProvider = useMemo(
     () => providers.find(({ id }) => id === settings?.defaultProviderId) ?? providers[0],
@@ -191,10 +205,35 @@ function App() {
             onCapture={handleCapture}
             onAddFiles={(next) => addFiles(normalizeBrowserFiles(next))}
             onRemoveFile={removeFile}
+            onPrepareVideo={async (id, path) => {
+              setError('')
+              updateFile(id, { processingStatus: 'preparing', processingError: undefined })
+              try {
+                const video = await probeVideo(path)
+                updateFile(id, { video })
+                const videoPreparation = await prepareVideo(path)
+                updateFile(id, { video, videoPreparation, processingStatus: 'ready' })
+              } catch (cause) {
+                const processingError = String(cause)
+                updateFile(id, { processingError, processingStatus: 'error' })
+                setError(processingError)
+              }
+            }}
             onRemoveCapture={removeCapture}
             onClear={clearEvidence}
             onSubmit={handleSubmit}
-            onOpenFiles={() => fileInputRef.current?.click()}
+            onOpenFiles={async () => {
+              if (isDesktopRuntime()) {
+                try {
+                  const selected = await pickEvidenceFiles()
+                  if (selected?.length) addFiles(selected)
+                } catch (cause) {
+                  setError(String(cause))
+                }
+              } else {
+                fileInputRef.current?.click()
+              }
+            }}
             onOpenProviders={() => setView('providers')}
           />
         )}
@@ -230,7 +269,7 @@ function App() {
         className="visually-hidden"
         type="file"
         multiple
-        accept="image/*,.pdf,.txt,.md,.json,.csv,.log,.xml,.html,.css,.js,.ts,.tsx"
+        accept={evidenceAccept}
         onChange={(event) => event.target.files && addFiles(normalizeBrowserFiles(event.target.files))}
       />
     </div>
@@ -263,6 +302,7 @@ interface HomeViewProps {
   onCapture: (mode: CaptureMode) => void
   onAddFiles: (files: FileList | File[]) => void
   onRemoveFile: (id: string) => void
+  onPrepareVideo: (id: string, path: string) => Promise<void>
   onRemoveCapture: (id: string) => void
   onClear: () => void
   onSubmit: () => void
@@ -322,14 +362,14 @@ function HomeView(props: HomeViewProps) {
         {hasEvidence ? (
           <div className="file-list">
             {props.captures.map((capture) => <CaptureRow key={capture.id} capture={capture} onRemove={() => props.onRemoveCapture(capture.id)} />)}
-            {props.files.map((file) => <FileRow key={file.id} file={file} onRemove={() => props.onRemoveFile(file.id)} />)}
+            {props.files.map((file) => <FileRow key={file.id} file={file} onRemove={() => props.onRemoveFile(file.id)} onPrepare={() => props.onPrepareVideo(file.id, file.path)} />)}
             <button type="button" className="add-more" onClick={props.onOpenFiles}><Plus size={17} />继续添加</button>
           </div>
         ) : (
           <button type="button" className="drop-zone" onClick={props.onOpenFiles}>
             <span className="drop-icon"><FilePdf size={28} weight="duotone" /><FileImage size={28} weight="duotone" /></span>
-            <strong>拖入图片、PDF 或文件</strong>
-            <small>也可以点击选择 · 单文件上限 25 MB</small>
+            <strong>拖入图片、视频、PDF 或文件</strong>
+            <small>视频先在本地抽帧与提取音轨 · 发送前可预览</small>
           </button>
         )}
         <div className="context-lines">
@@ -390,6 +430,7 @@ function HomeView(props: HomeViewProps) {
         </div>
         <div className="provider-facts">
           <p><span>视觉输入</span><b className={props.provider?.capabilities?.vision ? '' : 'muted'}>{props.provider?.capabilities?.vision ? <Check size={14} /> : <X size={14} />}{props.provider?.ready ? props.provider.capabilities?.vision ? '支持' : '不可用' : '未配置'}</b></p>
+          <p><span>视频快析</span><b className={props.provider?.capabilities?.video ? '' : 'muted'}>{props.provider?.capabilities?.video ? <Check size={14} /> : <X size={14} />}{props.provider?.ready ? props.provider.capabilities?.video ? '关键帧' : '不可用' : '未配置'}</b></p>
           <p><span>PDF</span><b className={props.provider?.capabilities?.pdf ? '' : 'muted'}>{props.provider?.capabilities?.pdf ? <Check size={14} /> : <X size={14} />}{props.provider?.ready ? props.provider.capabilities?.pdf ? '支持' : '不可用' : '未配置'}</b></p>
           <p><span>密钥</span><b className={props.provider?.secretConfigured ? '' : 'muted'}><Key size={14} />{props.provider?.secretConfigured ? '系统保险库' : '未配置'}</b></p>
         </div>
@@ -415,12 +456,34 @@ function CaptureRow({ capture, onRemove }: { capture: import('./types/domain').C
   )
 }
 
-function FileRow({ file, onRemove }: { file: ReturnType<typeof normalizeBrowserFiles>[number]; onRemove: () => void }) {
-  const Icon = file.kind === 'image' ? FileImage : file.kind === 'pdf' ? FilePdf : File
+function FileRow({ file, onRemove, onPrepare }: { file: import('./types/domain').FileEvidence; onRemove: () => void; onPrepare: () => void }) {
+  const Icon = file.kind === 'image' ? FileImage : file.kind === 'video' ? FilmStrip : file.kind === 'pdf' ? FilePdf : File
   return (
     <div className="file-row">
       <Icon size={23} weight="duotone" />
-      <div><strong>{file.name}</strong><small>{file.kind.toUpperCase()} · {formatBytes(file.size)}</small></div>
+      <div>
+        <strong>{file.name}</strong>
+        <small>{file.kind.toUpperCase()} · {formatBytes(file.size)}{file.kind === 'video' ? ` · ${formatDuration(file.video?.durationSeconds)}` : ''}</small>
+        {file.kind === 'video' && (
+          <button type="button" className="prepare-video" disabled={file.processingStatus === 'preparing'} onClick={onPrepare}>
+            {file.processingStatus === 'preparing' ? '正在本地抽帧…' : file.videoPreparation ? `${file.videoPreparation.frames.length} 帧已就绪` : file.processingStatus === 'error' ? '重试准备' : '快速准备视频'}
+          </button>
+        )}
+        {file.videoPreparation && (
+          <div className="video-preparation">
+            <span>{file.videoPreparation.audioPath ? '画面 + 音轨' : '仅画面'} · 每 {file.videoPreparation.sampleIntervalSeconds.toFixed(1)} 秒取样</span>
+            <div className="video-frame-strip">
+              {file.videoPreparation.frames.map((frame) => (
+                <figure key={frame.path}>
+                  {frame.previewUrl ? <img src={frame.previewUrl} alt={`${formatDuration(frame.timestampSeconds)} 视频帧`} /> : <FilmStrip size={22} />}
+                  <figcaption>{formatDuration(frame.timestampSeconds)}</figcaption>
+                </figure>
+              ))}
+            </div>
+          </div>
+        )}
+        {file.processingError && <small className="file-error">{file.processingError}</small>}
+      </div>
       <button type="button" onClick={onRemove} aria-label={`移除 ${file.name}`}><X size={16} /></button>
     </div>
   )
@@ -504,7 +567,7 @@ function ProvidersView({ providers, selectedId, onSelect, onSave }: ProvidersVie
             </div>
           </article>
         ))}
-        <button type="button" className="new-provider" onClick={() => setEditing({ id: crypto.randomUUID(), name: '兼容 API', kind: 'compatible', model: '', baseUrl: 'https://api.example.com/v1', ready: false, secretConfigured: false, capabilities: { vision: true, pdf: false, files: false, streaming: true } })}>
+        <button type="button" className="new-provider" onClick={() => setEditing({ id: crypto.randomUUID(), name: '兼容 API', kind: 'compatible', model: '', baseUrl: 'https://api.example.com/v1', ready: false, secretConfigured: false, capabilities: { vision: true, pdf: false, files: false, video: true, audioTranscription: false, streaming: true } })}>
           <Plus size={24} />添加兼容端点
         </button>
       </div>

@@ -15,13 +15,13 @@ name = "lensquery_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-tauri-build = { version = "2.6.3" }
+tauri-build = { version = "2.6.3", features = [] }
 
 [dependencies]
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 log = "0.4"
-tauri = { version = "2.11.3" }
+tauri = { version = "2.11.3", features = [] }
 tauri-plugin-log = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
@@ -32,6 +32,7 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "serd
 tokio = { version = "1", features = ["io-util", "process", "time"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 keyring = "4.1.6"
+base64 = "0.22"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-global-shortcut = "2"

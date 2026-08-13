@@ -26,6 +26,7 @@ interface AppStore {
   addCapture: (capture: CaptureEvidence) => void
   removeCapture: (id: string) => void
   removeFile: (id: string) => void
+  updateFile: (id: string, update: Partial<FileEvidence>) => void
   clearEvidence: () => void
   addResult: (result: AnalysisResult) => void
 }
@@ -52,6 +53,10 @@ export const useAppStore = create<AppStore>((set) => ({
   addCapture: (capture) => set((state) => ({ captures: [...state.captures, capture] })),
   removeCapture: (id) => set((state) => ({ captures: state.captures.filter((capture) => capture.id !== id) })),
   removeFile: (id) => set((state) => ({ files: state.files.filter((file) => file.id !== id) })),
+  updateFile: (id, update) =>
+    set((state) => ({
+      files: state.files.map((file) => (file.id === id ? { ...file, ...update } : file)),
+    })),
   clearEvidence: () => set({ files: [], captures: [] }),
   addResult: (result) => set((state) => ({ history: [result, ...state.history] })),
 }))

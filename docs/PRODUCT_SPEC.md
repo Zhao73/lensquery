@@ -15,7 +15,7 @@
 ### Local file analysis
 
 1. User opens LensQuery from the tray, drags files onto the home screen, uses the picker, or invokes an operating-system file action.
-2. LensQuery classifies each attachment and previews the local extraction result.
+2. LensQuery classifies each attachment and previews the local extraction result. Videos show duration, stream metadata, sampled timestamps, and whether an audio track will be transcribed.
 3. The request follows the same provider-independent preview and submission flow.
 
 ## Functional requirements
@@ -28,6 +28,9 @@
 | CAP-04 | Cancel capture safely | Escape closes the overlay and sends nothing |
 | FILE-01 | Attach image, PDF, or text-oriented file | Preview shows filename, media type, size, and extract mode |
 | FILE-02 | Reject unsupported or oversized input recoverably | Inline message names the limit and next action |
+| VIDEO-01 | Probe a local video without upload | Duration, resolution, codecs, rotation, and audio presence are visible |
+| VIDEO-02 | Prepare a bounded video evidence package | At most 24 time-coded frames and one compact mono audio track are created locally |
+| VIDEO-03 | Analyze long and short clips consistently | Sampling interval adapts to duration and the answer cites relevant timestamps |
 | AI-01 | Configure multiple provider profiles | Profiles preserve endpoint/model settings without storing raw secrets in JSON |
 | AI-02 | Stream a multimodal answer | Partial output is visible and cancellation stops the request |
 | AI-03 | Switch model before retry | Evidence and question stay intact while profile changes |
@@ -62,7 +65,13 @@ type ContextPackage = {
     path: string;
     mediaType: string;
     size: number;
-    extraction: "direct" | "text" | "pages" | "metadata";
+    extraction: "direct" | "text" | "pages" | "metadata" | "video-derivatives";
+    video?: {
+      durationSeconds: number;
+      hasAudio: boolean;
+      strategy: "uniform-keyframes-v1";
+      sampledTimestamps: number[];
+    };
   }>;
 };
 ```
@@ -71,7 +80,7 @@ type ContextPackage = {
 
 Every adapter implements:
 
-- capability discovery: vision, PDF, generic files, streaming, web search;
+- capability discovery: vision, PDF, generic files, video-frame analysis, audio transcription, streaming, web search;
 - request normalization from the context package;
 - stream events: started, text delta, usage, completed, cancelled, error;
 - sanitized error mapping for auth, endpoint, model, rate limit, content limit, timeout, and offline state;
@@ -83,6 +92,7 @@ Every adapter implements:
 - **Customer reply** Return: short finding, recommended answer in the customer’s language, action needed, and uncertainty.
 - **Troubleshoot** Read visible error evidence, list the most likely root cause, then the smallest verification steps.
 - **Summarize file** Summarize scope, important facts, decisions, dates, and missing information.
+- **Analyze video** Reconstruct the sequence from timestamped frames and transcript, summarize the content, identify important moments, and produce a customer-ready answer when requested.
 - **Custom** Preserve the evidence and let the user type the instruction.
 
 ## Non-goals for the first release
@@ -92,4 +102,3 @@ Every adapter implements:
 - Broad autonomous desktop control.
 - Claiming full web-page semantics without a browser connector.
 - Uploading entire folders by default.
-

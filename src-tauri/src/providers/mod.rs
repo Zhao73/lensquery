@@ -38,8 +38,11 @@ async fn run_cli(
     request: &AnalysisRequest,
     is_codex: bool,
 ) -> Result<String, String> {
-    if !request.files.is_empty() || !request.captures.is_empty() {
-        return Err("CLI 图像与文件附件通道尚未启用；请选择直接 API，或先只发送文字问题。".into());
+    let image_paths = collect_image_paths(request)?;
+    if !is_codex && !image_paths.is_empty() {
+        return Err(
+            "Claude Code CLI 的本地图片附件通道尚未启用；请选择 Codex CLI 或直接视觉 API。".into(),
+        );
     }
 
     let prompt = format!(
@@ -49,7 +52,17 @@ async fn run_cli(
 
     let mut command = Command::new(executable);
     if is_codex {
-        command.args(["exec", "--skip-git-repo-check", "-"]);
+        command.args([
+            "exec",
+            "--skip-git-repo-check",
+            "--sandbox",
+            "read-only",
+            "--ephemeral",
+        ]);
+        for image_path in &image_paths {
+            command.arg("--image").arg(image_path);
+        }
+        command.arg("-");
     } else {
         command.args([
             "-p",
@@ -93,6 +106,78 @@ async fn run_cli(
     Ok(stdout)
 }
 
+fn collect_image_paths(request: &AnalysisRequest) -> Result<Vec<String>, String> {
+    if !request.captures.is_empty() {
+        return Err(
+            "屏幕捕获到 CLI 的图片落盘通道尚未启用；请先使用本地文件或直接视觉 API。".into(),
+        );
+    }
+    let mut images = Vec::new();
+    for file in &request.files {
+        match file.kind.as_str() {
+            "image" => images.push(file.path.clone()),
+            "video" => {
+                let preparation = file
+                    .video_preparation
+                    .as_ref()
+                    .ok_or_else(|| format!("请先对视频 {} 执行“快速准备视频”。", file.name))?;
+                images.extend(preparation.frames.iter().map(|frame| frame.path.clone()));
+            }
+            _ => {
+                return Err(format!(
+                    "CLI 当前只接收图片和已准备的视频关键帧；{} 需要直接 API 或后续文件解析器。",
+                    file.name
+                ));
+            }
+        }
+    }
+    Ok(images)
+}
+
 fn truncate(value: &str, max_chars: usize) -> String {
     value.chars().take(max_chars).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::{FileEvidence, VideoFrame, VideoPreparation};
+
+    #[test]
+    fn expands_prepared_video_into_frame_paths() {
+        let request = AnalysisRequest {
+            question: "what happens?".into(),
+            prompt_id: "video".into(),
+            provider_id: "codex-cli".into(),
+            captures: vec![],
+            files: vec![FileEvidence {
+                id: "v".into(),
+                name: "sample.mp4".into(),
+                path: "/tmp/sample.mp4".into(),
+                media_type: "video/mp4".into(),
+                size: 1,
+                kind: "video".into(),
+                video: None,
+                video_preparation: Some(VideoPreparation {
+                    id: "p".into(),
+                    source_path: "/tmp/sample.mp4".into(),
+                    output_directory: "/tmp/frames".into(),
+                    frames: vec![VideoFrame {
+                        path: "/tmp/frames/frame-001.jpg".into(),
+                        preview_url: None,
+                        timestamp_seconds: 0.0,
+                    }],
+                    audio_path: None,
+                    sample_interval_seconds: 1.0,
+                    original_duration_seconds: 1.0,
+                    strategy: "uniform-keyframes-v1".into(),
+                }),
+                processing_error: None,
+            }],
+        };
+        assert_eq!(
+            collect_image_paths(&request).expect("prepared video"),
+            vec!["/tmp/frames/frame-001.jpg"]
+        );
+    }
 }

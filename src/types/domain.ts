@@ -30,7 +30,39 @@ export interface FileEvidence {
   path: string
   mediaType: string
   size: number
-  kind: 'image' | 'pdf' | 'text' | 'other'
+  kind: 'image' | 'video' | 'pdf' | 'text' | 'other'
+  video?: VideoMetadata
+  videoPreparation?: VideoPreparation
+  processingError?: string
+  processingStatus?: 'idle' | 'preparing' | 'ready' | 'error'
+}
+
+export interface VideoMetadata {
+  durationSeconds: number
+  width?: number
+  height?: number
+  frameRate?: number
+  videoCodec?: string
+  audioCodec?: string
+  hasAudio: boolean
+  rotation?: number
+}
+
+export interface VideoFrame {
+  path: string
+  previewUrl?: string
+  timestampSeconds: number
+}
+
+export interface VideoPreparation {
+  id: string
+  sourcePath: string
+  outputDirectory: string
+  frames: VideoFrame[]
+  audioPath?: string
+  sampleIntervalSeconds: number
+  originalDurationSeconds: number
+  strategy: 'uniform-keyframes-v1'
 }
 
 export interface ProviderProfile {
@@ -45,6 +77,8 @@ export interface ProviderProfile {
     vision: boolean
     pdf: boolean
     files: boolean
+    video: boolean
+    audioTranscription: boolean
     streaming: boolean
   }
 }

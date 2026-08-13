@@ -1,13 +1,14 @@
 use tauri::State;
 
 use crate::{
-    capture,
+    capture, files,
     models::{
         AnalysisRequest, AnalysisResult, AppSettings, BootstrapState, CaptureResponse,
-        ProviderProfile,
+        ProviderProfile, VideoMetadata, VideoPreparation,
     },
     providers, secrets,
     state::AppState,
+    video,
 };
 
 #[tauri::command]
@@ -116,4 +117,22 @@ pub async fn analyze(
         .cloned()
         .ok_or_else(|| "没有找到所选模型提供商。".to_string())?;
     providers::analyze(request, profile).await
+}
+
+#[tauri::command]
+pub async fn probe_video(path: String) -> Result<VideoMetadata, String> {
+    video::probe(&path).await
+}
+
+#[tauri::command]
+pub async fn prepare_video(
+    path: String,
+    max_frames: Option<u32>,
+) -> Result<VideoPreparation, String> {
+    video::prepare(&path, max_frames).await
+}
+
+#[tauri::command]
+pub async fn inspect_files(paths: Vec<String>) -> Result<Vec<crate::models::FileEvidence>, String> {
+    files::inspect(paths).await
 }

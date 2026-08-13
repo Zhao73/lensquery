@@ -8,7 +8,7 @@ The first public release is a Windows-first open-source desktop application that
 2. register configurable global shortcuts;
 3. open a full-desktop selection overlay;
 4. capture a clicked UI element or dragged rectangular region;
-5. accept local images, PDFs, and text-oriented files;
+5. accept local images, videos, PDFs, and text-oriented files;
 6. preview exactly what will be submitted;
 7. send multimodal requests through OpenAI, Anthropic, or an OpenAI-compatible endpoint;
 8. optionally invoke an installed Codex or Claude Code CLI in non-interactive analysis mode;
@@ -69,6 +69,14 @@ flowchart LR
 - PDF metadata/text extraction plus bounded page rendering when needed.
 - Text-oriented file preview with size/type limits, binary detection, and truncation notice.
 - Optional Windows Explorer `Send to LensQuery` integration after the core path is stable.
+
+### M3.5: Video fast analysis
+
+- Local FFprobe metadata inspection with clear missing-runtime recovery.
+- Duration-aware extraction of 3-24 timestamped frames, downscaled before provider submission.
+- Optional compact audio extraction and transcription when the selected route declares support.
+- Evidence preview that exposes each derivative artifact rather than uploading the original video invisibly.
+- Prompts that return summary, key moments, visible text/objects, transcript findings, and a customer-ready answer.
 
 ### M4: AI routing
 
