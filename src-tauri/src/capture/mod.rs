@@ -1,4 +1,7 @@
-use crate::models::{Bounds, CaptureEvidence, CaptureResponse, CaptureSelection};
+use crate::models::{CaptureResponse, CaptureSelection};
+
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+use crate::models::{Bounds, CaptureEvidence};
 
 pub fn started() -> CaptureResponse {
     CaptureResponse {
