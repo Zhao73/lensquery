@@ -1,0 +1,37 @@
+[package]
+name = "lensquery"
+version = "0.1.0"
+description = "Ask AI about anything visible on your desktop or inside a local file."
+authors = ["LensQuery contributors"]
+license = "MIT"
+repository = "https://github.com/Zhao73/lensquery"
+edition = "2021"
+rust-version = "1.77.2"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+name = "lensquery_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.6.3" }
+
+[dependencies]
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+log = "0.4"
+tauri = { version = "2.11.3" }
+tauri-plugin-log = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-store = "2"
+tauri-plugin-clipboard-manager = "2"
+tauri-plugin-fs = "2"
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+tokio = { version = "1", features = ["io-util", "process", "time"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+keyring = "4.1.6"
+
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-global-shortcut = "2"

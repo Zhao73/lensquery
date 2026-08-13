@@ -1,0 +1,84 @@
+:root {
+  font-family: "SF Pro Text", "Segoe UI Variable", "Yu Gothic UI", system-ui, sans-serif;
+  color: #fff0c7;
+  background: #070d2b;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  --space: #070d2b;
+  --ink: #101a50;
+  --indigo: #273277;
+  --violet: #60429a;
+  --magenta: #bc3f73;
+  --coral: #ef5c68;
+  --orange: #ff8b45;
+  --amber: #ffbc58;
+  --yellow: #ffe391;
+  --lime: #b5ca62;
+  --green: #55a46d;
+  --cyan: #54c7c3;
+  --sky: #72bce8;
+  --steel: #466a9d;
+  --silver: #bfc3c9;
+  --paper: #fff0c7;
+  --line: #5d5db1;
+  --muted: #b0abd0;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  min-width: 320px;
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  min-height: 100vh;
+  min-height: 100dvh;
+  overflow: hidden;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+button {
+  color: inherit;
+}
+
+button:not(:disabled) {
+  cursor: pointer;
+}
+
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 2px;
+}
+
+::selection {
+  color: var(--space);
+  background: var(--yellow);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+

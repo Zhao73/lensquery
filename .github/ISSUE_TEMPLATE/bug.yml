@@ -1,0 +1,26 @@
+name: Bug report
+description: Report a reproducible LensQuery problem
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options: [Windows 11, Windows 10, macOS development preview, Linux development preview]
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      description: Include capture mode, file type, provider kind, and display scaling when relevant. Remove secrets and customer data.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected and actual result
+    validations:
+      required: true
+
