@@ -4,52 +4,56 @@
 
 ## Direction
 
-LensQuery is a fixed-region desktop instrument derived from Japanese sixteen-color computer interfaces. It refuses generic dashboard cards: the screen is partitioned into a capture field, evidence bay, command log, and model channel. One-pixel seams and named operational regions make the route from evidence to answer visible.
+LensQuery is a resident Windows workbench. It refuses a marketing-like homepage and decorative dashboard. The durable surface is a quiet conversation timeline; the memorable interaction is the system-wide question cursor that appears after one shortcut.
 
-## Color
+## Scene and color
 
-The canonical palette lives as sixteen CSS tokens in `src/index.css`, from `--space` through `--paper`. Cream is the principal foreground, indigo is structural chrome, magenta is the action state, cyan is verification, and yellow is privacy/attention. New colors should be composed from these roles rather than introducing an unrelated accent.
+The user works all day beside browsers, Explorer, customer tools, and coding agents under ordinary office light. The default surface is therefore light, neutral, and native-feeling, with automatic dark mode following the operating system.
+
+- Canvas: cool near-white / near-black in dark mode.
+- Surface: white / charcoal.
+- Dividers: thin neutral gray.
+- Accent: one cobalt blue, reserved for the shortcut action, current selection, focus, and primary send.
+- Semantic colors: green for ready, red for errors, amber for warnings. None are decorative.
+
+Canonical tokens live in `src/index.css`.
 
 ## Typography
 
-- UI and longer Chinese copy use the platform workhorse stack: Segoe UI Variable, Yu Gothic UI, then system sans.
-- Machine captions, shortcut keys, versions, and measurements use Cascadia Mono or the platform monospace fallback.
-- Display text is heavy, compact, and never exceeds two lines in the first viewport.
-- Operational text should remain at least 11px; primary labels are 12–14px.
-
-## Geometry and material
-
-- Rectangular controls with zero radius.
-- One-pixel cream or indigo seams communicate actual regions.
-- Inset light/dark edges create pressed computer controls.
-- Dither is reserved for image/capture fields where tone or selection has a semantic role.
-- Cards are not general-purpose containers; use regions, caption bars, lists, and negative space.
+- Use Segoe UI Variable, Segoe UI, Microsoft YaHei UI, then system sans.
+- UI hierarchy is compact: 10–12px metadata, 13–14px controls/body, 19–26px page/empty-state titles.
+- Cascadia Mono is limited to actual shortcuts, selectors, model IDs, and measurements.
+- Conversation prose remains readable at roughly 65–75 characters per line.
 
 ## Layout
 
-Desktop uses a 48px title strip, 78px navigation rail, dominant capture region, narrow right evidence/model channel, and lower MESSAGE.LOG command region. Mobile reorders the command composer directly after capture; evidence and provider detail follow, with the four-action navigation fixed at the bottom.
+- Main window: 292px searchable timeline plus a flexible conversation canvas.
+- Top bar: 50px with sidebar toggle, product name, resident status, and three plain navigation targets.
+- Conversation: source/title bar, centered message stream, persistent follow-up dock.
+- Empty state teaches the one-shortcut interaction; it is not a homepage or upload landing page.
+- Settings use ruled groups rather than decorative cards.
 
-## Components and states
+## Components
 
-- Primary action: magenta field, cream seam, inset highlights.
-- Secondary action: steel field with the same physical response.
-- Selected navigation/prompt: inverted or magenta state with a visible pointer.
-- Loading: preserve the final region and use a stepped cursor/rotation, never a blocking modal spinner.
-- Empty: show how to add evidence without implying an upload occurred.
-- Error: inline in the owning region, naming both problem and recovery.
-- Unready provider: honest “未配置” capability states and an enabled “先配置模型” action.
+- Controls use 7–12px corner radii according to size; no pills except tiny status semantics.
+- Borders communicate containment; a soft shadow is used only for the floating follow-up composer and drawers.
+- Session rows are flat and selected with a quiet blue field.
+- Loading stays inline in the pending assistant message.
+- Errors name the failed action and remain in the owning conversation or top status strip.
 
-## Accessibility
+## Capture overlay
 
-All workflows remain keyboard-operable, focus uses a two-pixel cyan outline, reduced motion collapses animations, forced-color mode removes visual scenery, and color is never the only state signal. The fixed mobile rail requires matching bottom safe-area padding.
+- Transparent full-desktop layer with a custom blue question-mark cursor.
+- Click reads an object; movement beyond eight logical pixels becomes a rectangular drag.
+- The selected region is a blue outline with a dimmed exterior and pixel dimensions.
+- One compact instruction plaque appears at the top. Escape always cancels.
 
 ## Motion
 
-Motion imitates cell and palette changes: stepped reticle pulse, blinking answer cursor, and bounded loading rotation. Avoid generic entrance animations and continuous ambient movement.
+Motion communicates state only: three small thinking dots, shortcut scanner rotation, drawer entry from the right, and toggle travel. Reduced-motion mode collapses all of these.
 
-## Responsive rules
+## Accessibility and adaptation
 
-- Under 980px, side channels stack and desktop border seams simplify.
-- Under 700px, the side rail becomes a bottom rail, the capture stage compresses, command moves ahead of evidence, and empty evidence becomes a compact add-content region.
-- The interface must have no horizontal overflow at 390px.
-
+- Visible two-pixel focus, semantic controls, full keyboard operation, Escape cancellation, forced-color support, and reduced-motion support.
+- Under 760px the timeline becomes an overlay drawer, labels compact, evidence stacks, and the follow-up dock stays reachable.
+- Color never carries the only state signal; every status also has text or an icon.

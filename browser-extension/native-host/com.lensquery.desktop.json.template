@@ -1,0 +1,9 @@
+{
+  "name": "com.lensquery.desktop",
+  "description": "LensQuery browser-to-desktop context bridge",
+  "path": "LENSQUERY_EXE_PATH",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://EXTENSION_ID/"
+  ]
+}

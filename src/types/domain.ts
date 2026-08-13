@@ -26,6 +26,25 @@ export interface CaptureEvidence {
   accessibleText?: string
 }
 
+export interface BrowserContext {
+  url: string
+  title: string
+  tagName: string
+  role?: string
+  text?: string
+  accessibleName?: string
+  selector?: string
+  outerHtml?: string
+  nearbyText?: string
+  media?: {
+    kind: 'video' | 'audio'
+    currentTime: number
+    duration?: number
+    source?: string
+    paused: boolean
+  }
+}
+
 export interface FileEvidence {
   id: string
   name: string
@@ -98,6 +117,8 @@ export interface AnalysisRequest {
   providerId: string
   captures: CaptureEvidence[]
   files: FileEvidence[]
+  browserContext?: BrowserContext
+  conversation?: ConversationMessage[]
 }
 
 export interface AnalysisResult {
@@ -107,6 +128,36 @@ export interface AnalysisResult {
   provider: string
   createdAt: string
   durationMs: number
+}
+
+export type MessageRole = 'user' | 'assistant'
+export type MessageStatus = 'pending' | 'complete' | 'error'
+
+export interface ConversationMessage {
+  id: string
+  role: MessageRole
+  content: string
+  createdAt: string
+  status: MessageStatus
+}
+
+export interface QuerySession {
+  id: string
+  title: string
+  createdAt: string
+  updatedAt: string
+  providerId: string
+  sourceLabel: string
+  sourceKind: 'screen' | 'element' | 'browser' | 'file' | 'text'
+  captures: CaptureEvidence[]
+  files: FileEvidence[]
+  browserContext?: BrowserContext
+  messages: ConversationMessage[]
+}
+
+export interface CaptureSelection {
+  mode: CaptureMode
+  bounds: Bounds
 }
 
 export interface AppSettings {

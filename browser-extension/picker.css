@@ -1,0 +1,28 @@
+html.lensquery-picking,
+html.lensquery-picking * {
+  cursor: crosshair !important;
+}
+
+#lensquery-picker-badge,
+#lensquery-picker-error {
+  position: fixed !important;
+  z-index: 2147483647 !important;
+  left: 50% !important;
+  padding: 10px 14px !important;
+  border-radius: 9px !important;
+  color: #fff !important;
+  background: rgba(24, 28, 36, 0.94) !important;
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.28) !important;
+  font: 600 13px/1.2 "Segoe UI", sans-serif !important;
+  transform: translateX(-50%) !important;
+  pointer-events: none !important;
+}
+
+#lensquery-picker-badge { top: 22px !important; }
+#lensquery-picker-error { bottom: 24px !important; max-width: min(620px, calc(100vw - 32px)) !important; background: rgba(179, 38, 30, 0.96) !important; }
+
+.lensquery-target {
+  outline: 3px solid #2367d1 !important;
+  outline-offset: 3px !important;
+  background-color: rgba(35, 103, 209, 0.08) !important;
+}

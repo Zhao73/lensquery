@@ -1,24 +1,18 @@
 import {
-  Aperture,
-  ArrowClockwise,
-  CaretRight,
+  ArrowCounterClockwise,
+  CaretDown,
   Check,
   ClockCounterClockwise,
   Copy,
   CursorClick,
-  Eye,
   File,
-  FileImage,
-  FilePdf,
   Gear,
-  FilmStrip,
-  Key,
-  Monitor,
-  Path,
+  Globe,
+  MagnifyingGlass,
   PaperPlaneTilt,
-  Plus,
+  Question,
   Scan,
-  ShieldCheck,
+  SidebarSimple,
   Sparkle,
   TerminalWindow,
   Trash,
@@ -27,62 +21,101 @@ import {
 } from '@phosphor-icons/react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
-import { evidenceAccept, formatBytes, formatDuration, normalizeBrowserFiles } from './lib/files'
-import { createTranslator } from './lib/i18n'
+import { evidenceAccept, formatBytes, normalizeBrowserFiles } from './lib/files'
 import {
   analyze,
   bootstrap,
+  cancelCapture,
+  completeCapture,
   discoverCliProviders,
+  isDesktopRuntime,
+  listenForCaptureRequests,
+  listenForCaptureErrors,
+  listenForEvidenceDrops,
+  listenForQueryEvidence,
+  pickEvidenceFiles,
   saveProvider,
   saveSettings,
   setProviderSecret,
   startCapture,
   testProvider,
-  prepareVideo,
-  isDesktopRuntime,
-  listenForEvidenceDrops,
-  pickEvidenceFiles,
-  probeVideo,
 } from './lib/tauri'
 import { useAppStore, type View } from './store/app'
-import type { AnalysisResult, AppSettings, CaptureMode, ProviderProfile } from './types/domain'
+import type {
+  AnalysisRequest,
+  AppSettings,
+  BrowserContext,
+  CaptureEvidence,
+  ConversationMessage,
+  FileEvidence,
+  ProviderProfile,
+  QuerySession,
+} from './types/domain'
 
-const prompts = [
-  { id: 'identify', label: '这是什么？', hint: '识别并解释所选内容' },
-  { id: 'customer', label: '客户回答', hint: '生成可直接使用的答复' },
-  { id: 'troubleshoot', label: '排查问题', hint: '定位报错与下一步' },
-  { id: 'summarize', label: '总结文件', hint: '提取重点、决定和缺口' },
-  { id: 'video', label: '分析视频', hint: '关键内容、时间点与客户答复' },
-]
+const DEFAULT_QUESTION = '这是什么？请结合周围内容分析，并给出可以直接使用的答案。'
+
+function now() {
+  return new Date().toISOString()
+}
+
+function newMessage(role: ConversationMessage['role'], content: string, status: ConversationMessage['status']): ConversationMessage {
+  return { id: crypto.randomUUID(), role, content, status, createdAt: now() }
+}
+
+function sourceFromEvidence(captures: CaptureEvidence[], files: FileEvidence[], browserContext?: BrowserContext) {
+  if (browserContext) {
+    return {
+      label: browserContext.text?.slice(0, 54) || browserContext.accessibleName || browserContext.title || '网页元素',
+      kind: 'browser' as const,
+    }
+  }
+  if (files[0]) {
+    return {
+      label: files.length > 1 ? `${files[0].name} 等 ${files.length} 个文件` : files[0].name,
+      kind: 'file' as const,
+    }
+  }
+  if (captures[0]) {
+    return {
+      label: captures[0].accessibleText || captures[0].windowTitle || (captures[0].kind === 'element' ? '桌面元素' : '屏幕区域'),
+      kind: captures[0].kind === 'element' ? 'element' as const : 'screen' as const,
+    }
+  }
+  return { label: '文字询问', kind: 'text' as const }
+}
 
 function App() {
+  if (new URLSearchParams(window.location.search).get('window') === 'capture') {
+    return <CaptureOverlay />
+  }
+  return <ConversationApp />
+}
+
+function ConversationApp() {
   const {
     ready,
     view,
     providers,
     settings,
-    files,
-    captures,
-    history,
+    sessions,
+    activeSessionId,
     setView,
     hydrate,
-    setSettings,
     setProviders,
+    setSettings,
     upsertProvider,
-    addFiles,
-    addCapture,
-    removeCapture,
-    removeFile,
-    updateFile,
-    clearEvidence,
-    addResult,
+    setActiveSession,
+    upsertSession,
+    removeSession,
+    clearSessions,
   } = useAppStore()
-  const [question, setQuestion] = useState('')
-  const [promptId, setPromptId] = useState('identify')
-  const [captureMessage, setCaptureMessage] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [result, setResult] = useState<AnalysisResult | null>(null)
+  const [isNarrow, setIsNarrow] = useState(() => window.matchMedia('(max-width: 760px)').matches)
+  const [sidebarOpen, setSidebarOpen] = useState(() => !window.matchMedia('(max-width: 760px)').matches)
+  const [followUp, setFollowUp] = useState('')
+  const [query, setQuery] = useState('')
   const [error, setError] = useState('')
+  const [captureStatus, setCaptureStatus] = useState('')
+  const [filter, setFilter] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -90,166 +123,306 @@ function App() {
   }, [hydrate])
 
   useEffect(() => {
-    if (!settings) return
-    document.documentElement.lang = settings.language
+    if (settings) document.documentElement.lang = settings.language
   }, [settings])
 
   useEffect(() => {
-    let dispose: (() => void) | undefined
-    void listenForEvidenceDrops(addFiles).then((unlisten) => { dispose = unlisten })
-    return () => dispose?.()
-  }, [addFiles])
+    const media = window.matchMedia('(max-width: 760px)')
+    const update = () => {
+      setIsNarrow(media.matches)
+      if (media.matches) setSidebarOpen(false)
+    }
+    update()
+    media.addEventListener('change', update)
+    return () => media.removeEventListener('change', update)
+  }, [])
+
+  useEffect(() => {
+    if (!isNarrow || !sidebarOpen) return
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setSidebarOpen(false)
+    }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [isNarrow, sidebarOpen])
 
   const selectedProvider = useMemo(
-    () => providers.find(({ id }) => id === settings?.defaultProviderId) ?? providers[0],
+    () => providers.find(({ id }) => id === settings?.defaultProviderId) ?? providers.find(({ ready: isReady }) => isReady) ?? providers[0],
     [providers, settings?.defaultProviderId],
   )
 
-  const handleCapture = async (mode: CaptureMode) => {
-    setError('')
-    setCaptureMessage('正在打开桌面选择层…')
-    try {
-      const response = await startCapture(mode)
-      setCaptureMessage(response.message)
-      if (response.evidence) addCapture(response.evidence)
-    } catch (cause) {
-      setError(String(cause))
-      setCaptureMessage('')
-    }
-  }
-
-  const handleSubmit = async () => {
-    if (!selectedProvider) {
-      setError('请先配置一个模型提供商。')
+  async function submitNewQuery(input: {
+    captures: CaptureEvidence[]
+    files: FileEvidence[]
+    browserContext?: BrowserContext
+    question?: string
+  }) {
+    const provider = selectedProvider
+    if (!provider?.ready) {
+      setError('还没有可用的模型通道。请先在“模型”中扫描本机 CLI 或配置 API。')
       setView('providers')
       return
     }
-    setBusy(true)
+    const question = input.question?.trim() || DEFAULT_QUESTION
+    const source = sourceFromEvidence(input.captures, input.files, input.browserContext)
+    const createdAt = now()
+    const pending = newMessage('assistant', '', 'pending')
+    const session: QuerySession = {
+      id: crypto.randomUUID(),
+      title: source.label.slice(0, 58),
+      createdAt,
+      updatedAt: createdAt,
+      providerId: provider.id,
+      sourceLabel: source.label,
+      sourceKind: source.kind,
+      captures: input.captures,
+      files: input.files,
+      browserContext: input.browserContext,
+      messages: [newMessage('user', question, 'complete'), pending],
+    }
+    upsertSession(session)
     setError('')
-    setResult(null)
     try {
-      const next = await analyze({
-        question: question.trim() || prompts.find(({ id }) => id === promptId)?.label || '这是什么？',
-        promptId,
-        providerId: selectedProvider.id,
-        captures,
-        files,
+      const result = await analyze({
+        question,
+        promptId: 'identify',
+        providerId: provider.id,
+        captures: input.captures,
+        files: input.files,
+        browserContext: input.browserContext,
+        conversation: [],
       })
-      setResult(next)
-      addResult(next)
+      upsertSession({
+        ...session,
+        updatedAt: now(),
+        messages: session.messages.map((message) => message.id === pending.id
+          ? { ...message, content: result.answer, status: 'complete' as const }
+          : message),
+      })
+    } catch (cause) {
+      upsertSession({
+        ...session,
+        updatedAt: now(),
+        messages: session.messages.map((message) => message.id === pending.id
+          ? { ...message, content: String(cause), status: 'error' as const }
+          : message),
+      })
+      setError(String(cause))
+    }
+  }
+
+  useEffect(() => {
+    let disposeCapture: (() => void) | undefined
+    let disposeCaptureError: (() => void) | undefined
+    let disposeEvidence: (() => void) | undefined
+    let disposeDrop: (() => void) | undefined
+    void listenForCaptureRequests(() => setCaptureStatus('按一下选择对象，按住并拖动选择区域；Esc 取消。')).then((dispose) => { disposeCapture = dispose })
+    void listenForCaptureErrors((message) => {
+      setCaptureStatus('')
+      setError(message)
+    }).then((dispose) => { disposeCaptureError = dispose })
+    void listenForQueryEvidence((payload) => {
+      setCaptureStatus('')
+      void submitNewQuery({ captures: payload.capture ? [payload.capture] : [], files: [], browserContext: payload.browserContext })
+    }).then((dispose) => { disposeEvidence = dispose })
+    void listenForEvidenceDrops((files) => {
+      if (files.length) void submitNewQuery({ captures: [], files })
+    }).then((dispose) => { disposeDrop = dispose })
+    return () => {
+      disposeCapture?.()
+      disposeCaptureError?.()
+      disposeEvidence?.()
+      disposeDrop?.()
+    }
+  // selectedProvider intentionally refreshes the handler when the route changes.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedProvider?.id])
+
+  const activeSession = sessions.find(({ id }) => id === activeSessionId) ?? null
+  const visibleSessions = sessions.filter((session) =>
+    `${session.title} ${session.sourceLabel} ${session.messages.map(({ content }) => content).join(' ')}`.toLowerCase().includes(filter.toLowerCase()),
+  )
+
+  async function submitFollowUp() {
+    if (!activeSession || !followUp.trim()) return
+    const provider = providers.find(({ id }) => id === activeSession.providerId) ?? selectedProvider
+    if (!provider?.ready) {
+      setError('这个会话使用的模型当前不可用。请先检查模型设置。')
+      return
+    }
+    const question = followUp.trim()
+    setFollowUp('')
+    const userMessage = newMessage('user', question, 'complete')
+    const pending = newMessage('assistant', '', 'pending')
+    const next = {
+      ...activeSession,
+      updatedAt: now(),
+      messages: [...activeSession.messages, userMessage, pending],
+    }
+    upsertSession(next)
+    try {
+      const request: AnalysisRequest = {
+        question,
+        promptId: 'follow-up',
+        providerId: provider.id,
+        captures: activeSession.captures,
+        files: activeSession.files,
+        browserContext: activeSession.browserContext,
+        conversation: activeSession.messages.filter(({ status }) => status === 'complete'),
+      }
+      const result = await analyze(request)
+      upsertSession({
+        ...next,
+        updatedAt: now(),
+        messages: next.messages.map((message) => message.id === pending.id
+          ? { ...message, content: result.answer, status: 'complete' as const }
+          : message),
+      })
+    } catch (cause) {
+      upsertSession({
+        ...next,
+        updatedAt: now(),
+        messages: next.messages.map((message) => message.id === pending.id
+          ? { ...message, content: String(cause), status: 'error' as const }
+          : message),
+      })
+    }
+  }
+
+  async function openFiles() {
+    if (!isDesktopRuntime()) {
+      fileInputRef.current?.click()
+      return
+    }
+    try {
+      const files = await pickEvidenceFiles()
+      if (files?.length) await submitNewQuery({ captures: [], files })
     } catch (cause) {
       setError(String(cause))
-    } finally {
-      setBusy(false)
+    }
+  }
+
+  async function beginCapture() {
+    setError('')
+    try {
+      const response = await startCapture('element')
+      setCaptureStatus(response.message)
+    } catch (cause) {
+      setError(String(cause))
     }
   }
 
   if (!ready || !settings) return <LoadingScreen />
-  const t = createTranslator(settings.language)
-  const nav: Array<{ id: View; label: string; icon: typeof Aperture }> = [
-    { id: 'home', label: t('home'), icon: Aperture },
-    { id: 'history', label: t('history'), icon: ClockCounterClockwise },
-    { id: 'providers', label: t('providers'), icon: Sparkle },
-    { id: 'settings', label: t('settings'), icon: Gear },
+
+  const navigation: Array<{ id: View; label: string; icon: typeof ClockCounterClockwise }> = [
+    { id: 'timeline', label: '会话', icon: ClockCounterClockwise },
+    { id: 'providers', label: '模型', icon: TerminalWindow },
+    { id: 'settings', label: '设置', icon: Gear },
   ]
 
   return (
-    <div className="app-frame">
+    <div className={sidebarOpen ? 'shell' : 'shell sidebar-collapsed'}>
       {/*
-        THESIS: LensQuery behaves like a fixed-field desktop instrument, refusing generic dashboard cards.
-        OWN-WORLD: sixteen-color PC-98 palette, ordered dithers, one-pixel seams, cream bitmap-like labels.
-        STORY: select visible evidence, verify what leaves the computer, choose a model, receive a useful answer.
-        FIRST VIEWPORT: compact rail, dominant capture field, lower command window, provider state fixed at right.
-        FORM: assigned fixed-region computer screen, seed f69cb4a1.
+        THESIS: LensQuery is a resident shortcut instrument, not a homepage; conversation is the only durable surface.
+        OWN-WORLD: Windows workbench neutrals, one cobalt action color, thin dividers, native controls, no decorative scenery.
+        STORY: invoke, point or drag, receive an answer, continue in the same local timeline.
+        FIRST VIEWPORT: compact session rail, quiet conversation canvas, persistent follow-up dock, settings one step away.
+        FORM: desktop agent workbench, seed 0ec9ea5f.
         FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md
       */}
-      <header className="titlebar">
-        <button className="brand" type="button" onClick={() => setView('home')} aria-label="LensQuery 首页">
-          <span className="brand-mark" aria-hidden="true"><Scan size={20} weight="bold" /></span>
-          <span>LENSQUERY</span>
-        </button>
-        <div className="titlebar-center">
-          <span className="status-light" aria-hidden="true" />
-          {t('localReady')}
-          <kbd>Ctrl</kbd><span>+</span><kbd>Shift</kbd><span>+</span><kbd>Space</kbd>
-        </div>
-        <div className="window-meta">WIN 10/11 · v0.1</div>
-      </header>
-
-      <aside className="side-rail" aria-label="主导航">
-        {nav.map((item) => {
-          const Icon = item.icon
-          return (
-            <button
-              type="button"
-              key={item.id}
-              className={view === item.id ? 'rail-item active' : 'rail-item'}
-              onClick={() => setView(item.id)}
-              aria-current={view === item.id ? 'page' : undefined}
-            >
-              <Icon size={22} weight={view === item.id ? 'fill' : 'regular'} />
-              <span>{item.label}</span>
+      {view === 'timeline' && (
+        <aside className="conversation-sidebar" aria-label="查询时间线">
+          <div className="sidebar-head">
+            <button type="button" className="capture-button" onClick={beginCapture}>
+              <Question size={18} weight="bold" />
+              快速询问
+              <kbd>Ctrl ⇧ Space</kbd>
             </button>
-          )
-        })}
-        <div className="rail-privacy" title={t('privacyTitle')}>
-          <ShieldCheck size={22} weight="fill" />
-          <span>{t('privacy')}</span>
-        </div>
-      </aside>
+            <div className="search-box">
+              <MagnifyingGlass size={16} />
+              <input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="搜索会话" aria-label="搜索会话" />
+            </div>
+          </div>
+          <div className="session-list">
+            {visibleSessions.length ? visibleSessions.map((session) => (
+              <button
+                type="button"
+                className={session.id === activeSessionId ? 'session-row selected' : 'session-row'}
+                key={session.id}
+                onClick={() => {
+                  setActiveSession(session.id)
+                  if (isNarrow) setSidebarOpen(false)
+                }}
+              >
+                <SourceIcon kind={session.sourceKind} />
+                <span><strong>{session.title}</strong><small>{relativeTime(session.updatedAt)} · {session.sourceLabel}</small></span>
+              </button>
+            )) : (
+              <div className="sidebar-empty">按快捷键开始第一条查询。</div>
+            )}
+          </div>
+          {sessions.length > 0 && (
+            <button type="button" className="clear-history" onClick={clearSessions}><Trash size={15} />清空本地记录</button>
+          )}
+        </aside>
+      )}
 
-      <main className="workspace">
-        {view === 'home' && (
-          <HomeView
-            files={files}
-            captures={captures}
-            question={question}
-            promptId={promptId}
-            provider={selectedProvider}
-            captureMessage={captureMessage}
-            busy={busy}
-            result={result}
-            error={error}
-            onQuestion={setQuestion}
-            onPrompt={setPromptId}
-            onCapture={handleCapture}
-            onAddFiles={(next) => addFiles(normalizeBrowserFiles(next))}
-            onRemoveFile={removeFile}
-            onPrepareVideo={async (id, path) => {
-              setError('')
-              updateFile(id, { processingStatus: 'preparing', processingError: undefined })
-              try {
-                const video = await probeVideo(path)
-                updateFile(id, { video })
-                const videoPreparation = await prepareVideo(path)
-                updateFile(id, { video, videoPreparation, processingStatus: 'ready' })
-              } catch (cause) {
-                const processingError = String(cause)
-                updateFile(id, { processingError, processingStatus: 'error' })
-                setError(processingError)
-              }
-            }}
-            onRemoveCapture={removeCapture}
-            onClear={clearEvidence}
-            onSubmit={handleSubmit}
-            onOpenFiles={async () => {
-              if (isDesktopRuntime()) {
-                try {
-                  const selected = await pickEvidenceFiles()
-                  if (selected?.length) addFiles(selected)
-                } catch (cause) {
-                  setError(String(cause))
-                }
-              } else {
-                fileInputRef.current?.click()
-              }
-            }}
-            onOpenProviders={() => setView('providers')}
-          />
+      {view === 'timeline' && isNarrow && sidebarOpen && (
+        <button type="button" className="sidebar-backdrop" aria-label="关闭会话侧栏" onClick={() => setSidebarOpen(false)} />
+      )}
+
+      <main className="main-surface" inert={isNarrow && sidebarOpen ? true : undefined}>
+        <header className="app-bar">
+          <div className="app-bar-left">
+            <button type="button" className="icon-button" onClick={() => setSidebarOpen((value) => !value)} aria-label="切换侧栏"><SidebarSimple size={20} /></button>
+            <button type="button" className="wordmark" onClick={() => setView('timeline')}>LensQuery</button>
+            <span className="resident-state"><i />后台待命</span>
+          </div>
+          <nav aria-label="主导航">
+            {navigation.map((item) => {
+              const Icon = item.icon
+              return (
+                <button type="button" key={item.id} className={view === item.id ? 'top-nav active' : 'top-nav'} onClick={() => {
+                  setView(item.id)
+                  if (isNarrow) setSidebarOpen(false)
+                }}>
+                  <Icon size={17} />{item.label}
+                </button>
+              )
+            })}
+          </nav>
+        </header>
+
+        {captureStatus && (
+          <div className="capture-status" role="status"><Question size={17} weight="bold" />{captureStatus}<button type="button" onClick={() => { void cancelCapture(); setCaptureStatus('') }}><X size={16} /></button></div>
         )}
-        {view === 'history' && <HistoryView history={history} />}
+        {error && <div className="global-error" role="alert"><WarningCircle size={18} />{error}<button type="button" onClick={() => setError('')}><X size={16} /></button></div>}
+
+        {view === 'timeline' && (
+          activeSession ? (
+            <ConversationView
+              session={activeSession}
+              provider={providers.find(({ id }) => id === activeSession.providerId)}
+              followUp={followUp}
+              onFollowUp={setFollowUp}
+              onSubmit={submitFollowUp}
+              onDelete={() => removeSession(activeSession.id)}
+              onRetry={() => {
+                const lastQuestion = [...activeSession.messages].reverse().find(({ role }) => role === 'user')?.content
+                if (lastQuestion) setFollowUp(lastQuestion)
+              }}
+            />
+          ) : (
+            <EmptyTimeline onCapture={beginCapture} onOpenFiles={openFiles} query={query} onQuery={setQuery} onSubmit={() => {
+              if (query.trim()) {
+                void submitNewQuery({ captures: [], files: [], question: query })
+                setQuery('')
+              }
+            }} />
+          )
+        )}
         {view === 'providers' && (
-          <ProvidersView
+          <ProvidersPanel
             providers={providers}
             selectedId={settings.defaultProviderId}
             onSelect={(defaultProviderId) => {
@@ -257,451 +430,281 @@ function App() {
               setSettings(next)
               void saveSettings(next)
             }}
-            onSave={(profile) => {
-              upsertProvider(profile)
-              return saveProvider(profile)
-            }}
-            onRescan={async () => {
-              const detected = await discoverCliProviders()
-              setProviders(detected)
-              return detected
-            }}
+            onSave={(profile) => { upsertProvider(profile); return saveProvider(profile) }}
+            onRescan={async () => { const profiles = await discoverCliProviders(); setProviders(profiles); return profiles }}
           />
         )}
-        {view === 'settings' && (
-          <SettingsView
-            settings={settings}
-            onSave={async (next) => {
-              const saved = await saveSettings(next)
-              setSettings(saved)
-            }}
-          />
-        )}
+        {view === 'settings' && <SettingsPanel settings={settings} onSave={async (next) => { const saved = await saveSettings(next); setSettings(saved) }} />}
       </main>
-
       <input
         ref={fileInputRef}
         className="visually-hidden"
         type="file"
         multiple
         accept={evidenceAccept}
-        onChange={(event) => event.target.files && addFiles(normalizeBrowserFiles(event.target.files))}
+        onChange={(event) => {
+          if (event.target.files?.length) void submitNewQuery({ captures: [], files: normalizeBrowserFiles(event.target.files) })
+          event.currentTarget.value = ''
+        }}
       />
     </div>
   )
 }
 
-function LoadingScreen() {
-  const storedLanguage = (() => {
-    try {
-      return JSON.parse(localStorage.getItem('lensquery.settings') ?? '{}').language
-    } catch {
-      return 'zh-CN'
-    }
-  })()
-  const t = createTranslator(storedLanguage === 'en' ? 'en' : 'zh-CN')
-  return (
-    <div className="loading-screen" role="status">
-      <div className="loading-grid" />
-      <Scan size={36} weight="bold" />
-      <strong>LENSQUERY</strong>
-      <span>{t('initializing')}</span>
-    </div>
-  )
-}
-
-interface HomeViewProps {
-  files: ReturnType<typeof normalizeBrowserFiles>
-  captures: import('./types/domain').CaptureEvidence[]
-  question: string
-  promptId: string
+function ConversationView(props: {
+  session: QuerySession
   provider?: ProviderProfile
-  captureMessage: string
-  busy: boolean
-  result: AnalysisResult | null
-  error: string
-  onQuestion: (value: string) => void
-  onPrompt: (value: string) => void
-  onCapture: (mode: CaptureMode) => void
-  onAddFiles: (files: FileList | File[]) => void
-  onRemoveFile: (id: string) => void
-  onPrepareVideo: (id: string, path: string) => Promise<void>
-  onRemoveCapture: (id: string) => void
-  onClear: () => void
+  followUp: string
+  onFollowUp: (value: string) => void
   onSubmit: () => void
-  onOpenFiles: () => void
-  onOpenProviders: () => void
-}
-
-function HomeView(props: HomeViewProps) {
-  const [dragging, setDragging] = useState(false)
-  const hasEvidence = props.files.length > 0 || props.captures.length > 0
-  const isCli = props.provider?.kind.endsWith('cli') ?? false
-
+  onDelete: () => void
+  onRetry: () => void
+}) {
+  const tailRef = useRef<HTMLDivElement>(null)
+  useEffect(() => tailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }), [props.session.messages.length])
   return (
-    <div className="home-layout">
-      <section className="capture-stage" aria-labelledby="capture-title">
-        <div className="stage-sky" aria-hidden="true">
-          <div className="dither-cloud cloud-one" />
-          <div className="dither-cloud cloud-two" />
-          <div className="scan-reticle"><span /><span /><span /><span /></div>
-          <div className="desktop-shapes"><i /><i /><i /></div>
+    <section className="conversation-view">
+      <header className="conversation-titlebar">
+        <div>
+          <h1>{props.session.title}</h1>
+          <p><SourceIcon kind={props.session.sourceKind} />{props.session.sourceLabel}<span>·</span>{props.provider?.name ?? '模型'}<span>·</span>{formatFullTime(props.session.createdAt)}</p>
         </div>
-        <div className="stage-copy">
-          <h1 id="capture-title">指向任何内容，<br />马上问清楚。</h1>
-          <p>框选屏幕、点一个界面元素，或拖入本地文件。提交前你会看到全部待发送内容。</p>
-          <div className="capture-actions">
-            <button type="button" className="primary-action" onClick={() => props.onCapture('region')}>
-              <Scan size={22} weight="bold" />
-              框选区域
-              <kbd>Ctrl⇧Space</kbd>
-            </button>
-            <button type="button" className="secondary-action" onClick={() => props.onCapture('element')}>
-              <CursorClick size={21} weight="bold" />
-              点选元素
-            </button>
-          </div>
-          {props.captureMessage && <p className="stage-message" role="status">{props.captureMessage}</p>}
-        </div>
-        <div className="privacy-seal"><Eye size={17} weight="bold" /> 发送前预览</div>
-      </section>
-
-      <aside
-        className={dragging ? 'evidence-panel dragging' : 'evidence-panel'}
-        onDragOver={(event) => {
-          event.preventDefault()
-          setDragging(true)
-        }}
-        onDragLeave={() => setDragging(false)}
-        onDrop={(event) => {
-          event.preventDefault()
-          setDragging(false)
-          props.onAddFiles(event.dataTransfer.files)
-        }}
-      >
-        <div className="panel-title">
-          <span>待分析内容</span>
-          {hasEvidence && <button type="button" onClick={props.onClear} aria-label="清空待分析内容"><Trash size={16} /></button>}
-        </div>
-        {hasEvidence ? (
-          <div className="file-list">
-            {props.captures.map((capture) => <CaptureRow key={capture.id} capture={capture} onRemove={() => props.onRemoveCapture(capture.id)} />)}
-            {props.files.map((file) => <FileRow key={file.id} file={file} onRemove={() => props.onRemoveFile(file.id)} onPrepare={() => props.onPrepareVideo(file.id, file.path)} />)}
-            <button type="button" className="add-more" onClick={props.onOpenFiles}><Plus size={17} />继续添加</button>
-          </div>
-        ) : (
-          <button type="button" className="drop-zone" onClick={props.onOpenFiles}>
-            <span className="drop-icon"><FilePdf size={28} weight="duotone" /><FileImage size={28} weight="duotone" /></span>
-            <strong>拖入图片、视频、PDF 或文件</strong>
-            <small>视频先在本地抽帧与提取音轨 · 发送前可预览</small>
-          </button>
-        )}
-        <div className="context-lines">
-          <div><Monitor size={17} /><span>窗口信息</span><b>提交时读取</b></div>
-          <div><CursorClick size={17} /><span>辅助功能文字</span><b>敏感字段过滤</b></div>
-          <div><ShieldCheck size={17} /><span>自动上传</span><b>关闭</b></div>
-        </div>
-      </aside>
-
-      <section className="command-window" aria-label="提问面板">
-        <div className="window-caption">
-          <span>MESSAGE.LOG</span>
-          <span>{props.files.length + props.captures.length} ATTACHMENTS</span>
-        </div>
-        <div className="prompt-tabs" role="tablist" aria-label="提问模板">
-          {prompts.map((prompt) => (
-            <button
-              type="button"
-              key={prompt.id}
-              role="tab"
-              aria-selected={props.promptId === prompt.id}
-              className={props.promptId === prompt.id ? 'selected' : ''}
-              onClick={() => props.onPrompt(prompt.id)}
-            >
-              {props.promptId === prompt.id && <CaretRight size={13} weight="fill" />}
-              <span className="prompt-copy"><strong>{prompt.label}</strong><small>{prompt.hint}</small></span>
-            </button>
-          ))}
-        </div>
-        <div className="composer">
-          <label htmlFor="question">你想知道什么？</label>
+        <button type="button" className="icon-button" onClick={props.onDelete} aria-label="删除会话"><Trash size={18} /></button>
+      </header>
+      <div className="message-stream">
+        <EvidenceStrip session={props.session} />
+        {props.session.messages.map((message) => (
+          <article key={message.id} className={`message ${message.role} ${message.status}`}>
+            <div className="message-author">{message.role === 'user' ? '你' : props.provider?.name ?? 'LensQuery'}</div>
+            {message.status === 'pending' ? (
+              <div className="thinking"><i /><i /><i /><span>正在分析选择内容</span></div>
+            ) : (
+              <div className="message-content">{message.content}</div>
+            )}
+            {message.role === 'assistant' && message.status === 'complete' && (
+              <div className="message-actions">
+                <button type="button" onClick={() => void navigator.clipboard.writeText(message.content)}><Copy size={15} />复制</button>
+                <button type="button" onClick={props.onRetry}><ArrowCounterClockwise size={15} />重试</button>
+              </div>
+            )}
+          </article>
+        ))}
+        <div ref={tailRef} />
+      </div>
+      <div className="follow-up-dock">
+        <div className="follow-up-box">
           <textarea
-            id="question"
-            value={props.question}
-            onChange={(event) => props.onQuestion(event.target.value)}
-            placeholder="例如：这是什么？请结合周围内容解释，并给我一段可以快速回复客户的话。"
+            value={props.followUp}
+            onChange={(event) => props.onFollowUp(event.target.value)}
+            placeholder="在这个会话里继续追问…"
+            aria-label="继续追问"
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault()
+                props.onSubmit()
+              }
+            }}
           />
-          <div className="composer-footer">
-            <button type="button" className="provider-chip" onClick={props.onOpenProviders}>
-              <span className={props.provider?.ready ? 'provider-dot ready' : 'provider-dot'} />
-              {props.provider?.name ?? '选择模型'}
-              <span className="provider-model">{props.provider?.model ?? '未配置'}</span>
-            </button>
-            <button type="button" className="send-button" disabled={props.busy} onClick={props.provider?.ready ? props.onSubmit : props.onOpenProviders}>
-              {props.busy ? <ArrowClockwise className="spin" size={20} /> : <PaperPlaneTilt size={20} weight="fill" />}
-              {props.busy ? '分析中' : props.provider?.ready ? '开始分析' : '先配置模型'}
-            </button>
+          <div>
+            <span>{props.provider?.name ?? '模型不可用'} · {props.provider?.model ?? 'default'}</span>
+            <button type="button" disabled={!props.followUp.trim()} onClick={props.onSubmit} aria-label="发送追问"><PaperPlaneTilt size={18} weight="fill" /></button>
           </div>
         </div>
-        {props.error && <div className="inline-error" role="alert"><WarningCircle size={18} />{props.error}</div>}
-      </section>
-
-      <aside className="provider-status">
-        <div className="panel-title"><span>模型通道</span><button type="button" onClick={props.onOpenProviders} aria-label="打开模型配置"><Gear size={16} /></button></div>
-        <div className="active-provider">
-          <span className={props.provider?.ready ? 'provider-orb ready' : 'provider-orb'}><Sparkle size={25} weight="fill" /></span>
-          <div><strong>{props.provider?.name ?? '尚未选择'}</strong><small>{props.provider?.model ?? '打开设置完成配置'}</small></div>
-        </div>
-        <div className="provider-facts">
-          <p><span>视觉输入</span><b className={props.provider?.capabilities?.vision ? '' : 'muted'}>{props.provider?.capabilities?.vision ? <Check size={14} /> : <X size={14} />}{props.provider?.ready ? props.provider.capabilities?.vision ? '支持' : '不可用' : '未配置'}</b></p>
-          <p><span>视频快析</span><b className={props.provider?.capabilities?.video ? '' : 'muted'}>{props.provider?.capabilities?.video ? <Check size={14} /> : <X size={14} />}{props.provider?.ready ? props.provider.capabilities?.video ? '关键帧' : '不可用' : '未配置'}</b></p>
-          <p><span>PDF</span><b className={props.provider?.capabilities?.pdf ? '' : 'muted'}>{props.provider?.capabilities?.pdf ? <Check size={14} /> : <X size={14} />}{props.provider?.ready ? props.provider.capabilities?.pdf ? '支持' : '不可用' : '未配置'}</b></p>
-          <p><span>{isCli ? '运行方式' : '密钥'}</span><b className={props.provider?.ready || props.provider?.secretConfigured ? '' : 'muted'}>{isCli ? <TerminalWindow size={14} /> : <Key size={14} />}{isCli ? props.provider?.ready ? '本机 CLI' : '未发现' : props.provider?.secretConfigured ? '系统保险库' : '未配置'}</b></p>
-        </div>
-        <button type="button" className="configure-link" onClick={props.onOpenProviders}>配置模型与 API <CaretRight size={15} /></button>
-      </aside>
-
-      {props.result && <ResultPanel result={props.result} />}
-    </div>
-  )
-}
-
-function CaptureRow({ capture, onRemove }: { capture: import('./types/domain').CaptureEvidence; onRemove: () => void }) {
-  return (
-    <div className="capture-row">
-      <img src={capture.previewUrl} alt="捕获区域预览" />
-      <div>
-        <strong>{capture.windowTitle || (capture.kind === 'region' ? '屏幕区域' : '界面元素')}</strong>
-        <small>{Math.round(capture.bounds.width)} × {Math.round(capture.bounds.height)} · {capture.processName || '桌面'}</small>
-        {capture.accessibleText && <small className="capture-text">{capture.accessibleText}</small>}
-      </div>
-      <button type="button" onClick={onRemove} aria-label="移除捕获内容"><X size={16} /></button>
-    </div>
-  )
-}
-
-function FileRow({ file, onRemove, onPrepare }: { file: import('./types/domain').FileEvidence; onRemove: () => void; onPrepare: () => void }) {
-  const Icon = file.kind === 'image' ? FileImage : file.kind === 'video' ? FilmStrip : file.kind === 'pdf' ? FilePdf : File
-  return (
-    <div className="file-row">
-      <Icon size={23} weight="duotone" />
-      <div>
-        <strong>{file.name}</strong>
-        <small>{file.kind.toUpperCase()} · {formatBytes(file.size)}{file.kind === 'video' ? ` · ${formatDuration(file.video?.durationSeconds)}` : ''}</small>
-        {file.kind === 'video' && (
-          <button type="button" className="prepare-video" disabled={file.processingStatus === 'preparing'} onClick={onPrepare}>
-            {file.processingStatus === 'preparing' ? '正在本地抽帧…' : file.videoPreparation ? `${file.videoPreparation.frames.length} 帧已就绪` : file.processingStatus === 'error' ? '重试准备' : '快速准备视频'}
-          </button>
-        )}
-        {file.videoPreparation && (
-          <div className="video-preparation">
-            <span>{file.videoPreparation.audioPath ? '画面 + 音轨' : '仅画面'} · 每 {file.videoPreparation.sampleIntervalSeconds.toFixed(1)} 秒取样</span>
-            <div className="video-frame-strip">
-              {file.videoPreparation.frames.map((frame) => (
-                <figure key={frame.path}>
-                  {frame.previewUrl ? <img src={frame.previewUrl} alt={`${formatDuration(frame.timestampSeconds)} 视频帧`} /> : <FilmStrip size={22} />}
-                  <figcaption>{formatDuration(frame.timestampSeconds)}</figcaption>
-                </figure>
-              ))}
-            </div>
-          </div>
-        )}
-        {file.processingError && <small className="file-error">{file.processingError}</small>}
-      </div>
-      <button type="button" onClick={onRemove} aria-label={`移除 ${file.name}`}><X size={16} /></button>
-    </div>
-  )
-}
-
-function ResultPanel({ result }: { result: AnalysisResult }) {
-  const [copied, setCopied] = useState(false)
-  const copy = async () => {
-    await navigator.clipboard.writeText(result.answer)
-    setCopied(true)
-    window.setTimeout(() => setCopied(false), 1500)
-  }
-  return (
-    <section className="result-panel" aria-live="polite">
-      <div className="window-caption"><span>ANSWER.LOG</span><span>{result.durationMs} MS</span></div>
-      <div className="result-content">
-        <div className="result-heading"><span className="answer-cursor" /><strong>分析完成</strong><small>{result.provider} · {result.model}</small></div>
-        <p>{result.answer}</p>
-        <button type="button" className="copy-answer" onClick={copy}>{copied ? <Check size={17} /> : <Copy size={17} />}{copied ? '已复制' : '复制回答'}</button>
       </div>
     </section>
   )
 }
 
-function HistoryView({ history }: { history: AnalysisResult[] }) {
+function EvidenceStrip({ session }: { session: QuerySession }) {
+  const capture = session.captures[0]
+  const file = session.files[0]
+  const browser = session.browserContext
+  if (!capture && !file && !browser) return null
   return (
-    <Page title="本地历史" description="回答保存在此设备；截图留存默认关闭。">
-      {history.length === 0 ? (
-        <EmptyState icon={ClockCounterClockwise} title="还没有分析记录" text="完成第一次询问后，回答会显示在这里。" />
-      ) : (
-        <div className="history-list">
-          {history.map((item) => (
-            <article key={item.id}>
-              <div><strong>{item.answer.split('\n')[0]}</strong><small>{new Date(item.createdAt).toLocaleString()} · {item.provider}</small></div>
-              <CaretRight size={18} />
-            </article>
-          ))}
-        </div>
-      )}
-    </Page>
+    <details className="evidence-strip">
+      <summary><SourceIcon kind={session.sourceKind} /><span>{session.sourceLabel}</span><small>查看本次上下文</small><CaretDown size={15} /></summary>
+      <div className="evidence-detail">
+        {capture?.previewUrl && <img src={capture.previewUrl} alt="屏幕选择预览" />}
+        {capture && <dl><div><dt>范围</dt><dd>{Math.round(capture.bounds.width)} × {Math.round(capture.bounds.height)}</dd></div>{capture.accessibleText && <div><dt>辅助信息</dt><dd>{capture.accessibleText}</dd></div>}</dl>}
+        {file && <dl><div><dt>文件</dt><dd>{file.name}</dd></div><div><dt>类型</dt><dd>{file.mediaType || file.kind}</dd></div><div><dt>大小</dt><dd>{formatBytes(file.size)}</dd></div></dl>}
+        {browser && <dl><div><dt>网页</dt><dd>{browser.title}</dd></div><div><dt>元素</dt><dd>{browser.tagName.toLowerCase()}{browser.role ? ` · ${browser.role}` : ''}</dd></div><div><dt>地址</dt><dd>{browser.url}</dd></div>{browser.selector && <div><dt>选择器</dt><dd><code>{browser.selector}</code></dd></div>}</dl>}
+      </div>
+    </details>
   )
 }
 
-interface ProvidersViewProps {
+function EmptyTimeline(props: { onCapture: () => void; onOpenFiles: () => void; query: string; onQuery: (value: string) => void; onSubmit: () => void }) {
+  return (
+    <section className="empty-timeline">
+      <div className="empty-instruction">
+        <div className="question-cursor"><Question size={22} weight="bold" /></div>
+        <div>
+          <h1>按快捷键开始询问</h1>
+          <p>点一下识别对象，按住拖动分析区域；网页连接器可读取所点文字、按钮、视频和周围 DOM。</p>
+        </div>
+      </div>
+      <button type="button" className="primary-button empty-primary" onClick={props.onCapture}>
+        <CursorClick size={18} />进入 ❓ 选择模式
+        <span className="shortcut-line"><kbd>Ctrl</kbd><span>+</span><kbd>Shift</kbd><span>+</span><kbd>Space</kbd></span>
+      </button>
+      <div className="alternate-label"><span>也可以直接询问</span><button type="button" onClick={props.onOpenFiles}><File size={16} />选择图片、PDF 或视频</button></div>
+      <form className="text-question" onSubmit={(event) => { event.preventDefault(); props.onSubmit() }}>
+        <input value={props.query} onChange={(event) => props.onQuery(event.target.value)} placeholder="输入一个文字问题" aria-label="直接输入问题" />
+        <button type="submit" disabled={!props.query.trim()} aria-label="发送文字问题"><PaperPlaneTilt size={17} weight="fill" /></button>
+      </form>
+    </section>
+  )
+}
+
+function ProvidersPanel(props: {
   providers: ProviderProfile[]
   selectedId: string
   onSelect: (id: string) => void
   onSave: (profile: ProviderProfile) => Promise<ProviderProfile>
   onRescan: () => Promise<ProviderProfile[]>
-}
-
-function ProvidersView({ providers, selectedId, onSelect, onSave, onRescan }: ProvidersViewProps) {
-  const [editing, setEditing] = useState<ProviderProfile | null>(null)
-  const [secret, setSecret] = useState('')
-  const [message, setMessage] = useState('')
+}) {
   const [scanning, setScanning] = useState(false)
-
-  const save = async () => {
-    if (!editing) return
-    let profile = editing
-    if (secret.trim()) {
-      const configured = await setProviderSecret(editing.id, secret)
-      profile = { ...profile, secretConfigured: configured }
-    }
-    await onSave(profile)
-    setEditing(null)
-    setSecret('')
-  }
-
+  const [testingId, setTestingId] = useState('')
+  const [message, setMessage] = useState('')
+  const [editing, setEditing] = useState<ProviderProfile | null>(null)
   return (
-    <Page title="模型通道" description="自动发现 Codex、Claude Code、OpenCode 与 Grok，也可连接直接 API。">
-      <div className="provider-toolbar">
-        <div><strong>CLI AUTO DISCOVERY</strong><small>并行扫描 PATH 与常见用户安装目录；版本探测最多等待 2 秒，登录状态在首次请求时校验。</small></div>
-        <button type="button" className="secondary-action compact" disabled={scanning} onClick={async () => {
-          setScanning(true)
-          setMessage('')
-          try {
-            const detected = await onRescan()
-            setMessage(`扫描完成：发现 ${detected.filter((item) => item.kind.endsWith('cli') && item.ready).length} 个可用 CLI。`)
-          } catch (cause) {
-            setMessage(String(cause))
-          } finally {
-            setScanning(false)
-          }
-        }}><ArrowClockwise className={scanning ? 'spin' : ''} size={17} />{scanning ? '正在扫描' : '重新扫描 CLI'}</button>
-      </div>
-      {message && !editing && <p className="discovery-message" role="status">{message}</p>}
-      <div className="provider-grid">
-        {providers.map((provider) => (
-          <article key={provider.id} className={selectedId === provider.id ? 'provider-card selected' : 'provider-card'}>
-            <button type="button" className="provider-main" onClick={() => onSelect(provider.id)}>
-              <span className={provider.ready ? 'provider-orb ready' : 'provider-orb'}><Sparkle size={22} weight="fill" /></span>
-              <span><strong>{provider.name}</strong><small>{provider.model}</small></span>
-              {selectedId === provider.id && <span className="default-tag"><Check size={13} />默认</span>}
+    <section className="settings-surface">
+      <header className="section-heading"><div><h1>模型与本机智能体</h1><p>自动发现本机安装的 Codex、Claude Code、OpenCode 和 Grok，也可配置直接 API。</p></div><button type="button" className="secondary-button" disabled={scanning} onClick={async () => { setScanning(true); await props.onRescan(); setScanning(false); setMessage('扫描完成') }}><ArrowCounterClockwise className={scanning ? 'spin' : ''} size={17} />{scanning ? '正在扫描' : '重新扫描'}</button></header>
+      {message && <div className="inline-note"><Check size={16} />{message}</div>}
+      <div className="provider-list">
+        {props.providers.map((provider) => (
+          <div className={provider.id === props.selectedId ? 'provider-row selected' : 'provider-row'} key={provider.id}>
+            <button type="button" className="provider-main" onClick={() => props.onSelect(provider.id)}>
+              <span className={provider.ready ? 'provider-icon ready' : 'provider-icon'}>{provider.kind.endsWith('cli') ? <TerminalWindow size={20} /> : <Sparkle size={20} />}</span>
+              <span><strong>{provider.name}</strong><small>{provider.cli?.executablePath || provider.baseUrl || provider.kind}</small></span>
+              <span className="provider-model-name">{provider.model}</span>
+              <span className={provider.ready ? 'availability ready' : 'availability'}>{provider.ready ? '可用' : provider.kind.endsWith('cli') ? '未发现' : '未配置'}</span>
             </button>
-            <div className="provider-card-footer">
-              <span>{provider.kind.endsWith('cli') ? provider.ready ? `已发现${provider.cli?.version ? ` · ${provider.cli.version}` : ''}` : '未安装' : provider.secretConfigured ? '密钥已保存' : '需要 API Key'}</span>
-              <button type="button" onClick={() => { setEditing(provider); setMessage('') }}>配置</button>
+            <div className="provider-actions">
+              {provider.id === props.selectedId && <span className="default-mark"><Check size={13} />默认</span>}
+              <button type="button" onClick={async () => { setTestingId(provider.id); try { setMessage(await testProvider(provider)) } catch (cause) { setMessage(String(cause)) } finally { setTestingId('') } }}>{testingId === provider.id ? '测试中' : '测试'}</button>
+              <button type="button" onClick={() => setEditing(provider)}>配置</button>
             </div>
-          </article>
+          </div>
         ))}
-        <button type="button" className="new-provider" onClick={() => setEditing({ id: crypto.randomUUID(), name: '兼容 API', kind: 'compatible', model: '', baseUrl: 'https://api.example.com/v1', ready: false, secretConfigured: false, capabilities: { vision: true, pdf: false, files: false, video: true, audioTranscription: false, streaming: true } })}>
-          <Plus size={24} />添加兼容端点
-        </button>
       </div>
-
-      {editing && (
-        <div className="editor-panel">
-          <div className="window-caption"><span>PROVIDER.CONFIG</span><button type="button" onClick={() => setEditing(null)} aria-label="关闭"><X size={16} /></button></div>
-          <div className="form-grid">
-            <label>显示名称<input value={editing.name} onChange={(event) => setEditing({ ...editing, name: event.target.value })} /></label>
-            <label>模型 ID<input value={editing.model} onChange={(event) => setEditing({ ...editing, model: event.target.value })} /></label>
-            {editing.kind.endsWith('cli') && <label className="full cli-path-field">自动发现路径<span><Path size={16} />{editing.cli?.executablePath ?? `${editing.cli?.command ?? 'CLI'} 尚未发现`}</span><small>命令由内置适配器固定生成，不通过 Shell 拼接。</small></label>}
-            {!editing.kind.endsWith('cli') && <label className="full">API 地址<input value={editing.baseUrl ?? ''} placeholder={editing.kind === 'openai' ? 'https://api.openai.com/v1' : editing.kind === 'anthropic' ? 'https://api.anthropic.com' : 'https://HOST/v1'} onChange={(event) => setEditing({ ...editing, baseUrl: event.target.value })} /></label>}
-            {!editing.kind.endsWith('cli') && <label className="full">API Key<input type="password" autoComplete="off" value={secret} placeholder={editing.secretConfigured ? '已保存在系统保险库；留空即不修改' : '保存到系统保险库'} onChange={(event) => setSecret(event.target.value)} /></label>}
-          </div>
-          {message && <p className="test-message" role="status">{message}</p>}
-          <div className="editor-actions">
-            <button type="button" className="secondary-action" onClick={async () => setMessage(await testProvider(editing))}>{editing.kind.endsWith('cli') ? '检查路径' : '测试连接'}</button>
-            <button type="button" className="primary-action compact" onClick={save}><Check size={18} />保存配置</button>
-          </div>
-        </div>
-      )}
-    </Page>
+      <div className="runtime-note"><strong>推荐底座</strong><p>Codex 使用 App Server 承载线程、回合、流式事件和追问；OpenCode 使用 Server / SDK；其他智能体通过 ACP 或受限 CLI 适配。界面不复制任何一个终端，只复用它们的会话运行时。</p></div>
+      {editing && <ProviderEditor profile={editing} onClose={() => setEditing(null)} onSave={async (profile, secret) => { if (secret) await setProviderSecret(profile.id, secret); await props.onSave({ ...profile, ready: profile.kind.endsWith('cli') ? profile.ready : Boolean(secret) || profile.secretConfigured, secretConfigured: Boolean(secret) || profile.secretConfigured }); setEditing(null); setMessage('配置已保存') }} />}
+    </section>
   )
 }
 
-function SettingsView({ settings, onSave }: { settings: AppSettings; onSave: (settings: AppSettings) => Promise<void> }) {
-  const [draft, setDraft] = useState(settings)
+function ProviderEditor(props: { profile: ProviderProfile; onClose: () => void; onSave: (profile: ProviderProfile, secret: string) => Promise<void> }) {
+  const [profile, setProfile] = useState(props.profile)
+  const [secret, setSecret] = useState('')
+  return (
+    <div className="editor-drawer">
+      <header><div><h2>{profile.name}</h2><p>配置模型和连接信息</p></div><button type="button" className="icon-button" onClick={props.onClose}><X size={18} /></button></header>
+      <label>显示名称<input value={profile.name} onChange={(event) => setProfile({ ...profile, name: event.target.value })} /></label>
+      <label>模型 ID<input value={profile.model} onChange={(event) => setProfile({ ...profile, model: event.target.value })} /></label>
+      {!profile.kind.endsWith('cli') && <><label>API 地址<input value={profile.baseUrl ?? ''} onChange={(event) => setProfile({ ...profile, baseUrl: event.target.value })} /></label><label>API Key<input type="password" value={secret} placeholder={profile.secretConfigured ? '已保存在系统凭据库' : '输入 API Key'} onChange={(event) => setSecret(event.target.value)} /></label></>}
+      <div className="drawer-actions"><button type="button" className="secondary-button" onClick={props.onClose}>取消</button><button type="button" className="primary-button" onClick={() => void props.onSave(profile, secret)}>保存</button></div>
+    </div>
+  )
+}
+
+function SettingsPanel(props: { settings: AppSettings; onSave: (settings: AppSettings) => Promise<void> }) {
+  const [draft, setDraft] = useState(props.settings)
   const [saved, setSaved] = useState(false)
-  const commit = async () => {
-    await onSave(draft)
-    setSaved(true)
-    window.setTimeout(() => setSaved(false), 1500)
+  return (
+    <section className="settings-surface narrow">
+      <header className="section-heading"><div><h1>设置</h1><p>快捷键、语言、回复方式和本地记录。</p></div></header>
+      <div className="settings-group"><h2>取景</h2><label>全局快捷键<input value={draft.shortcut} onChange={(event) => setDraft({ ...draft, shortcut: event.target.value })} /><small>从任何应用进入 ❓ 询问模式</small></label><Toggle checked={draft.showPreview} label="分析前显示上下文预览" onChange={(showPreview) => setDraft({ ...draft, showPreview })} /></div>
+      <div className="settings-group"><h2>语言与回答</h2><label>界面语言<select value={draft.language} onChange={(event) => setDraft({ ...draft, language: event.target.value as AppSettings['language'] })}><option value="zh-CN">简体中文</option><option value="en">English</option></select></label><Toggle checked={draft.detectCustomerLanguage} label="自动跟随顾客语言回答" onChange={(detectCustomerLanguage) => setDraft({ ...draft, detectCustomerLanguage })} /><label>无法识别时的语言<select value={draft.responseLanguage} onChange={(event) => setDraft({ ...draft, responseLanguage: event.target.value as AppSettings['responseLanguage'] })}><option value="zh-CN">简体中文</option><option value="en">English</option><option value="ja-JP">日本語</option><option value="ko-KR">한국어</option><option value="es-ES">Español</option><option value="fr-FR">Français</option><option value="de-DE">Deutsch</option></select></label><label>回答风格<select value={draft.replyStyle} onChange={(event) => setDraft({ ...draft, replyStyle: event.target.value as AppSettings['replyStyle'] })}><option value="customer-ready">客户可直接使用</option><option value="concise">简短结论</option><option value="detailed">详细分析</option></select></label><label>自定义要求<textarea value={draft.customReplyInstruction} onChange={(event) => setDraft({ ...draft, customReplyInstruction: event.target.value })} placeholder="例如：先用日语敬语给出回复，再用中文说明依据。" /></label></div>
+      <div className="settings-group"><h2>本地数据</h2><Toggle checked={draft.saveHistory} label="保存会话时间线" onChange={(saveHistory) => setDraft({ ...draft, saveHistory })} /><Toggle checked={draft.retainImages} label="保留捕获图片" onChange={(retainImages) => setDraft({ ...draft, retainImages })} /></div>
+      <div className="settings-footer"><span>{saved ? '已保存' : '设置只保存在本机'}</span><button type="button" className="primary-button" onClick={async () => { await props.onSave(draft); setSaved(true); window.setTimeout(() => setSaved(false), 1800) }}>保存设置</button></div>
+    </section>
+  )
+}
+
+function Toggle(props: { checked: boolean; label: string; onChange: (checked: boolean) => void }) {
+  return <label className="toggle-row"><span>{props.label}</span><input type="checkbox" checked={props.checked} onChange={(event) => props.onChange(event.target.checked)} /><i /></label>
+}
+
+function CaptureOverlay() {
+  const [start, setStart] = useState<{ x: number; y: number } | null>(null)
+  const [current, setCurrent] = useState<{ x: number; y: number } | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [captureError, setCaptureError] = useState('')
+  const selection = start && current ? normalizeSelection(start, current) : null
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') void cancelCapture()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+  async function finish(event: React.PointerEvent<HTMLDivElement>) {
+    if (!start || busy) return
+    const end = { x: event.clientX, y: event.clientY }
+    const bounds = normalizeSelection(start, end)
+    const isClick = bounds.width < 8 && bounds.height < 8
+    setBusy(true)
+    try {
+      await completeCapture({
+        mode: isClick ? 'element' : 'region',
+        bounds: isClick
+          ? { x: event.screenX, y: event.screenY, width: 1, height: 1 }
+          : {
+              x: event.screenX - (event.clientX - bounds.x),
+              y: event.screenY - (event.clientY - bounds.y),
+              width: bounds.width,
+              height: bounds.height,
+            },
+      })
+    } catch (cause) {
+      setBusy(false)
+      setStart(null)
+      setCurrent(null)
+      setCaptureError(String(cause))
+    }
   }
-  const t = createTranslator(draft.language)
   return (
-    <Page title={t('settingsTitle')} description={t('settingsDescription')}>
-      <div className="settings-sheet">
-        <section>
-          <h2>{t('capture')}</h2>
-          <label className="field-row"><span><strong>{t('shortcut')}</strong><small>{t('shortcutHelp')}</small></span><input value={draft.shortcut} onChange={(event) => setDraft({ ...draft, shortcut: event.target.value })} /></label>
-          <Toggle label={t('preview')} detail={t('previewHelp')} checked={draft.showPreview} onChange={(showPreview) => setDraft({ ...draft, showPreview })} />
-        </section>
-        <section>
-          <h2>{t('localData')}</h2>
-          <Toggle label={t('historySave')} detail={t('historySaveHelp')} checked={draft.saveHistory} onChange={(saveHistory) => setDraft({ ...draft, saveHistory })} />
-          <Toggle label={t('retain')} detail={t('retainHelp')} checked={draft.retainImages} onChange={(retainImages) => setDraft({ ...draft, retainImages })} />
-        </section>
-        <section>
-          <h2>{t('interface')}</h2>
-          <label className="field-row"><span><strong>{t('interfaceLanguage')}</strong><small>{t('interfaceLanguageHelp')}</small></span><select value={draft.language} onChange={(event) => setDraft({ ...draft, language: event.target.value as AppSettings['language'] })}><option value="zh-CN">简体中文</option><option value="en">English</option></select></label>
-        </section>
-        <section>
-          <h2>{t('customerReply')}</h2>
-          <Toggle label={t('followCustomer')} detail={t('followCustomerHelp')} checked={draft.detectCustomerLanguage} onChange={(detectCustomerLanguage) => setDraft({ ...draft, detectCustomerLanguage })} />
-          <label className="field-row"><span><strong>{t('fallbackLanguage')}</strong><small>{t('fallbackLanguageHelp')}</small></span><select value={draft.responseLanguage} onChange={(event) => setDraft({ ...draft, responseLanguage: event.target.value as AppSettings['responseLanguage'] })}><option value="zh-CN">简体中文</option><option value="en">English</option><option value="ja-JP">日本語</option><option value="ko-KR">한국어</option><option value="es-ES">Español</option><option value="fr-FR">Français</option><option value="de-DE">Deutsch</option></select></label>
-          <label className="field-row"><span><strong>{t('replyStyle')}</strong><small>{t('replyStyleHelp')}</small></span><select value={draft.replyStyle} onChange={(event) => setDraft({ ...draft, replyStyle: event.target.value as AppSettings['replyStyle'] })}><option value="customer-ready">{t('customerReady')}</option><option value="concise">{t('concise')}</option><option value="detailed">{t('detailed')}</option></select></label>
-          <label className="text-field-row"><span><strong>{t('customInstruction')}</strong><small>{t('customInstructionHelp')}</small></span><textarea maxLength={1000} value={draft.customReplyInstruction} placeholder={t('optional')} onChange={(event) => setDraft({ ...draft, customReplyInstruction: event.target.value })} /><b>{draft.customReplyInstruction.length}/1000</b></label>
-          <div className="language-preview"><span>AUTO LANGUAGE</span><strong>{draft.detectCustomerLanguage ? t('autoLanguage') : `${t('fixedLanguage')} ${draft.responseLanguage}`}</strong><small>{t('languagePriority')}</small></div>
-        </section>
-        <button type="button" className="primary-action compact save-settings" onClick={commit}>{saved ? <Check size={18} /> : <Gear size={18} />}{saved ? t('saved') : t('save')}</button>
-      </div>
-    </Page>
-  )
-}
-
-function Toggle({ label, detail, checked, onChange }: { label: string; detail: string; checked: boolean; onChange: (checked: boolean) => void }) {
-  return (
-    <label className="toggle-row">
-      <span><strong>{label}</strong><small>{detail}</small></span>
-      <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
-      <span className="toggle-track"><span /></span>
-    </label>
-  )
-}
-
-function Page({ title, description, children }: { title: string; description: string; children: React.ReactNode }) {
-  return (
-    <div className="page-view">
-      <header><h1>{title}</h1><p>{description}</p></header>
-      {children}
+    <div
+      className="capture-overlay"
+      onPointerDown={(event) => { setCaptureError(''); event.currentTarget.setPointerCapture(event.pointerId); setStart({ x: event.clientX, y: event.clientY }); setCurrent({ x: event.clientX, y: event.clientY }) }}
+      onPointerMove={(event) => { if (start) setCurrent({ x: event.clientX, y: event.clientY }) }}
+      onPointerUp={finish}
+    >
+      <div className="overlay-help"><Question size={20} weight="bold" /><span>点一下识别对象 · 按住拖动选择区域 · Esc 取消</span></div>
+      {selection && selection.width >= 8 && selection.height >= 8 && <div className="selection-box" style={{ left: selection.x, top: selection.y, width: selection.width, height: selection.height }}><span>{Math.round(selection.width)} × {Math.round(selection.height)}</span></div>}
+      {busy && <div className="overlay-busy">正在读取所选内容…</div>}
+      {captureError && <div className="overlay-error"><WarningCircle size={18} /><span>读取失败，请重新选择；或按 Esc 退出。<small>{captureError}</small></span></div>}
     </div>
   )
 }
 
-function EmptyState({ icon: Icon, title, text }: { icon: typeof Aperture; title: string; text: string }) {
-  return (
-    <div className="empty-state">
-      <Icon size={42} weight="duotone" />
-      <strong>{title}</strong>
-      <p>{text}</p>
-    </div>
-  )
+function normalizeSelection(start: { x: number; y: number }, end: { x: number; y: number }) {
+  return { x: Math.min(start.x, end.x), y: Math.min(start.y, end.y), width: Math.abs(end.x - start.x), height: Math.abs(end.y - start.y) }
+}
+
+function SourceIcon({ kind }: { kind: QuerySession['sourceKind'] }) {
+  if (kind === 'browser') return <Globe size={17} />
+  if (kind === 'file') return <File size={17} />
+  if (kind === 'screen') return <Scan size={17} />
+  if (kind === 'element') return <CursorClick size={17} />
+  return <Question size={17} />
+}
+
+function LoadingScreen() {
+  return <div className="loading-screen" role="status"><Question size={25} weight="bold" /><span>LensQuery 正在后台就绪</span></div>
+}
+
+function relativeTime(value: string) {
+  const delta = Math.max(0, Date.now() - new Date(value).getTime())
+  if (delta < 60_000) return '刚刚'
+  if (delta < 3_600_000) return `${Math.floor(delta / 60_000)} 分钟前`
+  if (delta < 86_400_000) return `${Math.floor(delta / 3_600_000)} 小时前`
+  return new Intl.DateTimeFormat('zh-CN', { month: 'short', day: 'numeric' }).format(new Date(value))
+}
+
+function formatFullTime(value: string) {
+  return new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(value))
 }
 
 export default App

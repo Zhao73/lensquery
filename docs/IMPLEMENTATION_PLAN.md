@@ -2,132 +2,90 @@
 
 ## Release definition
 
-The first public release is a Windows-first open-source desktop application that can:
+The release is successful when a Windows user can leave LensQuery in the tray, press one shortcut from another application, click an object or drag a region, receive an automatic answer, and continue that answer in a local conversation timeline.
 
-1. run in the system tray;
-2. register configurable global shortcuts;
-3. open a full-desktop selection overlay;
-4. capture a clicked UI element or dragged rectangular region;
-5. accept local images, videos, PDFs, and text-oriented files;
-6. preview exactly what will be submitted;
-7. send multimodal requests through OpenAI, Anthropic, or an OpenAI-compatible endpoint;
-8. automatically discover and optionally invoke Codex, Claude Code, OpenCode, or Grok CLI in non-interactive analysis mode;
-9. show, copy, and continue an answer in a compact result window;
-10. keep secrets in the operating-system credential store and history locally.
+## Milestones and current state
 
-## Architecture
+### M0 — Repository and contracts: complete
 
-```mermaid
-flowchart LR
-    A["Global shortcut / tray / file shell"] --> B["Capture coordinator"]
-    B --> C["Region capture"]
-    B --> D["Windows UI Automation"]
-    B --> E["File and PDF parser"]
-    C --> F["Context package"]
-    D --> F
-    E --> F
-    F --> G["Consent preview"]
-    G --> H["Provider router"]
-    H --> I["OpenAI Responses"]
-    H --> J["Anthropic Messages"]
-    H --> K["OpenAI-compatible API"]
-    H --> L["Codex / Claude / OpenCode / Grok CLI"]
-    I --> M["Result overlay and local history"]
-    J --> M
-    K --> M
-    L --> M
-```
+- Tauri 2, Rust, React, TypeScript, Vite, tests, CI, MIT license.
+- Provider-independent capture, browser context, file, video, request, result, and session contracts.
+- Local discovery for Codex, Claude Code, OpenCode, and Grok executables.
 
-## Milestones
+### M1 — Resident shortcut shell: implemented, runtime verification pending
 
-### M0: Repository and contracts
+- System tray with Quick Ask, Open Conversations, and Quit.
+- Main-window close hides to tray.
+- Configurable global shortcut registration in Rust.
+- Separate transparent all-monitor capture overlay.
+- Question-mark cursor, click versus drag threshold, Escape cancellation.
 
-- Tauri 2, React, TypeScript, Vite, Rust workspace.
-- MIT license, contribution guide, security policy, code of conduct, issue templates, CI.
-- Typed contracts for capture, attachments, provider profiles, requests, responses, and settings.
-- Provider and platform services are interface-driven so Windows-specific code does not leak into UI components.
+macOS compilation is verified locally. Windows behavior must still be exercised on physical Windows 10/11, especially mixed-DPI coordinates and tray lifecycle.
 
-### M1: Working application shell
+### M2 — Native capture: implemented baseline, Windows QA pending
 
-- Fluent-inspired Windows desktop UI with dashboard, history, and settings routes.
-- Tray menu, show/hide behavior, single-instance handling, and launch-at-login setting.
-- Global shortcut registration through the official Tauri plugin.
-- Local settings persistence; API keys represented only by credential references.
+- XCap region capture to a temporary PNG.
+- Windows UI Automation `ElementFromPoint` lookup for name, role, class, AutomationId, and bounding rectangle.
+- Pixel fallback when UI Automation exposes nothing useful.
+- Automatic evidence event into the conversation pipeline.
 
-### M2: Capture modes
+Remaining: multi-monitor mixed-DPI test matrix, protected/elevated-surface errors, capture-retention cleanup, and optional frozen-snapshot rendering so dynamic content does not move while dragging.
 
-- Full-screen transparent overlay covering all monitors.
-- Drag selection with size readout, cancel, retry, and confirm.
-- Click inspection that queries UI Automation at the pointer and captures its bounding rectangle.
-- Screen capture implementation behind `CaptureBackend`, with a deterministic mock backend for non-Windows development and tests.
-- Privacy preview with image cropping and removable context fields.
+### M3 — Conversation workbench: implemented
 
-### M3: Files and PDFs
+- No upload/dashboard homepage.
+- Searchable local timeline, source metadata, answer states, copy/retry, deletion, and clear history.
+- Same-session follow-up with transcript context.
+- Plain Windows/Codex-like workbench styling with system typography and one action color.
 
-- Drag-and-drop and native file picker.
-- Image normalization and metadata stripping.
-- PDF metadata/text extraction plus bounded page rendering when needed.
-- Text-oriented file preview with size/type limits, binary detection, and truncation notice.
-- Optional Windows Explorer `Send to LensQuery` integration after the core path is stable.
+Remaining: replace transcript replay with native thread IDs when Codex App Server/OpenCode adapters land; add token streaming and cancellation.
 
-### M3.5: Video fast analysis
+### M4 — Agent runtime adapters: next
 
-- Local FFprobe metadata inspection with clear missing-runtime recovery.
-- Duration-aware extraction of 3-24 timestamped frames, downscaled before provider submission.
-- Optional compact audio extraction and transcription when the selected route declares support.
-- Evidence preview that exposes each derivative artifact rather than uploading the original video invisibly.
-- Prompts that return summary, key moments, visible text/objects, transcript findings, and a customer-ready answer.
+1. Implement a long-lived `codex app-server --stdio` JSON-RPC client.
+2. Generate schemas from the installed Codex version at build/test time.
+3. Map LensQuery session IDs to Codex thread IDs; use `thread/start`, `thread/resume`, `turn/start`, item deltas, and `turn/completed`.
+4. Add OpenCode Server/SDK adapter with session and SSE mapping.
+5. Add ACP adapter for compatible agents.
+6. Retain bounded headless CLI invocation as the compatibility fallback.
 
-### M4: AI routing
+Acceptance: follow-ups append to the original agent session without replaying the entire transcript, partial output streams into the timeline, and approvals remain visible/user-controlled.
 
-- OpenAI Responses adapter using image data URLs and direct file inputs where supported.
-- Anthropic Messages adapter using base64 image/document blocks where supported.
-- OpenAI-compatible adapter with configurable base URL, headers, model ID, and vision capability toggle.
-- CLI adapters: PATH/common-directory discovery, two-second version timeout, bounded analysis timeout, fixed non-shell arguments, stdout/stderr parsing, and no tool permissions by default.
-- Reply-language policy: automatic customer-language matching, explicit fallback language, response style, and bounded custom instructions.
-- Streaming normalized into provider-independent events.
+### M5 — Browser connector: picker implemented, native-host packaging next
 
-### M5: Answer workflow
+- MV3 extension manifest.
+- Shortcut/action starts an in-page pointer picker.
+- Click extraction for text, button/link roles, images, video/audio state, selector, nearby text, sanitized outer HTML, URL, and title.
+- `activeTab` limits access to explicit user invocation.
 
-- Compact always-on-top result overlay near the capture region.
-- Fast-answer template for customer support: observation, likely meaning, suggested reply, and uncertainty.
-- General explain, translate, troubleshoot, compare, and custom prompts.
-- Copy answer, copy source evidence, follow up, open full history, retry with another model.
+Remaining: build the `com.lensquery.desktop` Native Messaging host executable/stdio mode, generate Chrome/Edge host manifests during install, inject verified extension IDs, and add optional explicit DevTools/CDP deep-source mode.
 
-### M6: Hardening and distribution
+### M6 — Files, PDF, and video completion
 
-- Windows 10/11 multi-monitor and DPI tests.
-- Keyboard-only and high-contrast tests.
-- Secret-redaction and outbound-payload snapshot tests.
-- Crash recovery, timeouts, cancellation, offline errors, rate-limit guidance.
-- Signed MSIX/NSIS release workflow left ready for maintainer certificates; unsigned development artifacts remain clearly labeled.
+- Native file picker/drop already enters the conversation pipeline.
+- FFprobe/FFmpeg video probing and bounded frame/audio derivative code exists.
 
-## Security and privacy boundaries
+Remaining: automatic video preparation after selection, PDF text/page rendering, Explorer shell verb / protocol activation, outbound derivative preview, and cleanup policies.
 
-- The capture overlay never uploads automatically.
-- The preview lists image regions, extracted text, filenames, window metadata, and endpoint host.
-- Password-like fields discovered through UI Automation are omitted.
-- Raw API keys are written only to Windows Credential Manager, macOS Keychain, or Linux Secret Service through the keyring abstraction.
-- Local CLI adapters receive read-only prompt/file context. They do not receive broad working-directory access unless the user deliberately selects a folder.
-- History defaults to local metadata plus answer; retaining screenshots is opt-in.
-- Diagnostic logs redact authorization headers, key-like strings, file contents, and image payloads.
+### M7 — Distribution
+
+- Windows 10/11 tests at 100/125/150/200% scaling and mixed monitors.
+- Installer creates tray/startup preferences, Native Messaging manifests, and optional Explorer action.
+- Signed MSIX/NSIS once maintainer certificates exist.
+- Release artifacts label unsigned development builds clearly.
 
 ## Verification matrix
 
-| Layer | Check |
+| Layer | Current command / gate |
 | --- | --- |
-| TypeScript | `pnpm typecheck`, ESLint, Vitest |
-| React UI | component tests, keyboard interactions, empty/loading/error states |
-| Rust core | `cargo fmt --check`, `cargo clippy`, `cargo test` |
-| Contract | serialized request/response fixtures and outbound-payload snapshots |
-| Build | `pnpm build`, `pnpm tauri build --debug` on Windows CI |
-| Runtime | Windows 10/11, 100/125/150/200% DPI, mixed-DPI monitors |
-| Providers | mocked HTTP contract tests; live checks only with maintainer secrets |
-| Packaging | Windows artifact smoke install/uninstall and tray/shortcut verification |
+| Frontend lint/types/tests/build | `npm run check` |
+| Rust format | `cargo fmt --manifest-path src-tauri/Cargo.toml --check` |
+| Rust compile/lints/tests | `cargo clippy --all-targets -- -D warnings`, `cargo test` |
+| Desktop smoke | `npm run tauri dev`; main, tray, overlay, click, drag, Escape |
+| Windows native | GitHub Actions Windows plus physical mixed-DPI run |
+| Browser connector | load unpacked; click text/button/video; verify bounded payload and failure state |
+| Agent sessions | mocked JSON-RPC/SSE fixtures, then opt-in live provider smoke |
 
-## Deferred scope
+## Honest current boundary
 
-- Browser extension for exact URL, DOM, accessibility tree, and selected text.
-- OCR engine bundled for fully offline recognition.
-- Team-managed provider policies and shared prompt libraries.
-- Automated customer-message sending. LensQuery drafts and copies answers; an external send remains a distinct user action.
+The repository now has the intended interaction shell and native capture baseline. It does not yet claim production-ready Windows packaging, a working browser Native Messaging install, or a completed Codex App Server/OpenCode session adapter. Those are the next implementation gates, not UI placeholders.

@@ -1,103 +1,96 @@
 # Architecture
 
-## Process model
+## Product shape
 
-- **Tauri webview:** dashboard, settings, evidence preview, result surface, history.
-- **Rust core:** window lifecycle, tray, capture orchestration, screen APIs, Windows UI Automation, file reading, credential vault, provider HTTP, and local CLI subprocesses.
-- **Capture overlay:** a dedicated transparent, borderless, always-on-top Tauri window with an immutable desktop snapshot underneath the selection UI.
-- **Result overlay:** a separate compact always-on-top window. It never steals focus while the user is selecting.
+LensQuery is a resident desktop input layer, not a dashboard. The normal state is hidden in the tray. A single global shortcut switches the pointer into question mode; click selects one object and hold-drag selects a screen region. The main window exists only for the local conversation timeline, follow-ups, model routing, and settings.
 
-## Rust modules
-
-```text
-src-tauri/src/
-  lib.rs                 application and plugin setup
-  commands.rs            narrow Tauri command surface
-  models.rs              serialized contracts
-  capture/
-    mod.rs               CaptureBackend trait and coordinator
-    mock.rs              deterministic development backend
-    windows.rs           Windows Graphics Capture/GDI implementation
-    uia.rs               UI Automation element lookup and redaction
-  providers/
-    mod.rs               ProviderAdapter trait
-    openai.rs             Responses API
-    anthropic.rs          Messages API
-    compatible.rs         OpenAI-compatible endpoint
-    cli.rs                CLI discovery for Codex, Claude Code, OpenCode, and Grok
-  files/
-    mod.rs               classification and limits
-    pdf.rs               metadata, text, bounded page rendering
-  video.rs               FFprobe metadata, bounded frame sampling, compact audio extraction
-  secrets.rs             OS credential vault abstraction
-  storage.rs             settings and optional local history
+```mermaid
+flowchart LR
+    A["Global shortcut"] --> B["Question overlay"]
+    B -->|"click"| C["UI Automation element"]
+    B -->|"drag"| D["screen crop"]
+    E["Browser connector"] --> F["DOM / text / media context"]
+    G["Explorer file or picker"] --> H["file / PDF / video pipeline"]
+    C --> I["bounded context package"]
+    D --> I
+    F --> I
+    H --> I
+    I --> J["agent runtime adapter"]
+    J --> K["local conversation timeline"]
+    K --> J
 ```
 
-## Frontend modules
+## Processes and windows
 
-```text
-src/
-  app/                    shell and route state
-  components/             reusable controls and feedback states
-  features/capture/       selection and capture preview
-  features/analysis/      composer, progress, answer, follow-up
-  features/files/         drop zone and attachment preview
-  features/providers/     provider profiles and health checks
-  features/settings/      shortcuts, privacy, storage, language
-  lib/                    Tauri bridge and browser mock
-  store/                  small Zustand app state
-  types/                  shared frontend contracts
-```
+- **Resident Tauri process:** owns tray, global shortcut, model processes, capture, credentials, and local storage.
+- **`main` window:** a plain conversation workbench. Closing hides it; it does not terminate the resident process.
+- **`capture` window:** transparent, borderless, always-on-top overlay spanning the virtual desktop. Its custom cursor is a question mark. It distinguishes a click from a drag by movement threshold.
+- **Browser companion extension:** reads the explicitly clicked DOM element through `activeTab` and content-script APIs, sanitizes a bounded context package, and forwards it through a Native Messaging host.
 
-## Windows implementation notes
+## Agent runtime foundation
 
-- Use virtual-screen coordinates, not primary-monitor coordinates.
-- Convert between logical and physical pixels at every display boundary.
-- Obtain a UI Automation element at the pointer using `ElementFromPoint`; walk only the bounded relevant subtree.
-- Prefer Windows Graphics Capture for modern composed surfaces, with a documented fallback for older or protected surfaces.
-- Hide LensQuery windows before acquiring the desktop image and restore only after the snapshot is ready.
-- Protected video, elevated windows, secure desktops, and some GPU surfaces may return black or unavailable frames; report this as a platform limitation.
+There is no single foundation used by every open-source terminal agent. Most projects combine three layers:
 
-## Browser context phases
+1. a model/provider SDK and tool loop;
+2. a headless session protocol or local server;
+3. a TUI/GUI client.
 
-### First release
+LensQuery should reuse layer 2 rather than embedding somebody else's terminal interface.
 
-- Screen crop.
-- Browser process and window title.
-- UI Automation text where exposed.
-- User-provided question.
+### Primary: Codex App Server
 
-### Companion extension
+`codex app-server` is the first adapter because it already models the UX LensQuery needs: persistent threads, turns, items, resume/fork/list, streaming deltas, completion events, and approval requests over local JSON-RPC/JSONL. The adapter owns one process and maps one LensQuery timeline item to a Codex thread.
 
-- Active tab URL/title and selected text.
-- Bounded DOM/accessibility excerpt around a clicked coordinate.
-- Explicit per-site permission and a visible connection indicator.
-- Native messaging channel to the desktop app.
+### Secondary: OpenCode Server / SDK
 
-The extension is additive. Screen capture continues to work without it.
+OpenCode exposes a headless HTTP server, OpenAPI schema, SDK, SSE event stream, and session endpoints. It is the provider-neutral second adapter and a good fit when the user already configured several model vendors in OpenCode.
 
-## Video analysis pipeline
+### Interoperability: ACP
 
-1. Validate the user-selected path and inspect it locally with `ffprobe`.
-2. Compute a bounded uniform sampling interval from duration, defaulting to 12 frames and enforcing a hard maximum of 24.
-3. Use `ffmpeg` to produce downscaled JPEG frames carrying explicit timestamps.
-4. If audio exists, extract a compact 16 kHz mono track. Transcription is optional and routed only to a provider that declares audio-transcription support.
-5. The outbound preview lists every frame timestamp, the audio derivative, metadata, and endpoint before submission.
-6. Vision providers receive ordered images plus timestamp labels and transcript text. This avoids claiming raw-video support where the provider documents only image input.
+Agent Client Protocol is the portable adapter boundary for ACP-compatible agents. It keeps the desktop client independent from a specific terminal rendering implementation. A bounded CLI adapter remains a fallback for installed tools without a stable session protocol.
 
-The first implementation expects `ffmpeg` and `ffprobe` on `PATH`; packaging a verified sidecar is a release-hardening task.
+### Explicit non-choice
 
-## Security model
+The production application does not use Ink, Bubble Tea, Ratatui, or another TUI as its UI foundation. Those libraries are appropriate for terminal rendering; LensQuery is a native resident desktop surface. Tauri/Rust remains the shell, and agent servers remain the execution foundation.
 
-- Tauri capabilities allow only commands required by named windows.
-- Provider requests run in Rust so secrets never enter the webview or frontend logs.
-- The webview receives masked provider status, never secret material.
-- File reads require a picker result, drop event, shell invocation, or user-approved folder scope.
-- CLI processes use an argument array rather than shell interpolation, a clean environment allowlist, a temporary evidence directory, and cancellation/timeout.
-- The application never enables broad Codex or Claude Code tool permissions merely to analyze evidence.
+## Capture pipeline
 
-## Local CLI routing
+1. The global shortcut calls `request_capture` from Rust.
+2. The capture window covers all monitors using virtual-screen coordinates.
+3. Pointer up yields either a one-pixel element probe or a dragged rectangle.
+4. LensQuery hides its overlay before acquiring pixels.
+5. On Windows, UI Automation resolves the click to a role, name, class, AutomationId, and true element rectangle when exposed.
+6. XCap captures the bounded region to a local temporary PNG.
+7. The main process receives `lensquery://evidence-ready` and immediately creates a pending conversation.
+8. The selected agent adapter receives the evidence and streams/returns the answer.
+9. The main window is shown with that same conversation ready for follow-up.
 
-The native core discovers known executable names from `PATH` plus conventional user-local binary directories on Windows, macOS, and Linux. Version probes run concurrently. Discovery, version health, and authentication are separate: finding a path marks the route selectable even when a two-second version probe times out, while authentication is confirmed only by a real request. Resolved paths and versions are display metadata only; execution resolves from the fixed allowlist again so edited profile JSON cannot point the app at an arbitrary binary.
+Windows UI Automation is best-effort. Canvas applications, protected surfaces, elevated windows, secure desktops, and some GPU/video surfaces may expose no useful element metadata. The pixel crop remains the fallback.
 
-Each adapter uses its documented headless interface: `codex exec`, `claude -p`, `opencode run`, or `grok -p`. Prompt text is passed as a single argument or stdin, never through a shell. The request prompt includes the configured language policy, customer-ready style, and bounded custom instruction.
+## Browser context
+
+The extension collects only after the user explicitly invokes it:
+
+- URL and page title;
+- clicked tag, role, text, accessible name, and selector;
+- sanitized bounded `outerHTML` and nearby section text;
+- for `video` / `audio`: current time, duration, source URL when exposed, and paused state.
+
+The default extension uses `activeTab`, `scripting`, and `nativeMessaging`. Source/network inspection through `chrome.debugger` is deliberately a separate opt-in capability because it carries a stronger permission warning. It should be enabled only for an explicit “深入分析页面” action, never for every click.
+
+## Local files and video
+
+- File selection/drop enters the same timeline without a separate upload homepage.
+- Images go directly to vision-capable adapters.
+- Video is locally probed, uniformly sampled into time-coded frames, and optionally given a compact audio derivative.
+- PDFs use native provider file input when available, otherwise bounded text/page extraction.
+- Explorer integration can forward a selected path through a protocol activation or shell verb; it remains a packaging milestone.
+
+## Security boundaries
+
+- No background surveillance or periodic capture.
+- Capture occurs only after the explicit shortcut and pointer action.
+- API secrets stay in the OS credential vault.
+- CLI fallback uses fixed executable allowlists and argument arrays, never a shell command string.
+- Browser HTML is bounded and strips common secret-bearing attributes and scripts before transport.
+- Agent tool permissions stay disabled for ordinary visual explanation. A later source-code workspace mode must be a distinct, explicit user action.

@@ -1,14 +1,28 @@
 import { create } from 'zustand'
 import type {
-  AnalysisResult,
   AppSettings,
   BootstrapState,
   CaptureEvidence,
   FileEvidence,
   ProviderProfile,
+  QuerySession,
 } from '../types/domain'
 
-export type View = 'home' | 'history' | 'providers' | 'settings'
+export type View = 'timeline' | 'providers' | 'settings'
+
+const SESSION_STORAGE_KEY = 'lensquery.sessions.v1'
+
+function readSessions(): QuerySession[] {
+  try {
+    return JSON.parse(localStorage.getItem(SESSION_STORAGE_KEY) ?? '[]') as QuerySession[]
+  } catch {
+    return []
+  }
+}
+
+function persistSessions(sessions: QuerySession[]) {
+  localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(sessions))
+}
 
 interface AppStore {
   ready: boolean
@@ -17,7 +31,8 @@ interface AppStore {
   settings: AppSettings | null
   captures: CaptureEvidence[]
   files: FileEvidence[]
-  history: AnalysisResult[]
+  sessions: QuerySession[]
+  activeSessionId: string | null
   setView: (view: View) => void
   hydrate: (state: BootstrapState) => void
   setProviders: (providers: ProviderProfile[]) => void
@@ -29,17 +44,21 @@ interface AppStore {
   removeFile: (id: string) => void
   updateFile: (id: string, update: Partial<FileEvidence>) => void
   clearEvidence: () => void
-  addResult: (result: AnalysisResult) => void
+  setActiveSession: (id: string | null) => void
+  upsertSession: (session: QuerySession) => void
+  removeSession: (id: string) => void
+  clearSessions: () => void
 }
 
 export const useAppStore = create<AppStore>((set) => ({
   ready: false,
-  view: 'home',
+  view: 'timeline',
   providers: [],
   settings: null,
   captures: [],
   files: [],
-  history: [],
+  sessions: readSessions(),
+  activeSessionId: readSessions()[0]?.id ?? null,
   setView: (view) => set({ view }),
   hydrate: (state) =>
     set({ ready: true, providers: state.providers, settings: state.settings }),
@@ -60,5 +79,23 @@ export const useAppStore = create<AppStore>((set) => ({
       files: state.files.map((file) => (file.id === id ? { ...file, ...update } : file)),
     })),
   clearEvidence: () => set({ files: [], captures: [] }),
-  addResult: (result) => set((state) => ({ history: [result, ...state.history] })),
+  setActiveSession: (activeSessionId) => set({ activeSessionId, view: 'timeline' }),
+  upsertSession: (session) => set((state) => {
+    const sessions = [session, ...state.sessions.filter(({ id }) => id !== session.id)]
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+    persistSessions(sessions)
+    return { sessions, activeSessionId: session.id, view: 'timeline' }
+  }),
+  removeSession: (id) => set((state) => {
+    const sessions = state.sessions.filter((session) => session.id !== id)
+    persistSessions(sessions)
+    return {
+      sessions,
+      activeSessionId: state.activeSessionId === id ? sessions[0]?.id ?? null : state.activeSessionId,
+    }
+  }),
+  clearSessions: () => {
+    persistSessions([])
+    set({ sessions: [], activeSessionId: null })
+  },
 }))

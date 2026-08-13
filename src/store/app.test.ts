@@ -6,12 +6,13 @@ describe('app store', () => {
   beforeEach(() => {
     useAppStore.setState({
       ready: false,
-      view: 'home',
+      view: 'timeline',
       providers: [],
       settings: null,
       captures: [],
       files: [],
-      history: [],
+      sessions: [],
+      activeSessionId: null,
     })
   })
 
@@ -42,4 +43,3 @@ describe('app store', () => {
     expect(useAppStore.getState().files).toHaveLength(0)
   })
 })
-

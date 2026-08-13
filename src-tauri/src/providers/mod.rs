@@ -69,8 +69,9 @@ async fn run_cli(
     let language_instruction = language_instruction(settings);
     let style_instruction = style_instruction(settings);
     let custom_instruction = settings.custom_reply_instruction.trim();
+    let conversation = build_conversation_manifest(request);
     let prompt = format!(
-        "You are LensQuery's read-only analyst. Do not execute commands, call tools, access the network, or modify files. {video_instruction} {language_instruction} {style_instruction}\nUser reply instruction: {custom_instruction}\n\nPreset: {}\nQuestion: {}\n\nEvidence manifest:\n{evidence_manifest}",
+        "You are LensQuery's read-only analyst. Do not execute commands, call tools, access the network, or modify files. {video_instruction} {language_instruction} {style_instruction}\nUser reply instruction: {custom_instruction}\n\nConversation so far:\n{conversation}\n\nPreset: {}\nQuestion: {}\n\nEvidence manifest:\n{evidence_manifest}",
         request.prompt_id, request.question
     );
 
@@ -217,12 +218,16 @@ fn style_instruction(settings: &AppSettings) -> &'static str {
 }
 
 fn collect_image_paths(request: &AnalysisRequest) -> Result<Vec<String>, String> {
-    if !request.captures.is_empty() {
-        return Err(
-            "屏幕捕获到 CLI 的图片落盘通道尚未启用；请先使用本地文件或直接视觉 API。".into(),
-        );
-    }
-    let mut images = Vec::new();
+    let mut images = request
+        .captures
+        .iter()
+        .filter_map(|capture| {
+            capture
+                .preview_url
+                .strip_prefix("file://")
+                .map(ToOwned::to_owned)
+        })
+        .collect::<Vec<_>>();
     for file in &request.files {
         match file.kind.as_str() {
             "image" => images.push(file.path.clone()),
@@ -248,11 +253,6 @@ fn validate_evidence_for_profile(
     profile: &ProviderProfile,
     request: &AnalysisRequest,
 ) -> Result<(), String> {
-    if !request.captures.is_empty() {
-        return Err(
-            "屏幕捕获到 CLI 的图片落盘通道尚未启用；请先使用本地文件或直接视觉 API。".into(),
-        );
-    }
     if profile.kind == "codex-cli" || profile.kind == "claude-cli" {
         let _ = collect_image_paths(request)?;
     } else {
@@ -267,6 +267,44 @@ fn validate_evidence_for_profile(
 
 fn build_evidence_manifest(request: &AnalysisRequest) -> String {
     let mut lines = Vec::new();
+    for capture in &request.captures {
+        lines.push(format!(
+            "Screen {}: {} | bounds {:.0},{:.0} {:.0}x{:.0} | accessible context: {}",
+            capture.kind,
+            capture.preview_url,
+            capture.bounds.x,
+            capture.bounds.y,
+            capture.bounds.width,
+            capture.bounds.height,
+            capture.accessible_text.as_deref().unwrap_or("not exposed")
+        ));
+    }
+    if let Some(browser) = &request.browser_context {
+        lines.push(format!(
+            "Browser element: <{}> role={} | title={} | url={} | selector={} | text={} | nearby={} | html={}",
+            browser.tag_name,
+            browser.role.as_deref().unwrap_or("not exposed"),
+            browser.title,
+            browser.url,
+            browser.selector.as_deref().unwrap_or("not exposed"),
+            browser.text.as_deref().unwrap_or("not exposed"),
+            browser.nearby_text.as_deref().unwrap_or("not exposed"),
+            browser.outer_html.as_deref().unwrap_or("not exposed")
+        ));
+        if let Some(media) = &browser.media {
+            lines.push(format!(
+                "Browser media: {} at {:.2}s / {} | paused={} | source={}",
+                media.kind,
+                media.current_time,
+                media
+                    .duration
+                    .map(|value| format!("{value:.2}s"))
+                    .unwrap_or_else(|| "unknown".into()),
+                media.paused,
+                media.source.as_deref().unwrap_or("not exposed")
+            ));
+        }
+    }
     for file in &request.files {
         if let Some(preparation) = &file.video_preparation {
             lines.push(format!(
@@ -296,6 +334,20 @@ fn build_evidence_manifest(request: &AnalysisRequest) -> String {
         "No file evidence; answer from the user's text only.".into()
     } else {
         lines.join("\n")
+    }
+}
+
+fn build_conversation_manifest(request: &AnalysisRequest) -> String {
+    let messages = request
+        .conversation
+        .iter()
+        .filter(|message| message.status == "complete")
+        .map(|message| format!("{}: {}", message.role, truncate(&message.content, 4_000)))
+        .collect::<Vec<_>>();
+    if messages.is_empty() {
+        "New conversation.".into()
+    } else {
+        messages.join("\n")
     }
 }
 
@@ -339,6 +391,8 @@ mod tests {
                 }),
                 processing_error: None,
             }],
+            browser_context: None,
+            conversation: vec![],
         };
         assert_eq!(
             collect_image_paths(&request).expect("prepared video"),

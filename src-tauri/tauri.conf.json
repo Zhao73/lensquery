@@ -12,6 +12,7 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "LensQuery",
         "width": 1180,
         "height": 780,
@@ -20,6 +21,20 @@
         "center": true,
         "resizable": true,
         "fullscreen": false
+      },
+      {
+        "label": "capture",
+        "title": "LensQuery Capture",
+        "url": "index.html?window=capture",
+        "width": 800,
+        "height": 600,
+        "visible": false,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "focus": true
       }
     ],
     "security": {

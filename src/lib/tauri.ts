@@ -10,6 +10,9 @@ import type {
   FileEvidence,
   VideoMetadata,
   VideoPreparation,
+  BrowserContext,
+  CaptureEvidence,
+  CaptureSelection,
 } from '../types/domain'
 
 export const isDesktopRuntime = () => '__TAURI_INTERNALS__' in window
@@ -152,6 +155,41 @@ export async function startCapture(mode: CaptureMode): Promise<CaptureResponse> 
         ? '桌面框选需要在 Tauri 应用中运行。浏览器预览已保留完整流程。'
         : '桌面元素识别需要 Windows UI Automation。浏览器预览已保留完整流程。',
   }
+}
+
+export async function completeCapture(selection: CaptureSelection): Promise<CaptureResponse> {
+  if (isDesktopRuntime()) return invoke<CaptureResponse>('complete_capture', { selection })
+  throw new Error('桌面取景层只在 Tauri 应用中运行。')
+}
+
+export async function cancelCapture(): Promise<void> {
+  if (!isDesktopRuntime()) return
+  await invoke('cancel_capture')
+}
+
+export interface QueryEvidenceEvent {
+  capture?: CaptureEvidence
+  browserContext?: BrowserContext
+}
+
+export async function listenForCaptureRequests(handler: () => void): Promise<() => void> {
+  if (!isDesktopRuntime()) return () => undefined
+  const { listen } = await import('@tauri-apps/api/event')
+  return listen('lensquery://capture-requested', handler)
+}
+
+export async function listenForCaptureErrors(handler: (message: string) => void): Promise<() => void> {
+  if (!isDesktopRuntime()) return () => undefined
+  const { listen } = await import('@tauri-apps/api/event')
+  return listen<string>('lensquery://capture-error', ({ payload }) => handler(payload))
+}
+
+export async function listenForQueryEvidence(
+  handler: (payload: QueryEvidenceEvent) => void,
+): Promise<() => void> {
+  if (!isDesktopRuntime()) return () => undefined
+  const { listen } = await import('@tauri-apps/api/event')
+  return listen<QueryEvidenceEvent>('lensquery://evidence-ready', ({ payload }) => handler(payload))
 }
 
 export async function analyze(request: AnalysisRequest): Promise<AnalysisResult> {

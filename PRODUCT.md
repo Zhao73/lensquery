@@ -19,7 +19,7 @@ Delegated by the user: Tauri 2 with a Rust core and React/TypeScript UI. The fir
 
 Let a user press one shortcut, point at an on-screen object or drag a region, and receive a concise, grounded explanation without manually taking screenshots, switching apps, or assembling context.
 
-Success means the user can capture a screen region or choose a local image, PDF, or ordinary file; preview exactly what will be sent; select a model; ask a question; and copy a useful answer within seconds.
+Success means the user can press one shortcut, click an object or drag a region, and have analysis begin in the background without first opening a homepage. A quiet local timeline preserves the answer and supports follow-up in the same conversation.
 
 ## Positioning
 
@@ -30,7 +30,7 @@ The product treats the desktop itself as the input surface. One capture action p
 - Lives in the Windows system tray and starts capture from a configurable global shortcut.
 - Supports click-to-inspect and drag-to-capture interactions over the current desktop.
 - Accepts screenshots, images, videos, PDFs, and other local files via picker, drag-and-drop, or shell integration.
-- Shows the outbound context before submission and returns a compact answer overlay with copy and follow-up actions.
+- Creates a local conversation immediately and returns the answer there with copy and follow-up actions; an optional privacy preview can pause submission when enabled.
 - Routes requests to direct model APIs or installed local agent CLIs when available.
 
 ## Capabilities and Constraints
@@ -40,8 +40,8 @@ The product treats the desktop itself as the input surface. One capture action p
 - Local-agent adapters: Codex CLI, Claude Code, OpenCode, and Grok headless modes, with explicit executable detection, bounded probes, and no implicit command-execution permission.
 - Customer-response language can follow the detected language in the customer's text/evidence or use a configured fallback; reply style and custom guidance remain user-controlled.
 - API secrets must use the operating-system credential vault; configuration files store only non-secret metadata.
-- Screen and file content stays local until the user confirms a request. History is local and can be disabled or cleared.
-- Browser-page understanding in the first release combines the selected screenshot, window title/process, and accessible text when available. A companion browser extension for DOM and URL capture is a later milestone.
+- Screen and file content stays local until the explicit shortcut plus click/drag action. Optional preview can add a second confirmation. History is local and can be disabled or cleared.
+- Browser-page understanding uses a companion extension for the clicked DOM element, URL/title, accessible name, nearby text, and video/audio state. Deeper DevTools/CDP inspection is a separate explicit action.
 - Desktop element identification uses Windows UI Automation when available and pixel-region fallback otherwise.
 - PDF analysis uses native model file input when supported and local text/page-image extraction otherwise.
 - Video analysis is provider-independent: LensQuery locally probes the file, samples bounded time-coded frames, extracts a compact mono audio track when present, optionally transcribes it, and sends only previewed derivative evidence rather than assuming a model accepts raw video.
@@ -61,7 +61,7 @@ The product treats the desktop itself as the input surface. One capture action p
 
 ## Product Principles
 
-1. Capture first, but transmit only after a visible preview and user action.
+1. One shortcut plus one click/drag is the default path; optional preview is a user-configurable privacy gate.
 2. Keep provider choice portable and model IDs editable.
 3. Prefer native desktop affordances and a short path from shortcut to copied answer.
 4. Separate captured evidence, inferred context, model output, and external actions.

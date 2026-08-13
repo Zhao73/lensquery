@@ -1,32 +1,31 @@
 :root {
-  font-family: "SF Pro Text", "Segoe UI Variable", "Yu Gothic UI", system-ui, sans-serif;
-  color: #fff0c7;
-  background: #070d2b;
+  font-family: "Segoe UI Variable", "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
+  color: #202124;
+  background: #f5f6f8;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
-  --space: #070d2b;
-  --ink: #101a50;
-  --indigo: #273277;
-  --violet: #60429a;
-  --magenta: #bc3f73;
-  --coral: #ef5c68;
-  --orange: #ff8b45;
-  --amber: #ffbc58;
-  --yellow: #ffe391;
-  --lime: #b5ca62;
-  --green: #55a46d;
-  --cyan: #54c7c3;
-  --sky: #72bce8;
-  --steel: #466a9d;
-  --silver: #bfc3c9;
-  --paper: #fff0c7;
-  --line: #5d5db1;
-  --muted: #b0abd0;
+  --canvas: #f5f6f8;
+  --surface: #ffffff;
+  --surface-subtle: #f0f2f5;
+  --surface-hover: #e9edf3;
+  --line: #dfe3e8;
+  --line-strong: #c8cdd4;
+  --text: #202124;
+  --text-secondary: #5f6368;
+  --text-tertiary: #7b8087;
+  --accent: #2367d1;
+  --accent-hover: #1859bb;
+  --accent-soft: #e8f0fe;
+  --success: #137333;
+  --success-soft: #e6f4ea;
+  --danger: #b3261e;
+  --danger-soft: #fce8e6;
+  --warning: #8a4f00;
+  --warning-soft: #fef7e0;
+  --focus: #0b57d0;
 }
 
-* {
-  box-sizing: border-box;
-}
+* { box-sizing: border-box; }
 
 html,
 body,
@@ -46,29 +45,46 @@ body {
 button,
 input,
 textarea,
-select {
-  font: inherit;
-}
+select { font: inherit; }
 
-button {
-  color: inherit;
-}
-
-button:not(:disabled) {
-  cursor: pointer;
-}
+button { color: inherit; }
+button:not(:disabled) { cursor: pointer; }
 
 button:focus-visible,
 input:focus-visible,
 textarea:focus-visible,
-select:focus-visible {
-  outline: 2px solid var(--cyan);
+select:focus-visible,
+summary:focus-visible {
+  outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
 
-::selection {
-  color: var(--space);
-  background: var(--yellow);
+::selection { color: #fff; background: var(--accent); }
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color: #e8eaed;
+    background: #17191c;
+    --canvas: #17191c;
+    --surface: #202226;
+    --surface-subtle: #292c31;
+    --surface-hover: #31353b;
+    --line: #363a40;
+    --line-strong: #4a4f57;
+    --text: #e8eaed;
+    --text-secondary: #bdc1c6;
+    --text-tertiary: #9aa0a6;
+    --accent: #8ab4f8;
+    --accent-hover: #a8c7fa;
+    --accent-soft: #253b5c;
+    --success: #81c995;
+    --success-soft: #183b27;
+    --danger: #f28b82;
+    --danger-soft: #4b2523;
+    --warning: #fdd663;
+    --warning-soft: #4d3b18;
+    --focus: #a8c7fa;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -81,4 +97,3 @@ select:focus-visible {
     transition-duration: 0.001ms !important;
   }
 }
-

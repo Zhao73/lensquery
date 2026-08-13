@@ -228,6 +228,41 @@ pub struct CaptureEvidence {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct BrowserContext {
+    pub url: String,
+    pub title: String,
+    pub tag_name: String,
+    pub role: Option<String>,
+    pub text: Option<String>,
+    pub accessible_name: Option<String>,
+    pub selector: Option<String>,
+    pub outer_html: Option<String>,
+    pub nearby_text: Option<String>,
+    pub media: Option<BrowserMediaContext>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserMediaContext {
+    pub kind: String,
+    pub current_time: f64,
+    pub duration: Option<f64>,
+    pub source: Option<String>,
+    pub paused: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationMessage {
+    pub id: String,
+    pub role: String,
+    pub content: String,
+    pub created_at: String,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct FileEvidence {
     pub id: String,
     pub name: String,
@@ -282,6 +317,10 @@ pub struct AnalysisRequest {
     pub provider_id: String,
     pub captures: Vec<CaptureEvidence>,
     pub files: Vec<FileEvidence>,
+    #[serde(default)]
+    pub browser_context: Option<BrowserContext>,
+    #[serde(default)]
+    pub conversation: Vec<ConversationMessage>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -301,4 +340,18 @@ pub struct CaptureResponse {
     pub status: String,
     pub message: String,
     pub evidence: Option<CaptureEvidence>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CaptureSelection {
+    pub mode: String,
+    pub bounds: Bounds,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueryEvidenceEvent {
+    pub capture: Option<CaptureEvidence>,
+    pub browser_context: Option<BrowserContext>,
 }

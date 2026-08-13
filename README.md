@@ -1,19 +1,20 @@
 # LensQuery
 
-Ask AI about anything visible on your desktop or inside a local file.
+Press one shortcut, point at anything on screen, and ask an AI agent about it.
 
-LensQuery is a Windows-first open-source desktop utility. Press a global shortcut, click an interface element or drag a screen region, review the context that will leave your computer, then ask OpenAI, Anthropic, an OpenAI-compatible endpoint, Codex CLI, Claude Code, OpenCode, or Grok CLI for an explanation. Local videos use a quick-analysis pipeline that extracts timestamped frames and an optional compact audio track before model routing.
+LensQuery is a Windows-first open-source resident utility. Press a global shortcut, click an interface element or hold-drag a region, and LensQuery starts analysis in the background through Codex, Claude Code, OpenCode, Grok, or a configured API. The only normal window is a plain local conversation timeline for previous queries and follow-ups.
 
-> Current status: the repository contains the product specification, the complete desktop interface shell, typed frontend/Rust contracts, file-drop workflow, provider configuration UI, operating-system credential-vault storage, browser-safe mock adapter, and bounded read-only CLI adapters. Native Windows screen capture, UI Automation, and direct API transport remain roadmap work and are never presented as complete.
+> Current status: the repository now contains the resident tray/shortcut shell, separate ❓ capture overlay, XCap region capture, Windows UI Automation element lookup, local timeline/follow-up UI, automatic CLI discovery, bounded CLI adapters, and an MV3 browser element picker. Physical Windows mixed-DPI testing, browser Native Messaging installer wiring, Codex App Server/OpenCode session adapters, and direct API transport remain implementation gates.
 
 ## Intended workflow
 
 1. Press `Ctrl+Shift+Space` from any Windows application.
 2. Drag a rectangle or click a UI element.
-3. Add an optional image, video, PDF, or local file.
-4. Inspect the outbound-data preview.
-5. Choose a configured model and ask a question.
-6. Copy the compact result or continue in the full window.
+3. LensQuery hides the picker, captures pixels plus available element context, and starts the configured agent in the background.
+4. The conversation window opens with the answer.
+5. Continue asking questions in that same local conversation.
+
+There is no upload-style homepage. Files enter through the native picker, drag/drop, and later Explorer shell integration, then use the same conversation flow.
 
 ## Local CLI discovery and reply language
 
@@ -27,7 +28,7 @@ LensQuery is a Windows-first open-source desktop utility. Press a global shortcu
 ## What it is designed to analyze
 
 - Anything visible on screen: controls, icons, error dialogs, charts, screenshots, and surrounding application context.
-- Website evidence visible in a browser. The first release uses pixels, window metadata, and accessible text; exact URL/DOM capture is planned as an explicit-permission browser companion.
+- Website elements through the companion extension: clicked text, controls, images, video/audio state, bounded nearby DOM, URL, and title.
 - Images, videos, PDFs, text, code, logs, and other bounded local files.
 - Videos are probed and sampled locally. Vision routes receive ordered timestamped frames, while compatible transcription routes can also receive an extracted audio transcript.
 - Fast customer-answer tasks through the built-in “Customer reply” prompt template.
@@ -39,7 +40,8 @@ LensQuery is a Windows-first open-source desktop utility. Press a global shortcu
 - React 19 + TypeScript + Zustand webview
 - Official Tauri global-shortcut, dialog, store, filesystem, clipboard, and opener plugins
 - Provider-independent request/result contracts
-- Windows-native capture and UI Automation kept behind platform modules
+- XCap screen-region capture and Windows UI Automation behind platform modules
+- Codex App Server as the primary planned session runtime; OpenCode Server/SDK and ACP as additional protocol adapters
 
 See [the architecture](docs/ARCHITECTURE.md), [product specification](docs/PRODUCT_SPEC.md), [implementation plan](docs/IMPLEMENTATION_PLAN.md), and [roadmap](docs/ROADMAP.md).
 
@@ -52,7 +54,7 @@ npm ci
 npm run dev
 ```
 
-The browser preview exercises the full interface and local file workflow. It deliberately uses a mock analysis adapter and does not capture the desktop or send content to a model.
+The browser preview exercises the timeline, settings, and local file workflow. It deliberately uses a mock analysis adapter and does not capture the desktop or send content to a model.
 
 ## Run the desktop app
 
@@ -63,7 +65,11 @@ npm ci
 npm run tauri dev
 ```
 
-Native runtime behavior is first targeted at Windows 10/11. macOS and Linux currently serve as development hosts for shared UI and contracts.
+Native runtime behavior is first targeted at Windows 10/11. macOS can exercise the shared capture baseline; Windows UI Automation and mixed-DPI behavior still require Windows runtime evidence.
+
+## Browser connector
+
+Load [`browser-extension`](browser-extension) as an unpacked Chrome/Edge extension for the page picker. The picker is implemented; delivery into the desktop app also requires the `com.lensquery.desktop` Native Messaging host manifest that will be generated by the Windows installer. See [the connector README](browser-extension/README.md).
 
 Video preparation currently requires `ffmpeg` and `ffprobe` on `PATH`. The interface reports a direct recovery message when they are missing; a verified bundled sidecar is planned before the signed 1.0 installer.
 
