@@ -11,6 +11,7 @@ import type {
 export type View = 'timeline' | 'providers' | 'settings'
 
 const SESSION_STORAGE_KEY = 'lensquery.sessions.v1'
+let historyEnabled = true
 
 function readSessions(): QuerySession[] {
   try {
@@ -21,7 +22,8 @@ function readSessions(): QuerySession[] {
 }
 
 function persistSessions(sessions: QuerySession[]) {
-  localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(sessions))
+  if (historyEnabled) localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(sessions))
+  else localStorage.removeItem(SESSION_STORAGE_KEY)
 }
 
 interface AppStore {
@@ -60,10 +62,17 @@ export const useAppStore = create<AppStore>((set) => ({
   sessions: readSessions(),
   activeSessionId: readSessions()[0]?.id ?? null,
   setView: (view) => set({ view }),
-  hydrate: (state) =>
-    set({ ready: true, providers: state.providers, settings: state.settings }),
+  hydrate: (state) => {
+    historyEnabled = state.settings.saveHistory
+    if (!historyEnabled) localStorage.removeItem(SESSION_STORAGE_KEY)
+    set({ ready: true, providers: state.providers, settings: state.settings, sessions: historyEnabled ? readSessions() : [], activeSessionId: historyEnabled ? readSessions()[0]?.id ?? null : null })
+  },
   setProviders: (providers) => set({ providers }),
-  setSettings: (settings) => set({ settings }),
+  setSettings: (settings) => {
+    historyEnabled = settings.saveHistory
+    if (!historyEnabled) localStorage.removeItem(SESSION_STORAGE_KEY)
+    set((state) => ({ settings, sessions: historyEnabled ? state.sessions : [], activeSessionId: historyEnabled ? state.activeSessionId : null }))
+  },
   upsertProvider: (profile) =>
     set((state) => ({
       providers: state.providers.some(({ id }) => id === profile.id)

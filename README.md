@@ -1,18 +1,18 @@
-# LensQuery
+<p align="center"><img src="assets/brand/lensquery-wordmark.svg" alt="LensQuery" width="260"></p>
 
 Press one shortcut, point at anything on screen, and ask an AI agent about it.
 
-LensQuery is a Windows-first open-source resident utility. Press a global shortcut, click an interface element or hold-drag a region, and LensQuery starts analysis in the background through Codex, Claude Code, OpenCode, Grok, or a configured API. The only normal window is a plain local conversation timeline for previous queries and follow-ups.
+LensQuery is an open-source resident utility for Windows and macOS. Press a global shortcut, click an interface element or hold-drag a region, add an optional note, and LensQuery starts analysis in the background through Codex, Claude Code, OpenCode, Grok, or a configured API. Its normal window is a quiet local conversation timeline for previous queries and follow-ups.
 
-> Current status: the repository now contains the resident tray/shortcut shell, separate ❓ capture overlay, XCap region capture, Windows UI Automation element lookup, local timeline/follow-up UI, automatic CLI discovery, bounded CLI adapters, and an MV3 browser element picker. Physical Windows mixed-DPI testing, browser Native Messaging installer wiring, Codex App Server/OpenCode session adapters, and direct API transport remain implementation gates.
+> Current status: the repository contains the background tray/shortcut shell, separate question-cursor capture overlay, XCap region capture, Windows UI Automation text-range lookup, local timeline/follow-up UI, Markdown answers, system notifications and speech, auto-start preference, automatic CLI discovery, bounded CLI adapters, local PDF/text extraction, automatic video preparation, and an MV3 browser element picker. Physical Windows mixed-DPI testing, macOS Accessibility text-range integration, browser Native Messaging installer wiring, Codex App Server/OpenCode session adapters, Realtime audio playback, OCR, and direct API transport remain implementation gates.
 
 ## Intended workflow
 
-1. Press `Ctrl+Shift+Space` from any Windows application.
-2. Drag a rectangle or click a UI element.
-3. LensQuery hides the picker, captures pixels plus available element context, and starts the configured agent in the background.
-4. The conversation window opens with the answer.
-5. Continue asking questions in that same local conversation.
+1. Leave LensQuery running in the system tray/menu bar and press `Ctrl+Shift+Space` (`Command+Shift+Space` is configurable on macOS).
+2. Choose object, word, paragraph, whole-page, or screen context; optionally add a one-line annotation.
+3. Click an object or drag a rectangle. LensQuery hides the picker, captures bounded context, and starts the selected agent in the background.
+4. By default the answer arrives as a native notification; choose notification, window, or both in Settings.
+5. Open the conversation timeline to copy, hear, retry, or continue the same query.
 
 There is no upload-style homepage. Files enter through the native picker, drag/drop, and later Explorer shell integration, then use the same conversation flow.
 
@@ -24,13 +24,14 @@ There is no upload-style homepage. Files enter through the native picker, drag/d
 - CLI calls are built from fixed argument arrays rather than shell strings. Codex uses a read-only sandbox; Claude Code receives no built-in or MCP tools; Grok receives an empty tool allowlist; OpenCode receives only explicitly selected attachments with every tool permission denied. Grok's current adapter is text-only until its structured local-media input is verified end to end.
 - Settings can automatically infer the customer's language from the question and visible evidence, or force a fallback reply language. Reply style and a bounded custom instruction are included in every local CLI request.
 - Simplified Chinese and English interface copy are included for the main navigation and complete settings screen. The setting is persisted locally through the Tauri store.
+- Six analysis intents are available: identify, explain, how-to, deep-dive, customer reply, and code analysis. Output can be adaptive, summary, steps, full report, customer-ready, or explicit Markdown.
 
 ## What it is designed to analyze
 
 - Anything visible on screen: controls, icons, error dialogs, charts, screenshots, and surrounding application context.
 - Website elements through the companion extension: clicked text, controls, images, video/audio state, bounded nearby DOM, URL, and title.
-- Images, videos, PDFs, text, code, logs, and other bounded local files.
-- Videos are probed and sampled locally. Vision routes receive ordered timestamped frames, while compatible transcription routes can also receive an extracted audio transcript.
+- Images, videos, PDFs, text, code, logs, and other bounded local files. Text and machine-readable PDFs are extracted locally before the model request.
+- Videos are probed and sampled locally as part of file submission. Vision routes receive ordered timestamped frames; an audio derivative is prepared, while transcription remains provider-dependent.
 - Fast customer-answer tasks through the built-in “Customer reply” prompt template.
 
 ## Architecture
@@ -38,7 +39,7 @@ There is no upload-style homepage. Files enter through the native picker, drag/d
 - [Tauri 2](https://v2.tauri.app/) desktop shell
 - Rust native core and narrow Tauri command boundary
 - React 19 + TypeScript + Zustand webview
-- Official Tauri global-shortcut, dialog, store, filesystem, clipboard, and opener plugins
+- Official Tauri global-shortcut, notification, autostart, dialog, store, filesystem, clipboard, and opener plugins
 - Provider-independent request/result contracts
 - XCap screen-region capture and Windows UI Automation behind platform modules
 - Codex App Server as the primary planned session runtime; OpenCode Server/SDK and ACP as additional protocol adapters
@@ -65,13 +66,20 @@ npm ci
 npm run tauri dev
 ```
 
-Native runtime behavior is first targeted at Windows 10/11. macOS can exercise the shared capture baseline; Windows UI Automation and mixed-DPI behavior still require Windows runtime evidence.
+Windows 10/11 and macOS share the tray, shortcut, region capture, file, notification, speech, and conversation baseline. Windows additionally reads element/word/paragraph/document ranges through UI Automation. Exact arbitrary-app text ranges on macOS still require a dedicated Accessibility adapter and permission UX.
 
 ## Browser connector
 
 Load [`browser-extension`](browser-extension) as an unpacked Chrome/Edge extension for the page picker. The picker is implemented; delivery into the desktop app also requires the `com.lensquery.desktop` Native Messaging host manifest that will be generated by the Windows installer. See [the connector README](browser-extension/README.md).
 
-Video preparation currently requires `ffmpeg` and `ffprobe` on `PATH`. The interface reports a direct recovery message when they are missing; a verified bundled sidecar is planned before the signed 1.0 installer.
+Video preparation currently requires `ffmpeg` and `ffprobe` on `PATH`. The interface reports a direct recovery message when they are missing; a verified bundled sidecar is planned before the signed 1.0 installer. Scanned/image-only PDFs also need the planned OCR fallback.
+
+## Background, notifications, and voice
+
+- The main window starts hidden; closing it returns LensQuery to the tray/menu bar instead of quitting.
+- Left-click the icon for Quick Ask. Right-click offers Identify, Explain, How-to, Deep Dive, Analyze File, Timeline, Models, Settings, and Quit.
+- Login auto-start and notification preview are user-configurable. Notification permission is requested only when the first result needs one.
+- macOS `say`, Windows SAPI, and the browser Speech Synthesis fallback provide working local read-aloud. Codex App Server 0.146.1 exposes experimental Realtime audio methods, but an authenticated smoke test reported that an ordinary local thread does not support realtime conversation. The option is therefore disabled in Settings instead of pretending to be available; protocol/session eligibility and PCM playback remain separate gates.
 
 ## Verification
 

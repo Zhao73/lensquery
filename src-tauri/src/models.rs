@@ -14,6 +14,14 @@ pub struct AppSettings {
     pub retain_images: bool,
     pub show_preview: bool,
     pub default_provider_id: String,
+    pub default_analysis_mode: String,
+    pub default_output_format: String,
+    pub launch_at_startup: bool,
+    pub notifications_enabled: bool,
+    pub notification_preview: bool,
+    pub result_presentation: String,
+    pub voice_mode: String,
+    pub auto_play_voice: bool,
 }
 
 impl Default for AppSettings {
@@ -29,6 +37,14 @@ impl Default for AppSettings {
             retain_images: false,
             show_preview: true,
             default_provider_id: "openai".into(),
+            default_analysis_mode: "explain".into(),
+            default_output_format: "adaptive".into(),
+            launch_at_startup: true,
+            notifications_enabled: true,
+            notification_preview: true,
+            result_presentation: "notification".into(),
+            voice_mode: "system".into(),
+            auto_play_voice: false,
         }
     }
 }
@@ -224,6 +240,14 @@ pub struct CaptureEvidence {
     pub window_title: Option<String>,
     pub process_name: Option<String>,
     pub accessible_text: Option<String>,
+    #[serde(default)]
+    pub text_scope: Option<String>,
+    #[serde(default)]
+    pub annotation: Option<String>,
+    #[serde(default)]
+    pub analysis_mode: Option<String>,
+    #[serde(default)]
+    pub output_format: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -238,6 +262,16 @@ pub struct BrowserContext {
     pub selector: Option<String>,
     pub outer_html: Option<String>,
     pub nearby_text: Option<String>,
+    #[serde(default)]
+    pub selection_mode: Option<String>,
+    #[serde(default)]
+    pub selected_text: Option<String>,
+    #[serde(default)]
+    pub annotation: Option<String>,
+    #[serde(default)]
+    pub analysis_mode: Option<String>,
+    #[serde(default)]
+    pub output_format: Option<String>,
     pub media: Option<BrowserMediaContext>,
 }
 
@@ -273,6 +307,12 @@ pub struct FileEvidence {
     pub video: Option<VideoMetadata>,
     pub video_preparation: Option<VideoPreparation>,
     pub processing_error: Option<String>,
+    #[serde(default)]
+    pub extracted_text: Option<String>,
+    #[serde(default)]
+    pub page_count: Option<u32>,
+    #[serde(default)]
+    pub extraction_status: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -321,6 +361,12 @@ pub struct AnalysisRequest {
     pub browser_context: Option<BrowserContext>,
     #[serde(default)]
     pub conversation: Vec<ConversationMessage>,
+    #[serde(default = "default_analysis_mode")]
+    pub analysis_mode: String,
+    #[serde(default = "default_output_format")]
+    pub output_format: String,
+    #[serde(default)]
+    pub annotation: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -347,6 +393,22 @@ pub struct CaptureResponse {
 pub struct CaptureSelection {
     pub mode: String,
     pub bounds: Bounds,
+    #[serde(default)]
+    pub text_scope: Option<String>,
+    #[serde(default)]
+    pub annotation: Option<String>,
+    #[serde(default)]
+    pub analysis_mode: Option<String>,
+    #[serde(default)]
+    pub output_format: Option<String>,
+}
+
+fn default_analysis_mode() -> String {
+    "explain".into()
+}
+
+fn default_output_format() -> String {
+    "adaptive".into()
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -354,4 +416,10 @@ pub struct CaptureSelection {
 pub struct QueryEvidenceEvent {
     pub capture: Option<CaptureEvidence>,
     pub browser_context: Option<BrowserContext>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub analysis_mode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_format: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub annotation: Option<String>,
 }

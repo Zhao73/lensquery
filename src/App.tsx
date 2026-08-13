@@ -4,6 +4,13 @@ import {
   Check,
   ClockCounterClockwise,
   Copy,
+  FileCode,
+  HighlighterCircle,
+  ListNumbers,
+  NotePencil,
+  SpeakerHigh,
+  SpeakerSlash,
+  TextAlignLeft,
   CursorClick,
   File,
   Gear,
@@ -20,6 +27,8 @@ import {
   X,
 } from '@phosphor-icons/react'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import './App.css'
 import { evidenceAccept, formatBytes, normalizeBrowserFiles } from './lib/files'
 import {
@@ -31,28 +40,57 @@ import {
   isDesktopRuntime,
   listenForCaptureRequests,
   listenForCaptureErrors,
+  listenForCaptureIntent,
   listenForEvidenceDrops,
+  listenForFilePicker,
   listenForQueryEvidence,
+  listenForNavigation,
   pickEvidenceFiles,
   saveProvider,
   saveSettings,
   setProviderSecret,
+  showMainWindow,
+  showSystemNotification,
+  speakText,
+  stopSpeaking,
   startCapture,
   testProvider,
+  prepareVideo,
 } from './lib/tauri'
 import { useAppStore, type View } from './store/app'
 import type {
+  AnalysisMode,
   AnalysisRequest,
   AppSettings,
   BrowserContext,
   CaptureEvidence,
   ConversationMessage,
   FileEvidence,
+  OutputFormat,
   ProviderProfile,
   QuerySession,
+  TextScope,
 } from './types/domain'
 
-const DEFAULT_QUESTION = '这是什么？请结合周围内容分析，并给出可以直接使用的答案。'
+const DEFAULT_QUESTION = '请分析所选内容，并结合周围上下文说明它是什么、有什么作用以及下一步该怎么做。'
+
+const analysisModes: Array<{ id: AnalysisMode; label: string; hint: string }> = [
+  { id: 'identify', label: '识别', hint: '是什么、有什么用' },
+  { id: 'explain', label: '解释', hint: '结合上下文说明' },
+  { id: 'how-to', label: '使用方法', hint: '给出可执行步骤' },
+  { id: 'deep-dive', label: '深入原理', hint: '机制、流程和限制' },
+  { id: 'customer-reply', label: '客户回复', hint: '整理成可直接发送的回复' },
+  { id: 'code', label: '代码分析', hint: '结构、流程和问题' },
+]
+
+const outputFormats: Array<{ id: OutputFormat; label: string }> = [
+  { id: 'adaptive', label: '智能排版' },
+  { id: 'summary', label: '结论摘要' },
+  { id: 'steps', label: '分步说明' },
+  { id: 'report', label: '完整报告' },
+  { id: 'customer-reply', label: '客户可用' },
+  { id: 'markdown', label: 'Markdown' },
+]
 
 function now() {
   return new Date().toISOString()
@@ -82,6 +120,18 @@ function sourceFromEvidence(captures: CaptureEvidence[], files: FileEvidence[], 
     }
   }
   return { label: '文字询问', kind: 'text' as const }
+}
+
+function shortcutParts(shortcut: string) {
+  const isMac = /Mac|iPhone|iPad/.test(navigator.platform)
+  return shortcut.split('+').map((part) => {
+    if (part === 'CommandOrControl') return isMac ? '⌘' : 'Ctrl'
+    if (part === 'Command') return '⌘'
+    if (part === 'Control') return isMac ? '⌃' : 'Ctrl'
+    if (part === 'Shift') return isMac ? '⇧' : 'Shift'
+    if (part === 'Alt') return isMac ? '⌥' : 'Alt'
+    return part
+  })
 }
 
 function App() {
@@ -116,6 +166,10 @@ function ConversationApp() {
   const [error, setError] = useState('')
   const [captureStatus, setCaptureStatus] = useState('')
   const [filter, setFilter] = useState('')
+  const [analysisMode, setAnalysisMode] = useState<AnalysisMode>('explain')
+  const [outputFormat, setOutputFormat] = useState<OutputFormat>('adaptive')
+  const [annotation, setAnnotation] = useState('')
+  const [pendingSubmission, setPendingSubmission] = useState<{ captures: CaptureEvidence[]; files: FileEvidence[]; browserContext?: BrowserContext; question?: string; analysisMode?: AnalysisMode; outputFormat?: OutputFormat; annotation?: string } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -123,7 +177,25 @@ function ConversationApp() {
   }, [hydrate])
 
   useEffect(() => {
-    if (settings) document.documentElement.lang = settings.language
+    if (!isDesktopRuntime()) return
+    let dispose: (() => void) | undefined
+    void import('@tauri-apps/plugin-notification').then(async ({ onAction, onNotificationReceived }) => {
+      const open = () => { void showMainWindow() }
+      const actionListener = await onAction(open)
+      const receivedListener = await onNotificationReceived(() => undefined)
+      dispose = () => {
+        actionListener.unregister()
+        receivedListener.unregister()
+      }
+    }).catch(() => undefined)
+    return () => dispose?.()
+  }, [])
+
+  useEffect(() => {
+    if (!settings) return
+    document.documentElement.lang = settings.language
+    setAnalysisMode(settings.defaultAnalysisMode)
+    setOutputFormat(settings.defaultOutputFormat)
   }, [settings])
 
   useEffect(() => {
@@ -156,15 +228,50 @@ function ConversationApp() {
     files: FileEvidence[]
     browserContext?: BrowserContext
     question?: string
+    analysisMode?: AnalysisMode
+    outputFormat?: OutputFormat
+    annotation?: string
+    confirmed?: boolean
   }) {
+    if (settings?.showPreview && !input.confirmed && (input.captures.length > 0 || input.files.length > 0 || input.browserContext)) {
+      setPendingSubmission(input)
+      void showMainWindow()
+      return
+    }
     const provider = selectedProvider
     if (!provider?.ready) {
       setError('还没有可用的模型通道。请先在“模型”中扫描本机 CLI 或配置 API。')
       setView('providers')
+      void showMainWindow()
       return
     }
     const question = input.question?.trim() || DEFAULT_QUESTION
-    const source = sourceFromEvidence(input.captures, input.files, input.browserContext)
+    let preparedFiles = input.files
+    if (isDesktopRuntime() && input.files.some(({ kind, videoPreparation }) => kind === 'video' && !videoPreparation)) {
+      setCaptureStatus('正在本地提取视频关键帧和音频线索…')
+      try {
+        preparedFiles = await Promise.all(input.files.map(async (file) => {
+          if (file.kind !== 'video' || file.videoPreparation) return file
+          try {
+            return { ...file, videoPreparation: await prepareVideo(file.path, 12), processingError: undefined }
+          } catch (cause) {
+            return { ...file, processingError: String(cause) }
+          }
+        }))
+      } finally {
+        setCaptureStatus('')
+      }
+      const failedVideo = preparedFiles.find(({ kind, videoPreparation }) => kind === 'video' && !videoPreparation)
+      if (failedVideo) {
+        setError(failedVideo.processingError || `视频 ${failedVideo.name} 的本地关键帧提取失败。`)
+        void showMainWindow()
+        return
+      }
+    }
+    const requestedMode = input.analysisMode ?? input.browserContext?.analysisMode ?? input.captures[0]?.analysisMode ?? analysisMode
+    const requestedFormat = input.outputFormat ?? input.browserContext?.outputFormat ?? input.captures[0]?.outputFormat ?? outputFormat
+    const requestAnnotation = (input.annotation ?? input.browserContext?.annotation ?? input.captures[0]?.annotation ?? annotation.trim()) || undefined
+    const source = sourceFromEvidence(input.captures, preparedFiles, input.browserContext)
     const createdAt = now()
     const pending = newMessage('assistant', '', 'pending')
     const session: QuerySession = {
@@ -176,21 +283,27 @@ function ConversationApp() {
       sourceLabel: source.label,
       sourceKind: source.kind,
       captures: input.captures,
-      files: input.files,
+      files: preparedFiles,
       browserContext: input.browserContext,
       messages: [newMessage('user', question, 'complete'), pending],
+      analysisMode: requestedMode,
+      outputFormat: requestedFormat,
+      annotation: requestAnnotation,
     }
     upsertSession(session)
     setError('')
     try {
       const result = await analyze({
         question,
-        promptId: 'identify',
+        promptId: preparedFiles.some(({ kind }) => kind === 'video') ? 'video' : requestedMode,
         providerId: provider.id,
         captures: input.captures,
-        files: input.files,
+        files: preparedFiles,
         browserContext: input.browserContext,
         conversation: [],
+        analysisMode: requestedMode,
+        outputFormat: requestedFormat,
+        annotation: requestAnnotation,
       })
       upsertSession({
         ...session,
@@ -199,6 +312,13 @@ function ConversationApp() {
           ? { ...message, content: result.answer, status: 'complete' as const }
           : message),
       })
+      if (settings?.notificationsEnabled) {
+        const body = settings.notificationPreview ? result.answer.slice(0, 240) : '分析已完成，点击 LensQuery 查看。'
+        void showSystemNotification(session.title, body).catch(() => undefined)
+      }
+      if (settings?.autoPlayVoice && settings.voiceMode === 'system') {
+        void speakText(result.answer).catch(() => undefined)
+      }
     } catch (cause) {
       upsertSession({
         ...session,
@@ -216,6 +336,8 @@ function ConversationApp() {
     let disposeCaptureError: (() => void) | undefined
     let disposeEvidence: (() => void) | undefined
     let disposeDrop: (() => void) | undefined
+    let disposeNavigation: (() => void) | undefined
+    let disposeFilePicker: (() => void) | undefined
     void listenForCaptureRequests(() => setCaptureStatus('按一下选择对象，按住并拖动选择区域；Esc 取消。')).then((dispose) => { disposeCapture = dispose })
     void listenForCaptureErrors((message) => {
       setCaptureStatus('')
@@ -223,16 +345,20 @@ function ConversationApp() {
     }).then((dispose) => { disposeCaptureError = dispose })
     void listenForQueryEvidence((payload) => {
       setCaptureStatus('')
-      void submitNewQuery({ captures: payload.capture ? [payload.capture] : [], files: [], browserContext: payload.browserContext })
+      void submitNewQuery({ captures: payload.capture ? [payload.capture] : [], files: [], browserContext: payload.browserContext, analysisMode: payload.analysisMode, outputFormat: payload.outputFormat, annotation: payload.annotation })
     }).then((dispose) => { disposeEvidence = dispose })
     void listenForEvidenceDrops((files) => {
       if (files.length) void submitNewQuery({ captures: [], files })
     }).then((dispose) => { disposeDrop = dispose })
+    void listenForNavigation((nextView) => setView(nextView)).then((dispose) => { disposeNavigation = dispose })
+    void listenForFilePicker(() => { void openFiles() }).then((dispose) => { disposeFilePicker = dispose })
     return () => {
       disposeCapture?.()
       disposeCaptureError?.()
       disposeEvidence?.()
       disposeDrop?.()
+      disposeNavigation?.()
+      disposeFilePicker?.()
     }
   // selectedProvider intentionally refreshes the handler when the route changes.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -269,6 +395,9 @@ function ConversationApp() {
         files: activeSession.files,
         browserContext: activeSession.browserContext,
         conversation: activeSession.messages.filter(({ status }) => status === 'complete'),
+        analysisMode: activeSession.analysisMode,
+        outputFormat: activeSession.outputFormat,
+        annotation: activeSession.annotation,
       }
       const result = await analyze(request)
       upsertSession({
@@ -336,7 +465,7 @@ function ConversationApp() {
             <button type="button" className="capture-button" onClick={beginCapture}>
               <Question size={18} weight="bold" />
               快速询问
-              <kbd>Ctrl ⇧ Space</kbd>
+              <kbd>{shortcutParts(settings.shortcut).join(' ')}</kbd>
             </button>
             <div className="search-box">
               <MagnifyingGlass size={16} />
@@ -375,7 +504,7 @@ function ConversationApp() {
         <header className="app-bar">
           <div className="app-bar-left">
             <button type="button" className="icon-button" onClick={() => setSidebarOpen((value) => !value)} aria-label="切换侧栏"><SidebarSimple size={20} /></button>
-            <button type="button" className="wordmark" onClick={() => setView('timeline')}>LensQuery</button>
+            <button type="button" className="wordmark" onClick={() => setView('timeline')}><img src="/brand/lensquery-mark.svg" alt="" />LensQuery</button>
             <span className="resident-state"><i />后台待命</span>
           </div>
           <nav aria-label="主导航">
@@ -413,7 +542,7 @@ function ConversationApp() {
               }}
             />
           ) : (
-            <EmptyTimeline onCapture={beginCapture} onOpenFiles={openFiles} query={query} onQuery={setQuery} onSubmit={() => {
+            <EmptyTimeline shortcut={settings.shortcut} onCapture={beginCapture} onOpenFiles={openFiles} query={query} onQuery={setQuery} analysisMode={analysisMode} onAnalysisMode={setAnalysisMode} outputFormat={outputFormat} onOutputFormat={setOutputFormat} annotation={annotation} onAnnotation={setAnnotation} onSubmit={() => {
               if (query.trim()) {
                 void submitNewQuery({ captures: [], files: [], question: query })
                 setQuery('')
@@ -436,6 +565,20 @@ function ConversationApp() {
         )}
         {view === 'settings' && <SettingsPanel settings={settings} onSave={async (next) => { const saved = await saveSettings(next); setSettings(saved) }} />}
       </main>
+      {pendingSubmission && (
+        <div className="preview-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setPendingSubmission(null) }}>
+          <section className="preview-dialog" role="dialog" aria-modal="true" aria-labelledby="preview-title">
+            <header><div><h2 id="preview-title">确认本次上下文</h2><p>只有下列选中内容会交给 {selectedProvider?.name ?? '所选模型'}。</p></div><button type="button" className="icon-button" onClick={() => setPendingSubmission(null)} aria-label="关闭预览"><X size={18} /></button></header>
+            <div className="preview-evidence">
+              {pendingSubmission.captures.map((capture) => <div key={capture.id}><Scan size={18} /><span><strong>{capture.kind === 'element' ? '桌面对象' : '屏幕区域'}</strong><small>{Math.round(capture.bounds.width)} × {Math.round(capture.bounds.height)} · {capture.textScope ?? '对象'}</small></span></div>)}
+              {pendingSubmission.files.map((file) => <div key={file.id}><File size={18} /><span><strong>{file.name}</strong><small>{file.kind} · {formatBytes(file.size)}</small></span></div>)}
+              {pendingSubmission.browserContext && <div><Globe size={18} /><span><strong>{pendingSubmission.browserContext.title || '网页内容'}</strong><small>{pendingSubmission.browserContext.selectionMode ?? '当前对象'}</small></span></div>}
+              {(pendingSubmission.annotation || pendingSubmission.browserContext?.annotation || pendingSubmission.captures[0]?.annotation) && <div><NotePencil size={18} /><span><strong>你的注释</strong><small>{pendingSubmission.annotation || pendingSubmission.browserContext?.annotation || pendingSubmission.captures[0]?.annotation}</small></span></div>}
+            </div>
+            <footer><button type="button" className="secondary-button" onClick={() => setPendingSubmission(null)}>取消</button><button type="button" className="primary-button" onClick={() => { const request = pendingSubmission; setPendingSubmission(null); void submitNewQuery({ ...request, confirmed: true }) }}>开始分析</button></footer>
+          </section>
+        </div>
+      )}
       <input
         ref={fileInputRef}
         className="visually-hidden"
@@ -461,13 +604,18 @@ function ConversationView(props: {
   onRetry: () => void
 }) {
   const tailRef = useRef<HTMLDivElement>(null)
-  useEffect(() => tailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }), [props.session.messages.length])
+  const [speakingId, setSpeakingId] = useState<string | null>(null)
+  useEffect(() => {
+    if (props.session.messages.length > 2) {
+      tailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+    }
+  }, [props.session.messages.length])
   return (
     <section className="conversation-view">
       <header className="conversation-titlebar">
         <div>
           <h1>{props.session.title}</h1>
-          <p><SourceIcon kind={props.session.sourceKind} />{props.session.sourceLabel}<span>·</span>{props.provider?.name ?? '模型'}<span>·</span>{formatFullTime(props.session.createdAt)}</p>
+          <p><SourceIcon kind={props.session.sourceKind} />{props.session.sourceLabel}<span>·</span>{analysisModes.find(({ id }) => id === props.session.analysisMode)?.label ?? '解释'}<span>·</span>{outputFormats.find(({ id }) => id === props.session.outputFormat)?.label ?? '智能排版'}<span>·</span>{props.provider?.name ?? '模型'}<span>·</span>{formatFullTime(props.session.createdAt)}</p>
         </div>
         <button type="button" className="icon-button" onClick={props.onDelete} aria-label="删除会话"><Trash size={18} /></button>
       </header>
@@ -479,11 +627,26 @@ function ConversationView(props: {
             {message.status === 'pending' ? (
               <div className="thinking"><i /><i /><i /><span>正在分析选择内容</span></div>
             ) : (
-              <div className="message-content">{message.content}</div>
+              message.role === 'assistant' ? (
+                <div className="message-content markdown-answer">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
+                </div>
+              ) : (
+                <div className="message-content">{message.content}</div>
+              )
             )}
             {message.role === 'assistant' && message.status === 'complete' && (
               <div className="message-actions">
                 <button type="button" onClick={() => void navigator.clipboard.writeText(message.content)}><Copy size={15} />复制</button>
+                <button type="button" onClick={async () => {
+                  if (speakingId === message.id) {
+                    await stopSpeaking()
+                    setSpeakingId(null)
+                  } else {
+                    await speakText(message.content)
+                    setSpeakingId(message.id)
+                  }
+                }}>{speakingId === message.id ? <><SpeakerSlash size={15} />停止</> : <><SpeakerHigh size={15} />朗读</>}</button>
                 <button type="button" onClick={props.onRetry}><ArrowCounterClockwise size={15} />重试</button>
               </div>
             )}
@@ -526,32 +689,60 @@ function EvidenceStrip({ session }: { session: QuerySession }) {
       <div className="evidence-detail">
         {capture?.previewUrl && <img src={capture.previewUrl} alt="屏幕选择预览" />}
         {capture && <dl><div><dt>范围</dt><dd>{Math.round(capture.bounds.width)} × {Math.round(capture.bounds.height)}</dd></div>{capture.accessibleText && <div><dt>辅助信息</dt><dd>{capture.accessibleText}</dd></div>}</dl>}
-        {file && <dl><div><dt>文件</dt><dd>{file.name}</dd></div><div><dt>类型</dt><dd>{file.mediaType || file.kind}</dd></div><div><dt>大小</dt><dd>{formatBytes(file.size)}</dd></div></dl>}
-        {browser && <dl><div><dt>网页</dt><dd>{browser.title}</dd></div><div><dt>元素</dt><dd>{browser.tagName.toLowerCase()}{browser.role ? ` · ${browser.role}` : ''}</dd></div><div><dt>地址</dt><dd>{browser.url}</dd></div>{browser.selector && <div><dt>选择器</dt><dd><code>{browser.selector}</code></dd></div>}</dl>}
+        {file && <dl><div><dt>文件</dt><dd>{file.name}</dd></div><div><dt>类型</dt><dd>{file.mediaType || file.kind}</dd></div><div><dt>大小</dt><dd>{formatBytes(file.size)}</dd></div>{file.pageCount && <div><dt>页数</dt><dd>{file.pageCount}</dd></div>}{file.extractionStatus && <div><dt>本地解析</dt><dd>{file.extractionStatus === 'ready' ? '文字已提取' : file.extractionStatus}</dd></div>}</dl>}
+        {browser && <dl><div><dt>网页</dt><dd>{browser.title}</dd></div><div><dt>文字范围</dt><dd>{browser.selectionMode ?? '当前对象'}</dd></div>{browser.selectedText && <div><dt>所选文字</dt><dd>{browser.selectedText}</dd></div>}<div><dt>元素</dt><dd>{browser.tagName.toLowerCase()}{browser.role ? ` · ${browser.role}` : ''}</dd></div><div><dt>地址</dt><dd>{browser.url}</dd></div>{browser.selector && <div><dt>选择器</dt><dd><code>{browser.selector}</code></dd></div>}</dl>}
+        {session.annotation && <div className="evidence-annotation"><NotePencil size={16} /><span><strong>你的注释</strong>{session.annotation}</span></div>}
       </div>
     </details>
   )
 }
 
-function EmptyTimeline(props: { onCapture: () => void; onOpenFiles: () => void; query: string; onQuery: (value: string) => void; onSubmit: () => void }) {
+function EmptyTimeline(props: {
+  shortcut: string
+  onCapture: () => void
+  onOpenFiles: () => void
+  query: string
+  onQuery: (value: string) => void
+  analysisMode: AnalysisMode
+  onAnalysisMode: (value: AnalysisMode) => void
+  outputFormat: OutputFormat
+  onOutputFormat: (value: OutputFormat) => void
+  annotation: string
+  onAnnotation: (value: string) => void
+  onSubmit: () => void
+}) {
   return (
-    <section className="empty-timeline">
-      <div className="empty-instruction">
-        <div className="question-cursor"><Question size={22} weight="bold" /></div>
+    <section className="empty-timeline workbench-empty">
+      <div className="empty-instruction workbench-intro">
+        <div className="question-cursor"><HighlighterCircle size={23} weight="duotone" /></div>
         <div>
-          <h1>按快捷键开始询问</h1>
-          <p>点一下识别对象，按住拖动分析区域；网页连接器可读取所点文字、按钮、视频和周围 DOM。</p>
+          <h1>在任何地方划出问题</h1>
+          <p>按一次快捷键，点对象或圈出区域；文字可以按所选内容、单词、段落或全文读取，并附上一句批注。</p>
         </div>
       </div>
       <button type="button" className="primary-button empty-primary" onClick={props.onCapture}>
-        <CursorClick size={18} />进入 ❓ 选择模式
-        <span className="shortcut-line"><kbd>Ctrl</kbd><span>+</span><kbd>Shift</kbd><span>+</span><kbd>Space</kbd></span>
+        <CursorClick size={18} />开启系统批注
+        <span className="shortcut-line">{shortcutParts(props.shortcut).map((part, index) => <span className="shortcut-part" key={`${part}-${index}`}>{index > 0 && <span>+</span>}<kbd>{part}</kbd></span>)}</span>
       </button>
-      <div className="alternate-label"><span>也可以直接询问</span><button type="button" onClick={props.onOpenFiles}><File size={16} />选择图片、PDF 或视频</button></div>
-      <form className="text-question" onSubmit={(event) => { event.preventDefault(); props.onSubmit() }}>
-        <input value={props.query} onChange={(event) => props.onQuery(event.target.value)} placeholder="输入一个文字问题" aria-label="直接输入问题" />
-        <button type="submit" disabled={!props.query.trim()} aria-label="发送文字问题"><PaperPlaneTilt size={17} weight="fill" /></button>
-      </form>
+      <div className="analysis-console">
+        <div className="analysis-modes" role="group" aria-label="分析方式">
+          {analysisModes.map((mode) => {
+            const Icon = mode.id === 'code' ? FileCode : mode.id === 'how-to' ? ListNumbers : mode.id === 'deep-dive' ? Sparkle : mode.id === 'customer-reply' ? NotePencil : TextAlignLeft
+            return <button type="button" key={mode.id} className={props.analysisMode === mode.id ? 'analysis-mode selected' : 'analysis-mode'} onClick={() => props.onAnalysisMode(mode.id)}><Icon size={17} /><span><strong>{mode.label}</strong><small>{mode.hint}</small></span></button>
+          })}
+        </div>
+        <div className="annotation-composer">
+          <textarea value={props.annotation} onChange={(event) => props.onAnnotation(event.target.value)} maxLength={1000} placeholder="简单注释（可选），例如：重点解释红色报错，并给出验证步骤" />
+          <div className="composer-footer">
+            <button type="button" className="file-entry" onClick={props.onOpenFiles}><File size={16} />图片、PDF、视频或代码</button>
+            <label>回复格式<select value={props.outputFormat} onChange={(event) => props.onOutputFormat(event.target.value as OutputFormat)}>{outputFormats.map((format) => <option value={format.id} key={format.id}>{format.label}</option>)}</select></label>
+          </div>
+        </div>
+        <form className="text-question" onSubmit={(event) => { event.preventDefault(); props.onSubmit() }}>
+          <input value={props.query} onChange={(event) => props.onQuery(event.target.value)} placeholder="或者直接输入问题" aria-label="直接输入问题" />
+          <button type="submit" disabled={!props.query.trim()} aria-label="发送文字问题"><PaperPlaneTilt size={17} weight="fill" /></button>
+        </form>
+      </div>
     </section>
   )
 }
@@ -611,11 +802,15 @@ function ProviderEditor(props: { profile: ProviderProfile; onClose: () => void; 
 function SettingsPanel(props: { settings: AppSettings; onSave: (settings: AppSettings) => Promise<void> }) {
   const [draft, setDraft] = useState(props.settings)
   const [saved, setSaved] = useState(false)
+  const [voiceCheck, setVoiceCheck] = useState('')
   return (
     <section className="settings-surface narrow">
       <header className="section-heading"><div><h1>设置</h1><p>快捷键、语言、回复方式和本地记录。</p></div></header>
-      <div className="settings-group"><h2>取景</h2><label>全局快捷键<input value={draft.shortcut} onChange={(event) => setDraft({ ...draft, shortcut: event.target.value })} /><small>从任何应用进入 ❓ 询问模式</small></label><Toggle checked={draft.showPreview} label="分析前显示上下文预览" onChange={(showPreview) => setDraft({ ...draft, showPreview })} /></div>
-      <div className="settings-group"><h2>语言与回答</h2><label>界面语言<select value={draft.language} onChange={(event) => setDraft({ ...draft, language: event.target.value as AppSettings['language'] })}><option value="zh-CN">简体中文</option><option value="en">English</option></select></label><Toggle checked={draft.detectCustomerLanguage} label="自动跟随顾客语言回答" onChange={(detectCustomerLanguage) => setDraft({ ...draft, detectCustomerLanguage })} /><label>无法识别时的语言<select value={draft.responseLanguage} onChange={(event) => setDraft({ ...draft, responseLanguage: event.target.value as AppSettings['responseLanguage'] })}><option value="zh-CN">简体中文</option><option value="en">English</option><option value="ja-JP">日本語</option><option value="ko-KR">한국어</option><option value="es-ES">Español</option><option value="fr-FR">Français</option><option value="de-DE">Deutsch</option></select></label><label>回答风格<select value={draft.replyStyle} onChange={(event) => setDraft({ ...draft, replyStyle: event.target.value as AppSettings['replyStyle'] })}><option value="customer-ready">客户可直接使用</option><option value="concise">简短结论</option><option value="detailed">详细分析</option></select></label><label>自定义要求<textarea value={draft.customReplyInstruction} onChange={(event) => setDraft({ ...draft, customReplyInstruction: event.target.value })} placeholder="例如：先用日语敬语给出回复，再用中文说明依据。" /></label></div>
+      <div className="settings-group"><h2>取景</h2><label>全局快捷键<input value={draft.shortcut} onChange={(event) => setDraft({ ...draft, shortcut: event.target.value })} /><small>从任何应用进入问号询问模式</small></label><Toggle checked={draft.showPreview} label="分析前显示上下文预览" onChange={(showPreview) => setDraft({ ...draft, showPreview })} /></div>
+      <div className="settings-group"><h2>分析与回复</h2><label>默认分析方式<select value={draft.defaultAnalysisMode} onChange={(event) => setDraft({ ...draft, defaultAnalysisMode: event.target.value as AnalysisMode })}>{analysisModes.map((mode) => <option key={mode.id} value={mode.id}>{mode.label} · {mode.hint}</option>)}</select></label><label>默认回复格式<select value={draft.defaultOutputFormat} onChange={(event) => setDraft({ ...draft, defaultOutputFormat: event.target.value as OutputFormat })}>{outputFormats.map((format) => <option key={format.id} value={format.id}>{format.label}</option>)}</select></label><label>回答风格<select value={draft.replyStyle} onChange={(event) => setDraft({ ...draft, replyStyle: event.target.value as AppSettings['replyStyle'] })}><option value="customer-ready">客户可直接使用</option><option value="concise">简短结论</option><option value="detailed">详细分析</option></select></label><label>自定义要求<textarea value={draft.customReplyInstruction} onChange={(event) => setDraft({ ...draft, customReplyInstruction: event.target.value })} placeholder="例如：先给结论，再说明原理、步骤和验证方法。" /></label></div>
+      <div className="settings-group"><h2>语言</h2><label>界面语言<select value={draft.language} onChange={(event) => setDraft({ ...draft, language: event.target.value as AppSettings['language'] })}><option value="zh-CN">简体中文</option><option value="en">English</option></select></label><Toggle checked={draft.detectCustomerLanguage} label="自动跟随顾客语言回答" onChange={(detectCustomerLanguage) => setDraft({ ...draft, detectCustomerLanguage })} /><label>无法识别时的语言<select value={draft.responseLanguage} onChange={(event) => setDraft({ ...draft, responseLanguage: event.target.value as AppSettings['responseLanguage'] })}><option value="zh-CN">简体中文</option><option value="en">English</option><option value="ja-JP">日本語</option><option value="ko-KR">한국어</option><option value="es-ES">Español</option><option value="fr-FR">Français</option><option value="de-DE">Deutsch</option></select></label></div>
+      <div className="settings-group"><h2>后台与通知</h2><Toggle checked={draft.launchAtStartup} label="登录系统后自动在后台启动" onChange={(launchAtStartup) => setDraft({ ...draft, launchAtStartup })} /><Toggle checked={draft.notificationsEnabled} label="分析完成后发送系统通知" onChange={(notificationsEnabled) => setDraft({ ...draft, notificationsEnabled })} /><Toggle checked={draft.notificationPreview} label="在通知中显示回答摘要" onChange={(notificationPreview) => setDraft({ ...draft, notificationPreview })} /><label>结果呈现<select value={draft.resultPresentation} onChange={(event) => setDraft({ ...draft, resultPresentation: event.target.value as AppSettings['resultPresentation'] })}><option value="notification">只推送通知，继续后台运行</option><option value="window">自动打开会话窗口</option><option value="both">通知并打开窗口</option></select></label></div>
+      <div className="settings-group"><h2>语音</h2><label>朗读方式<select value={draft.voiceMode} onChange={(event) => setDraft({ ...draft, voiceMode: event.target.value as AppSettings['voiceMode'] })}><option value="off">关闭</option><option value="system">系统语音（当前可用）</option><option value="codex-realtime" disabled>Codex Realtime Voice（本机暂不可用）</option></select><small>本机 Codex 0.146.1 的 App Server 已公开实验音频方法，但普通本地线程返回“不支持 realtime conversation”；因此本构建明确停用该选项，保留系统语音作为可验证路径。</small></label><div><button type="button" className="secondary-button" onClick={async () => { try { await speakText('LensQuery 语音测试。'); setVoiceCheck('系统语音已启动') } catch (cause) { setVoiceCheck(String(cause)) } }}>测试系统语音</button>{voiceCheck && <small className="voice-check">{voiceCheck}</small>}</div><Toggle checked={draft.autoPlayVoice} label="回答完成后自动朗读" onChange={(autoPlayVoice) => setDraft({ ...draft, autoPlayVoice })} /></div>
       <div className="settings-group"><h2>本地数据</h2><Toggle checked={draft.saveHistory} label="保存会话时间线" onChange={(saveHistory) => setDraft({ ...draft, saveHistory })} /><Toggle checked={draft.retainImages} label="保留捕获图片" onChange={(retainImages) => setDraft({ ...draft, retainImages })} /></div>
       <div className="settings-footer"><span>{saved ? '已保存' : '设置只保存在本机'}</span><button type="button" className="primary-button" onClick={async () => { await props.onSave(draft); setSaved(true); window.setTimeout(() => setSaved(false), 1800) }}>保存设置</button></div>
     </section>
@@ -631,13 +826,62 @@ function CaptureOverlay() {
   const [current, setCurrent] = useState<{ x: number; y: number } | null>(null)
   const [busy, setBusy] = useState(false)
   const [captureError, setCaptureError] = useState('')
-  const selection = start && current ? normalizeSelection(start, current) : null
+  const [intent, setIntent] = useState<{ analysisMode: AnalysisMode; outputFormat: OutputFormat; textScope: TextScope }>({ analysisMode: 'explain', outputFormat: 'adaptive', textScope: 'object' })
+  const [annotationDraft, setAnnotationDraft] = useState('')
+  const [keyboardSelection, setKeyboardSelection] = useState<{ x: number; y: number; width: number; height: number } | null>(null)
+  const selection = keyboardSelection ?? (start && current ? normalizeSelection(start, current) : null)
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') void cancelCapture()
+      if (event.key === 'Escape') {
+        void cancelCapture()
+        return
+      }
+      if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Enter'].includes(event.key)) return
+      const target = event.target
+      if (target instanceof HTMLInputElement || target instanceof HTMLSelectElement || target instanceof HTMLTextAreaElement) return
+      if (event.key === 'Enter') {
+        if (!keyboardSelection || busy) return
+        event.preventDefault()
+        setStart({ x: keyboardSelection.x, y: keyboardSelection.y })
+        setCurrent({ x: keyboardSelection.x + keyboardSelection.width, y: keyboardSelection.y + keyboardSelection.height })
+        const centerX = keyboardSelection.x + keyboardSelection.width / 2
+        const centerY = keyboardSelection.y + keyboardSelection.height / 2
+        const PointerEventConstructor = window.PointerEvent ?? MouseEvent
+        const synthetic = new PointerEventConstructor('pointerup', { clientX: centerX, clientY: centerY, screenX: window.screenX + centerX, screenY: window.screenY + centerY })
+        window.setTimeout(() => document.querySelector<HTMLDivElement>('.capture-overlay')?.dispatchEvent(synthetic), 0)
+        return
+      }
+      event.preventDefault()
+      const delta = event.shiftKey ? 10 : 2
+      setKeyboardSelection((current) => {
+        const value = current ?? { x: Math.max(12, window.innerWidth / 2 - 160), y: Math.max(138, window.innerHeight / 2 - 100), width: 320, height: 200 }
+        if (event.altKey) {
+          return {
+            ...value,
+            width: Math.max(24, Math.min(window.innerWidth - value.x, value.width + (event.key === 'ArrowRight' ? delta : event.key === 'ArrowLeft' ? -delta : 0))),
+            height: Math.max(24, Math.min(window.innerHeight - value.y, value.height + (event.key === 'ArrowDown' ? delta : event.key === 'ArrowUp' ? -delta : 0))),
+          }
+        }
+        return {
+          ...value,
+          x: Math.max(0, Math.min(window.innerWidth - value.width, value.x + (event.key === 'ArrowRight' ? delta : event.key === 'ArrowLeft' ? -delta : 0))),
+          y: Math.max(0, Math.min(window.innerHeight - value.height, value.y + (event.key === 'ArrowDown' ? delta : event.key === 'ArrowUp' ? -delta : 0))),
+        }
+      })
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
+  }, [busy, keyboardSelection])
+  useEffect(() => {
+    let dispose: (() => void) | undefined
+    void listenForCaptureIntent((payload) => {
+      setIntent((current) => ({
+        analysisMode: payload.analysisMode ?? current.analysisMode,
+        outputFormat: payload.outputFormat ?? current.outputFormat,
+        textScope: (payload.textScope as TextScope | undefined) ?? current.textScope,
+      }))
+    }).then((unlisten) => { dispose = unlisten })
+    return () => dispose?.()
   }, [])
   async function finish(event: React.PointerEvent<HTMLDivElement>) {
     if (!start || busy) return
@@ -656,6 +900,10 @@ function CaptureOverlay() {
               width: bounds.width,
               height: bounds.height,
             },
+        textScope: intent.textScope,
+        annotation: annotationDraft.trim() || undefined,
+        analysisMode: intent.analysisMode,
+        outputFormat: intent.outputFormat,
       })
     } catch (cause) {
       setBusy(false)
@@ -667,11 +915,11 @@ function CaptureOverlay() {
   return (
     <div
       className="capture-overlay"
-      onPointerDown={(event) => { setCaptureError(''); event.currentTarget.setPointerCapture(event.pointerId); setStart({ x: event.clientX, y: event.clientY }); setCurrent({ x: event.clientX, y: event.clientY }) }}
+      onPointerDown={(event) => { setCaptureError(''); setKeyboardSelection(null); event.currentTarget.setPointerCapture(event.pointerId); setStart({ x: event.clientX, y: event.clientY }); setCurrent({ x: event.clientX, y: event.clientY }) }}
       onPointerMove={(event) => { if (start) setCurrent({ x: event.clientX, y: event.clientY }) }}
       onPointerUp={finish}
     >
-      <div className="overlay-help"><Question size={20} weight="bold" /><span>点一下识别对象 · 按住拖动选择区域 · Esc 取消</span></div>
+      <div className="overlay-help"><Question size={20} weight="bold" /><span>点对象 · 拖动框选 · 方向键移动 · Alt + 方向键缩放 · Enter 确认 · Esc 取消</span></div><div className="overlay-toolbar" onPointerDown={(event) => event.stopPropagation()}><label>文字<select value={intent.textScope} onChange={(event) => setIntent({ ...intent, textScope: event.target.value as TextScope })}><option value="object">对象</option><option value="word">单词</option><option value="paragraph">段落</option><option value="page">全文</option><option value="screen">屏幕</option></select></label><label>分析<select value={intent.analysisMode} onChange={(event) => setIntent({ ...intent, analysisMode: event.target.value as AnalysisMode })}>{analysisModes.map((mode) => <option key={mode.id} value={mode.id}>{mode.label}</option>)}</select></label><input value={annotationDraft} maxLength={1000} onChange={(event) => setAnnotationDraft(event.target.value)} placeholder="简单注释（可选）" aria-label="简单注释" /></div>
       {selection && selection.width >= 8 && selection.height >= 8 && <div className="selection-box" style={{ left: selection.x, top: selection.y, width: selection.width, height: selection.height }}><span>{Math.round(selection.width)} × {Math.round(selection.height)}</span></div>}
       {busy && <div className="overlay-busy">正在读取所选内容…</div>}
       {captureError && <div className="overlay-error"><WarningCircle size={18} /><span>读取失败，请重新选择；或按 Esc 退出。<small>{captureError}</small></span></div>}

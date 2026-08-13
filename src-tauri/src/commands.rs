@@ -91,6 +91,18 @@ pub async fn complete_capture(
                 QueryEvidenceEvent {
                     capture: response.evidence.clone(),
                     browser_context: None,
+                    analysis_mode: response
+                        .evidence
+                        .as_ref()
+                        .and_then(|evidence| evidence.analysis_mode.clone()),
+                    output_format: response
+                        .evidence
+                        .as_ref()
+                        .and_then(|evidence| evidence.output_format.clone()),
+                    annotation: response
+                        .evidence
+                        .as_ref()
+                        .and_then(|evidence| evidence.annotation.clone()),
                 },
             )
             .map_err(|error| format!("发送取景结果失败: {error}"))?;
@@ -108,6 +120,86 @@ pub async fn complete_capture(
 pub fn cancel_capture(app: AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("capture") {
         window.hide().map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn show_main(app: AppHandle) {
+    crate::show_main_window(&app);
+}
+
+#[tauri::command]
+pub fn show_notification(title: String, body: String, app: AppHandle) -> Result<bool, String> {
+    use tauri_plugin_notification::NotificationExt;
+
+    let title: String = title.chars().take(120).collect();
+    let body: String = body.chars().take(1_000).collect();
+    if title.trim().is_empty() || body.trim().is_empty() {
+        return Err("通知标题和内容不能为空。".into());
+    }
+    app.notification()
+        .builder()
+        .title(title)
+        .body(body)
+        .show()
+        .map_err(|error| format!("发送系统通知失败: {error}"))?;
+    Ok(true)
+}
+
+#[tauri::command]
+pub fn speak_text(text: String, state: State<'_, AppState>) -> Result<String, String> {
+    let text = text.trim();
+    if text.is_empty() {
+        return Err("朗读内容不能为空。".into());
+    }
+    if text.chars().count() > 24_000 {
+        return Err("一次最多朗读 24000 个字符。".into());
+    }
+    let mut speech = state
+        .speech
+        .lock()
+        .map_err(|_| "语音进程被锁定。".to_string())?;
+    if let Some(child) = speech.as_mut() {
+        let _ = child.kill();
+    }
+
+    #[cfg(target_os = "macos")]
+    let child = std::process::Command::new("/usr/bin/say")
+        .arg(text)
+        .spawn()
+        .map_err(|error| format!("启动 macOS 系统朗读失败: {error}"))?;
+
+    #[cfg(target_os = "windows")]
+    let child = std::process::Command::new("powershell.exe")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "$voice = New-Object -ComObject SAPI.SpVoice; [void]$voice.Speak($env:LENSQUERY_SPEECH_TEXT)",
+        ])
+        .env("LENSQUERY_SPEECH_TEXT", text)
+        .spawn()
+        .map_err(|error| format!("启动 Windows 系统朗读失败: {error}"))?;
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    let child = std::process::Command::new("spd-say")
+        .arg(text)
+        .spawn()
+        .map_err(|error| format!("启动系统朗读失败: {error}"))?;
+
+    *speech = Some(child);
+    Ok("system".into())
+}
+
+#[tauri::command]
+pub fn stop_speaking(state: State<'_, AppState>) -> Result<(), String> {
+    let mut speech = state
+        .speech
+        .lock()
+        .map_err(|_| "语音进程被锁定。".to_string())?;
+    if let Some(mut child) = speech.take() {
+        let _ = child.kill();
     }
     Ok(())
 }
@@ -131,6 +223,30 @@ pub fn save_settings(
         return Err("回复语言不受支持。".into());
     }
     if !matches!(
+        settings.default_analysis_mode.as_str(),
+        "identify" | "explain" | "how-to" | "deep-dive" | "customer-reply" | "code"
+    ) {
+        return Err("默认分析方式不受支持。".into());
+    }
+    if !matches!(
+        settings.default_output_format.as_str(),
+        "adaptive" | "summary" | "steps" | "report" | "customer-reply" | "markdown"
+    ) {
+        return Err("默认回复格式不受支持。".into());
+    }
+    if !matches!(
+        settings.voice_mode.as_str(),
+        "off" | "system" | "codex-realtime"
+    ) {
+        return Err("语音模式不受支持。".into());
+    }
+    if !matches!(
+        settings.result_presentation.as_str(),
+        "notification" | "window" | "both"
+    ) {
+        return Err("结果呈现方式不受支持。".into());
+    }
+    if !matches!(
         settings.reply_style.as_str(),
         "concise" | "customer-ready" | "detailed"
     ) {
@@ -140,6 +256,22 @@ pub fn save_settings(
         return Err("自定义回复要求最多 1000 个字符。".into());
     }
     crate::register_capture_shortcut(&app, &settings.shortcut)?;
+    {
+        use tauri_plugin_autostart::ManagerExt;
+        let manager = app.autolaunch();
+        let enabled = manager
+            .is_enabled()
+            .map_err(|error| format!("读取开机启动状态失败: {error}"))?;
+        if settings.launch_at_startup && !enabled {
+            manager
+                .enable()
+                .map_err(|error| format!("启用开机启动失败: {error}"))?;
+        } else if !settings.launch_at_startup && enabled {
+            manager
+                .disable()
+                .map_err(|error| format!("关闭开机启动失败: {error}"))?;
+        }
+    }
     *state
         .settings
         .lock()
@@ -204,8 +336,28 @@ pub async fn analyze(
         .lock()
         .map_err(|_| "设置存储被锁定。".to_string())?
         .clone();
+    let should_show_window = settings.result_presentation != "notification";
+    let cleanup_paths = if settings.retain_images {
+        Vec::new()
+    } else {
+        request
+            .captures
+            .iter()
+            .filter_map(|capture| capture.preview_url.strip_prefix("file://"))
+            .map(std::path::PathBuf::from)
+            .filter(|path| {
+                path.parent()
+                    .is_some_and(|parent| parent.ends_with("lensquery-captures"))
+            })
+            .collect::<Vec<_>>()
+    };
     let result = providers::analyze(request, profile, settings).await;
-    crate::show_main_window(&app);
+    for path in cleanup_paths {
+        let _ = std::fs::remove_file(path);
+    }
+    if should_show_window || result.is_err() {
+        crate::show_main_window(&app);
+    }
     result
 }
 

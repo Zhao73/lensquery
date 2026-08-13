@@ -59,20 +59,21 @@ The production application does not use Ink, Bubble Tea, Ratatui, or another TUI
 2. The capture window covers all monitors using virtual-screen coordinates.
 3. Pointer up yields either a one-pixel element probe or a dragged rectangle.
 4. LensQuery hides its overlay before acquiring pixels.
-5. On Windows, UI Automation resolves the click to a role, name, class, AutomationId, and true element rectangle when exposed.
+5. On Windows, UI Automation resolves the click to a role, name, class, AutomationId, true element rectangle, and word/paragraph/document range when exposed. On macOS, Accessibility reads bounded `AXSelectedText`, `AXValue`, or title context when the user grants permission.
 6. XCap captures the bounded region to a local temporary PNG.
 7. The main process receives `lensquery://evidence-ready` and immediately creates a pending conversation.
 8. The selected agent adapter receives the evidence and streams/returns the answer.
-9. The main window is shown with that same conversation ready for follow-up.
+9. LensQuery follows the configured result presentation: native notification, conversation window, or both. The same local conversation remains ready for follow-up.
 
-Windows UI Automation is best-effort. Canvas applications, protected surfaces, elevated windows, secure desktops, and some GPU/video surfaces may expose no useful element metadata. The pixel crop remains the fallback.
+Native accessibility is best-effort and permission-bound. Canvas applications, protected surfaces, elevated/secure windows, and some GPU/video surfaces may expose no useful element metadata. The pixel crop remains the fallback. The overlay supports pointer selection plus keyboard move/resize/confirm/cancel.
 
 ## Browser context
 
 The extension collects only after the user explicitly invokes it:
 
 - URL and page title;
-- clicked tag, role, text, accessible name, and selector;
+- selection/word/paragraph/page/object scope, clicked tag, role, text, accessible name, and selector;
+- optional user annotation plus requested analysis mode and output format;
 - sanitized bounded `outerHTML` and nearby section text;
 - for `video` / `audio`: current time, duration, source URL when exposed, and paused state.
 
@@ -82,8 +83,8 @@ The default extension uses `activeTab`, `scripting`, and `nativeMessaging`. Sour
 
 - File selection/drop enters the same timeline without a separate upload homepage.
 - Images go directly to vision-capable adapters.
-- Video is locally probed, uniformly sampled into time-coded frames, and optionally given a compact audio derivative.
-- PDFs use native provider file input when available, otherwise bounded text/page extraction.
+- Video is locally probed and automatically prepared into time-coded frames plus an optional compact audio derivative before the model request.
+- Machine-readable PDFs and text/code files use bounded local extraction. Image-only PDFs remain an OCR milestone.
 - Explorer integration can forward a selected path through a protocol activation or shell verb; it remains a packaging milestone.
 
 ## Security boundaries
@@ -94,3 +95,5 @@ The default extension uses `activeTab`, `scripting`, and `nativeMessaging`. Sour
 - CLI fallback uses fixed executable allowlists and argument arrays, never a shell command string.
 - Browser HTML is bounded and strips common secret-bearing attributes and scripts before transport.
 - Agent tool permissions stay disabled for ordinary visual explanation. A later source-code workspace mode must be a distinct, explicit user action.
+- Optional outbound preview pauses the request with a removable context summary; disabling it restores the one-shortcut direct path.
+- Captured PNGs are deleted after the request unless retention is enabled. History and image retention are independent settings.

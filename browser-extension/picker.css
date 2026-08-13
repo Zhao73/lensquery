@@ -26,3 +26,39 @@ html.lensquery-picking * {
   outline-offset: 3px !important;
   background-color: rgba(35, 103, 209, 0.08) !important;
 }
+
+#lensquery-annotation-composer {
+  position: fixed !important;
+  z-index: 2147483647 !important;
+  display: grid !important;
+  width: min(340px, calc(100vw - 24px)) !important;
+  gap: 12px !important;
+  padding: 15px !important;
+  border: 1px solid rgba(255,255,255,.14) !important;
+  border-radius: 12px !important;
+  color: #f7f9fc !important;
+  background: rgba(26,30,38,.98) !important;
+  box-shadow: 0 18px 54px rgba(0,0,0,.34) !important;
+  font: 13px/1.4 "Segoe UI", sans-serif !important;
+  cursor: default !important;
+}
+#lensquery-annotation-composer * { box-sizing: border-box !important; cursor: default !important; }
+#lensquery-annotation-composer label { display: grid !important; gap: 6px !important; color: #b8bec9 !important; font-size: 11px !important; }
+#lensquery-annotation-composer select,
+#lensquery-annotation-composer textarea {
+  width: 100% !important;
+  padding: 8px 10px !important;
+  border: 1px solid #4a505b !important;
+  border-radius: 7px !important;
+  color: #fff !important;
+  background: #252a33 !important;
+  font: 13px/1.45 "Segoe UI", sans-serif !important;
+}
+#lensquery-annotation-composer textarea { min-height: 72px !important; resize: vertical !important; cursor: text !important; }
+.lensquery-composer-head,
+.lensquery-composer-actions { display: flex !important; align-items: center !important; justify-content: space-between !important; gap: 8px !important; }
+.lensquery-composer-head strong { font-size: 14px !important; }
+.lensquery-composer-head button { padding: 2px 6px !important; border: 0 !important; color: #b8bec9 !important; background: transparent !important; font-size: 22px !important; }
+.lensquery-composer-actions { justify-content: flex-end !important; }
+.lensquery-composer-actions button { min-height: 32px !important; padding: 0 12px !important; border: 0 !important; border-radius: 7px !important; color: #d7dce5 !important; background: #343a45 !important; }
+.lensquery-composer-actions button[type="submit"] { color: #fff !important; background: #2367d1 !important; }

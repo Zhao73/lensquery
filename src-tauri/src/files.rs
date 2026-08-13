@@ -5,6 +5,7 @@ use uuid::Uuid;
 use crate::{models::FileEvidence, video};
 
 const MAX_ATTACHMENTS: usize = 32;
+const MAX_EXTRACTED_TEXT_CHARS: usize = 160_000;
 
 pub async fn inspect(paths: Vec<String>) -> Result<Vec<FileEvidence>, String> {
     if paths.len() > MAX_ATTACHMENTS {
@@ -28,13 +29,41 @@ pub async fn inspect(paths: Vec<String>) -> Result<Vec<FileEvidence>, String> {
             .unwrap_or_default()
             .to_ascii_lowercase();
         let (kind, media_type) = classify(&extension);
-        let (video_metadata, processing_error) = if kind == "video" {
+        let (video_metadata, mut processing_error) = if kind == "video" {
             match video::probe(&path).await {
                 Ok(value) => (Some(value), None),
                 Err(error) => (None, Some(error)),
             }
         } else {
             (None, None)
+        };
+        let (extracted_text, page_count, extraction_status) = match kind {
+            "pdf" => match extract_pdf(&path).await {
+                Ok((text, pages)) if text.trim().is_empty() => {
+                    (None, Some(pages), Some("unsupported".into()))
+                }
+                Ok((text, pages)) => (Some(text), Some(pages), Some("ready".into())),
+                Err(error) => {
+                    processing_error = Some(error);
+                    (None, None, Some("error".into()))
+                }
+            },
+            "text" => match fs::read_to_string(&path) {
+                Ok(text) => (
+                    Some(bounded_text(&text)),
+                    None,
+                    Some(if text.chars().count() > MAX_EXTRACTED_TEXT_CHARS {
+                        "partial".into()
+                    } else {
+                        "ready".into()
+                    }),
+                ),
+                Err(error) => {
+                    processing_error = Some(format!("无法读取文本文件: {error}"));
+                    (None, None, Some("error".into()))
+                }
+            },
+            _ => (None, None, Some("not-needed".into())),
         };
         evidence.push(FileEvidence {
             id: Uuid::new_v4().to_string(),
@@ -46,9 +75,28 @@ pub async fn inspect(paths: Vec<String>) -> Result<Vec<FileEvidence>, String> {
             video: video_metadata,
             video_preparation: None,
             processing_error,
+            extracted_text,
+            page_count,
+            extraction_status,
         });
     }
     Ok(evidence)
+}
+
+async fn extract_pdf(path: &str) -> Result<(String, u32), String> {
+    let path = path.to_owned();
+    tauri::async_runtime::spawn_blocking(move || {
+        let pages = pdf_extract::extract_text_by_pages(&path)
+            .map_err(|error| format!("PDF 文本提取失败: {error}"))?;
+        let count = u32::try_from(pages.len()).unwrap_or(u32::MAX);
+        Ok((bounded_text(&pages.join("\n\n--- page ---\n\n")), count))
+    })
+    .await
+    .map_err(|error| format!("PDF 提取任务异常结束: {error}"))?
+}
+
+fn bounded_text(value: &str) -> String {
+    value.chars().take(MAX_EXTRACTED_TEXT_CHARS).collect()
 }
 
 fn classify(extension: &str) -> (&'static str, &'static str) {
@@ -83,5 +131,13 @@ mod tests {
     fn recognizes_common_video_extensions() {
         assert_eq!(classify("mp4"), ("video", "video/mp4"));
         assert_eq!(classify("mkv"), ("video", "video/x-matroska"));
+    }
+
+    #[test]
+    fn bounds_extracted_text_without_splitting_unicode() {
+        let source = "界".repeat(MAX_EXTRACTED_TEXT_CHARS + 4);
+        let bounded = bounded_text(&source);
+        assert_eq!(bounded.chars().count(), MAX_EXTRACTED_TEXT_CHARS);
+        assert!(bounded.chars().all(|value| value == '界'));
     }
 }

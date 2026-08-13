@@ -66,12 +66,29 @@ async fn run_cli(
     } else {
         "Use only the supplied evidence and distinguish direct observation from inference."
     };
+    let analysis_instruction = match request.analysis_mode.as_str() {
+        "identify" => "Identify the selected subject first, then state what it is for.",
+        "how-to" => "Explain how to use the selected subject with ordered, practical steps and prerequisites.",
+        "deep-dive" => "Give a rigorous explanation of the underlying principles, components, data flow, limitations, and common failure modes.",
+        "customer-reply" => "Produce a polished answer that can be sent directly to the customer. Do not expose internal reasoning.",
+        "code" => "Analyze the visible or attached code: purpose, control flow, important symbols, defects, and safe next actions.",
+        _ => "Explain the selected content, its purpose, relevant context, and what the user should do next.",
+    };
+    let output_instruction = match request.output_format.as_str() {
+        "summary" => "Output format: a direct conclusion followed by at most five concise bullets.",
+        "steps" => "Output format: prerequisites, numbered steps, verification, and troubleshooting.",
+        "report" => "Output format: conclusion, observed evidence, detailed analysis, uncertainty, and recommended actions.",
+        "customer-reply" => "Output format: customer-ready reply first, then a clearly separated short internal note when useful.",
+        "markdown" => "Output format: well-structured Markdown with descriptive headings, lists, and code fences only when needed.",
+        _ => "Choose the clearest structure for the question. Start with the answer, then supporting detail.",
+    };
+    let annotation = request.annotation.as_deref().unwrap_or("none");
     let language_instruction = language_instruction(settings);
     let style_instruction = style_instruction(settings);
     let custom_instruction = settings.custom_reply_instruction.trim();
     let conversation = build_conversation_manifest(request);
     let prompt = format!(
-        "You are LensQuery's read-only analyst. Do not execute commands, call tools, access the network, or modify files. {video_instruction} {language_instruction} {style_instruction}\nUser reply instruction: {custom_instruction}\n\nConversation so far:\n{conversation}\n\nPreset: {}\nQuestion: {}\n\nEvidence manifest:\n{evidence_manifest}",
+        "You are LensQuery's read-only analyst. Do not execute commands, call tools, access the network, or modify files. {video_instruction} {analysis_instruction} {output_instruction} {language_instruction} {style_instruction}\nUser annotation: {annotation}\nUser reply instruction: {custom_instruction}\n\nConversation so far:\n{conversation}\n\nPreset: {}\nQuestion: {}\n\nEvidence manifest:\n{evidence_manifest}",
         request.prompt_id, request.question
     );
 
@@ -238,6 +255,7 @@ fn collect_image_paths(request: &AnalysisRequest) -> Result<Vec<String>, String>
                     .ok_or_else(|| format!("请先对视频 {} 执行“快速准备视频”。", file.name))?;
                 images.extend(preparation.frames.iter().map(|frame| frame.path.clone()));
             }
+            _ if file.extracted_text.is_some() => {}
             _ => {
                 return Err(format!(
                     "CLI 当前只接收图片和已准备的视频关键帧；{} 需要直接 API 或后续文件解析器。",
@@ -278,6 +296,9 @@ fn build_evidence_manifest(request: &AnalysisRequest) -> String {
             capture.bounds.height,
             capture.accessible_text.as_deref().unwrap_or("not exposed")
         ));
+        if let Some(annotation) = &capture.annotation {
+            lines.push(format!("Screen annotation: {annotation}"));
+        }
     }
     if let Some(browser) = &request.browser_context {
         lines.push(format!(
@@ -291,6 +312,16 @@ fn build_evidence_manifest(request: &AnalysisRequest) -> String {
             browser.nearby_text.as_deref().unwrap_or("not exposed"),
             browser.outer_html.as_deref().unwrap_or("not exposed")
         ));
+        if let Some(selected_text) = &browser.selected_text {
+            lines.push(format!(
+                "Selected browser text (scope={}): {}",
+                browser.selection_mode.as_deref().unwrap_or("selection"),
+                selected_text
+            ));
+        }
+        if let Some(annotation) = &browser.annotation {
+            lines.push(format!("Browser annotation: {annotation}"));
+        }
         if let Some(media) = &browser.media {
             lines.push(format!(
                 "Browser media: {} at {:.2}s / {} | paused={} | source={}",
@@ -328,6 +359,16 @@ fn build_evidence_manifest(request: &AnalysisRequest) -> String {
             }
         } else {
             lines.push(format!("File: {} | type {}", file.name, file.media_type));
+            if let Some(text) = &file.extracted_text {
+                lines.push(format!(
+                    "Extracted local content ({} pages; status={}):\n{}",
+                    file.page_count
+                        .map(|count| count.to_string())
+                        .unwrap_or_else(|| "n/a".into()),
+                    file.extraction_status.as_deref().unwrap_or("unknown"),
+                    text
+                ));
+            }
         }
     }
     if lines.is_empty() {
@@ -390,9 +431,15 @@ mod tests {
                     strategy: "uniform-keyframes-v1".into(),
                 }),
                 processing_error: None,
+                extracted_text: None,
+                page_count: None,
+                extraction_status: Some("not-needed".into()),
             }],
             browser_context: None,
             conversation: vec![],
+            analysis_mode: "explain".into(),
+            output_format: "adaptive".into(),
+            annotation: None,
         };
         assert_eq!(
             collect_image_paths(&request).expect("prepared video"),

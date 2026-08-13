@@ -11,8 +11,8 @@ mod video;
 
 use commands::{
     analyze, bootstrap, cancel_capture, complete_capture, discover_cli_providers, inspect_files,
-    prepare_video, probe_video, save_provider, save_settings, set_provider_secret, start_capture,
-    test_provider,
+    prepare_video, probe_video, save_provider, save_settings, set_provider_secret, show_main,
+    show_notification, speak_text, start_capture, stop_speaking, test_provider,
 };
 use state::AppState;
 use tauri::{
@@ -21,6 +21,30 @@ use tauri::{
     AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize,
 };
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
+
+fn shortcut_display(shortcut: &str) -> String {
+    shortcut
+        .split('+')
+        .map(|part| match part {
+            "CommandOrControl" => {
+                if cfg!(target_os = "macos") {
+                    "⌘"
+                } else {
+                    "Ctrl"
+                }
+            }
+            "Command" => "⌘",
+            "Control" if cfg!(target_os = "macos") => "⌃",
+            "Control" => "Ctrl",
+            "Shift" if cfg!(target_os = "macos") => "⇧",
+            "Shift" => "Shift",
+            "Alt" if cfg!(target_os = "macos") => "⌥",
+            "Alt" => "Alt",
+            other => other,
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
 
 pub(crate) fn show_main_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
@@ -79,6 +103,24 @@ pub(crate) fn request_capture(app: &AppHandle) -> Result<(), String> {
     show_capture_overlay(app)
 }
 
+fn request_capture_intent(
+    app: &AppHandle,
+    analysis_mode: &str,
+    text_scope: &str,
+) -> Result<(), String> {
+    app.emit_to(
+        "capture",
+        "lensquery://capture-intent",
+        serde_json::json!({
+            "analysisMode": analysis_mode,
+            "outputFormat": "adaptive",
+            "textScope": text_scope
+        }),
+    )
+    .map_err(|error| error.to_string())?;
+    request_capture(app)
+}
+
 pub(crate) fn register_capture_shortcut(app: &AppHandle, shortcut: &str) -> Result<(), String> {
     app.global_shortcut()
         .unregister_all()
@@ -104,6 +146,11 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
@@ -119,9 +166,16 @@ pub fn run() {
             probe_video,
             prepare_video,
             inspect_files,
-            analyze
+            analyze,
+            show_main,
+            show_notification,
+            speak_text,
+            stop_speaking
         ])
         .setup(|app| {
+            #[cfg(target_os = "macos")]
+            app.handle()
+                .set_activation_policy(tauri::ActivationPolicy::Accessory)?;
             if cfg!(debug_assertions) {
                 app.handle().plugin(
                     tauri_plugin_log::Builder::default()
@@ -137,27 +191,99 @@ pub fn run() {
                 .shortcut
                 .clone();
             register_capture_shortcut(app.handle(), &shortcut)?;
+            let tray_tooltip = format!("LensQuery · {}", shortcut_display(&shortcut));
 
-            let capture_item = MenuItem::with_id(app, "capture", "快速询问", true, None::<&str>)?;
-            let open_item = MenuItem::with_id(app, "open", "打开会话", true, None::<&str>)?;
+            {
+                use tauri_plugin_autostart::ManagerExt;
+                if app
+                    .state::<AppState>()
+                    .settings
+                    .lock()
+                    .map(|value| value.launch_at_startup)
+                    .unwrap_or(false)
+                {
+                    let _ = app.autolaunch().enable();
+                }
+            }
+
+            let capture_item = MenuItem::with_id(app, "capture", "快速询问…", true, None::<&str>)?;
+            let explain_item =
+                MenuItem::with_id(app, "explain", "解释所选内容", true, None::<&str>)?;
+            let howto_item = MenuItem::with_id(app, "howto", "分析使用方法", true, None::<&str>)?;
+            let deep_item = MenuItem::with_id(app, "deep", "深入分析原理", true, None::<&str>)?;
+            let file_item = MenuItem::with_id(app, "file", "分析文件…", true, None::<&str>)?;
+            let open_item = MenuItem::with_id(app, "open", "会话时间线", true, None::<&str>)?;
+            let model_item = MenuItem::with_id(app, "models", "模型与智能体", true, None::<&str>)?;
+            let settings_item = MenuItem::with_id(app, "settings", "设置…", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "退出 LensQuery", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&capture_item, &open_item, &quit_item])?;
-            let mut tray = TrayIconBuilder::new()
-                .tooltip("LensQuery · Ctrl+Shift+Space")
+            let menu = Menu::with_items(
+                app,
+                &[
+                    &capture_item,
+                    &explain_item,
+                    &howto_item,
+                    &deep_item,
+                    &file_item,
+                    &open_item,
+                    &model_item,
+                    &settings_item,
+                    &quit_item,
+                ],
+            )?;
+            let tray_icon = tauri::include_image!("icons/tray-template-44.png");
+            TrayIconBuilder::new()
+                .tooltip(&tray_tooltip)
                 .menu(&menu)
-                .show_menu_on_left_click(true)
+                .show_menu_on_left_click(false)
+                .icon_as_template(cfg!(target_os = "macos"))
+                .icon(tray_icon)
                 .on_menu_event(|app, event| match event.id().0.as_str() {
                     "capture" => {
-                        let _ = request_capture(app);
+                        let _ = request_capture_intent(app, "identify", "object");
                     }
-                    "open" => show_main_window(app),
+                    "explain" => {
+                        let _ = request_capture_intent(app, "explain", "selection");
+                    }
+                    "howto" => {
+                        let _ = request_capture_intent(app, "how-to", "object");
+                    }
+                    "deep" => {
+                        let _ = request_capture_intent(app, "deep-dive", "page");
+                    }
+                    "file" => {
+                        show_main_window(app);
+                        let _ = app.emit_to("main", "lensquery://pick-files", ());
+                    }
+                    "open" => {
+                        show_main_window(app);
+                        let _ = app.emit_to("main", "lensquery://navigate", "timeline");
+                    }
+                    "models" => {
+                        show_main_window(app);
+                        let _ = app.emit_to("main", "lensquery://navigate", "providers");
+                    }
+                    "settings" => {
+                        show_main_window(app);
+                        let _ = app.emit_to("main", "lensquery://navigate", "settings");
+                    }
                     "quit" => app.exit(0),
                     _ => {}
-                });
-            if let Some(icon) = app.default_window_icon().cloned() {
-                tray = tray.icon(icon);
-            }
-            tray.build(app)?;
+                })
+                .on_tray_icon_event(|tray, event| {
+                    if let tauri::tray::TrayIconEvent::Click {
+                        button,
+                        button_state,
+                        ..
+                    } = event
+                    {
+                        if button == tauri::tray::MouseButton::Left
+                            && button_state == tauri::tray::MouseButtonState::Up
+                        {
+                            let _ = request_capture_intent(tray.app_handle(), "identify", "object");
+                        }
+                    }
+                })
+                .build(app)?;
             browser_bridge::start_queue_poller(app.handle().clone());
             Ok(())
         })

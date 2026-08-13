@@ -101,6 +101,9 @@ fn poll_once(app: &AppHandle) {
                 "lensquery://evidence-ready",
                 QueryEvidenceEvent {
                     capture: None,
+                    analysis_mode: browser_context.analysis_mode.clone(),
+                    output_format: browser_context.output_format.clone(),
+                    annotation: browser_context.annotation.clone(),
                     browser_context: Some(browser_context),
                 },
             );
@@ -162,6 +165,11 @@ mod tests {
             selector: None,
             outer_html: Some("x".repeat(64_001)),
             nearby_text: None,
+            selection_mode: None,
+            selected_text: None,
+            annotation: None,
+            analysis_mode: None,
+            output_format: None,
             media: None,
         };
         assert!(validate_context(&context).is_err());

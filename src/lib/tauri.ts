@@ -89,6 +89,14 @@ export const defaultSettings: AppSettings = {
   retainImages: false,
   showPreview: true,
   defaultProviderId: 'openai',
+  defaultAnalysisMode: 'explain',
+  defaultOutputFormat: 'adaptive',
+  launchAtStartup: true,
+  notificationsEnabled: true,
+  notificationPreview: true,
+  resultPresentation: 'notification',
+  voiceMode: 'system',
+  autoPlayVoice: false,
 }
 
 export async function bootstrap(): Promise<BootstrapState> {
@@ -167,9 +175,45 @@ export async function cancelCapture(): Promise<void> {
   await invoke('cancel_capture')
 }
 
+export async function showMainWindow(): Promise<void> {
+  if (!isDesktopRuntime()) return
+  await invoke('show_main')
+}
+
+export async function showSystemNotification(title: string, body: string): Promise<boolean> {
+  if (!isDesktopRuntime()) return false
+  const { isPermissionGranted, requestPermission, sendNotification } = await import('@tauri-apps/plugin-notification')
+  let granted = await isPermissionGranted()
+  if (!granted) granted = (await requestPermission()) === 'granted'
+  if (!granted) return false
+  sendNotification({ title, body })
+  return true
+}
+
+export async function speakText(text: string): Promise<string> {
+  if (!isDesktopRuntime()) {
+    window.speechSynthesis.cancel()
+    const utterance = new SpeechSynthesisUtterance(text)
+    window.speechSynthesis.speak(utterance)
+    return 'browser-system-voice'
+  }
+  return invoke<string>('speak_text', { text })
+}
+
+export async function stopSpeaking(): Promise<void> {
+  if (!isDesktopRuntime()) {
+    window.speechSynthesis.cancel()
+    return
+  }
+  await invoke('stop_speaking')
+}
+
 export interface QueryEvidenceEvent {
   capture?: CaptureEvidence
   browserContext?: BrowserContext
+  analysisMode?: AnalysisRequest['analysisMode']
+  outputFormat?: AnalysisRequest['outputFormat']
+  annotation?: string
 }
 
 export async function listenForCaptureRequests(handler: () => void): Promise<() => void> {
@@ -190,6 +234,26 @@ export async function listenForQueryEvidence(
   if (!isDesktopRuntime()) return () => undefined
   const { listen } = await import('@tauri-apps/api/event')
   return listen<QueryEvidenceEvent>('lensquery://evidence-ready', ({ payload }) => handler(payload))
+}
+
+export async function listenForCaptureIntent(
+  handler: (payload: { analysisMode?: AnalysisRequest['analysisMode']; outputFormat?: AnalysisRequest['outputFormat']; textScope?: string }) => void,
+): Promise<() => void> {
+  if (!isDesktopRuntime()) return () => undefined
+  const { listen } = await import('@tauri-apps/api/event')
+  return listen('lensquery://capture-intent', ({ payload }) => handler(payload as Parameters<typeof handler>[0]))
+}
+
+export async function listenForNavigation(handler: (view: 'timeline' | 'providers' | 'settings') => void): Promise<() => void> {
+  if (!isDesktopRuntime()) return () => undefined
+  const { listen } = await import('@tauri-apps/api/event')
+  return listen<'timeline' | 'providers' | 'settings'>('lensquery://navigate', ({ payload }) => handler(payload))
+}
+
+export async function listenForFilePicker(handler: () => void): Promise<() => void> {
+  if (!isDesktopRuntime()) return () => undefined
+  const { listen } = await import('@tauri-apps/api/event')
+  return listen('lensquery://pick-files', handler)
 }
 
 export async function analyze(request: AnalysisRequest): Promise<AnalysisResult> {

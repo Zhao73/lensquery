@@ -1,5 +1,9 @@
 export type CaptureMode = 'region' | 'element'
 
+export type AnalysisMode = 'identify' | 'explain' | 'how-to' | 'deep-dive' | 'customer-reply' | 'code'
+export type OutputFormat = 'adaptive' | 'summary' | 'steps' | 'report' | 'customer-reply' | 'markdown'
+export type TextScope = 'object' | 'selection' | 'word' | 'paragraph' | 'page' | 'screen'
+
 export type ProviderKind =
   | 'openai'
   | 'anthropic'
@@ -24,6 +28,10 @@ export interface CaptureEvidence {
   windowTitle?: string
   processName?: string
   accessibleText?: string
+  textScope?: TextScope
+  annotation?: string
+  analysisMode?: AnalysisMode
+  outputFormat?: OutputFormat
 }
 
 export interface BrowserContext {
@@ -36,6 +44,11 @@ export interface BrowserContext {
   selector?: string
   outerHtml?: string
   nearbyText?: string
+  selectionMode?: TextScope
+  selectedText?: string
+  annotation?: string
+  analysisMode?: AnalysisMode
+  outputFormat?: OutputFormat
   media?: {
     kind: 'video' | 'audio'
     currentTime: number
@@ -56,6 +69,9 @@ export interface FileEvidence {
   videoPreparation?: VideoPreparation
   processingError?: string
   processingStatus?: 'idle' | 'preparing' | 'ready' | 'error'
+  extractedText?: string
+  pageCount?: number
+  extractionStatus?: 'not-needed' | 'ready' | 'partial' | 'unsupported' | 'error'
 }
 
 export interface VideoMetadata {
@@ -119,6 +135,9 @@ export interface AnalysisRequest {
   files: FileEvidence[]
   browserContext?: BrowserContext
   conversation?: ConversationMessage[]
+  analysisMode?: AnalysisMode
+  outputFormat?: OutputFormat
+  annotation?: string
 }
 
 export interface AnalysisResult {
@@ -153,11 +172,18 @@ export interface QuerySession {
   files: FileEvidence[]
   browserContext?: BrowserContext
   messages: ConversationMessage[]
+  analysisMode: AnalysisMode
+  outputFormat: OutputFormat
+  annotation?: string
 }
 
 export interface CaptureSelection {
   mode: CaptureMode
   bounds: Bounds
+  textScope?: TextScope
+  annotation?: string
+  analysisMode?: AnalysisMode
+  outputFormat?: OutputFormat
 }
 
 export interface AppSettings {
@@ -171,6 +197,14 @@ export interface AppSettings {
   retainImages: boolean
   showPreview: boolean
   defaultProviderId: string
+  defaultAnalysisMode: AnalysisMode
+  defaultOutputFormat: OutputFormat
+  launchAtStartup: boolean
+  notificationsEnabled: boolean
+  notificationPreview: boolean
+  resultPresentation: 'notification' | 'window' | 'both'
+  voiceMode: 'off' | 'system' | 'codex-realtime'
+  autoPlayVoice: boolean
 }
 
 export interface BootstrapState {

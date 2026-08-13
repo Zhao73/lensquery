@@ -32,9 +32,76 @@
     const element = event.composedPath().find((item) => item instanceof Element)
     if (!element) return stop()
     const context = buildContext(element)
-    stop()
-    const response = await chrome.runtime.sendMessage({ type: 'lensquery-context', context })
-    if (!response?.ok) showFailure(response?.error)
+    showComposer(context, event.clientX, event.clientY)
+  }
+
+  function showComposer(context, x, y) {
+    state.active = false
+    state.highlighted?.classList.remove('lensquery-target')
+    badge.remove()
+    window.removeEventListener('pointermove', onMove, true)
+    window.removeEventListener('click', onClick, true)
+    const composer = document.createElement('form')
+    composer.id = 'lensquery-annotation-composer'
+    composer.innerHTML = `
+      <div class="lensquery-composer-head"><strong>注释并询问</strong><button type="button" data-close aria-label="关闭">×</button></div>
+      <label>文字范围<select name="scope">
+        <option value="selection">已选择文字</option>
+        <option value="word">当前单词</option>
+        <option value="paragraph">当前段落</option>
+        <option value="page">全文</option>
+        <option value="object">当前对象</option>
+      </select></label>
+      <label>分析方式<select name="analysis">
+        <option value="explain">解释内容</option>
+        <option value="how-to">使用方法</option>
+        <option value="deep-dive">深入原理</option>
+        <option value="customer-reply">生成客户回复</option>
+        <option value="code">分析代码</option>
+      </select></label>
+      <label>简单注释<textarea name="annotation" maxlength="1000" placeholder="例如：只解释红色报错，给出修复步骤"></textarea></label>
+      <div class="lensquery-composer-actions"><button type="button" data-close>取消</button><button type="submit">发送给 LensQuery</button></div>`
+    composer.style.left = `${Math.min(x, innerWidth - 360)}px`
+    composer.style.top = `${Math.min(y, innerHeight - 350)}px`
+    document.documentElement.appendChild(composer)
+    composer.querySelectorAll('[data-close]').forEach((button) => button.addEventListener('click', stop))
+    composer.addEventListener('submit', async (event) => {
+      event.preventDefault()
+      const data = new FormData(composer)
+      const scope = String(data.get('scope') || 'selection')
+      context.selectionMode = scope
+      context.selectedText = textForScope(context.__element, scope)
+      context.annotation = String(data.get('annotation') || '').trim()
+      context.analysisMode = String(data.get('analysis') || 'explain')
+      context.outputFormat = context.analysisMode === 'customer-reply' ? 'customer-reply' : 'adaptive'
+      delete context.__element
+      stop()
+      const response = await chrome.runtime.sendMessage({ type: 'lensquery-context', context })
+      if (!response?.ok) showFailure(response?.error)
+    })
+    composer.querySelector('textarea')?.focus()
+  }
+
+  function textForScope(element, scope) {
+    const nativeSelection = clean(window.getSelection()?.toString() || '')
+    if (scope === 'selection' && nativeSelection) return nativeSelection.slice(0, 16000)
+    if (scope === 'word') return wordAtCurrentSelection(element).slice(0, 1000)
+    if (scope === 'paragraph') {
+      const paragraph = element.closest('p, li, dd, dt, blockquote, pre, h1, h2, h3, h4, h5, h6') || element
+      return clean(paragraph.innerText || paragraph.textContent || '').slice(0, 16000)
+    }
+    if (scope === 'page') return clean(document.body?.innerText || '').slice(0, 32000)
+    return clean(element.innerText || element.textContent || element.getAttribute('alt') || '').slice(0, 16000)
+  }
+
+  function wordAtCurrentSelection(element) {
+    const selection = window.getSelection()
+    const node = selection?.anchorNode || element.firstChild
+    const value = node?.textContent || element.textContent || ''
+    const offset = Math.min(selection?.anchorOffset || 0, value.length)
+    const before = value.slice(0, offset).match(/[\p{L}\p{N}_'-]+$/u)?.[0] || ''
+    const after = value.slice(offset).match(/^[\p{L}\p{N}_'-]+/u)?.[0] || ''
+    return before + after || clean(value).split(/\s+/)[0] || ''
   }
 
   function stop() {
@@ -45,6 +112,7 @@
     window.removeEventListener('pointermove', onMove, true)
     window.removeEventListener('click', onClick, true)
     window.removeEventListener('keydown', onKey, true)
+    document.getElementById('lensquery-annotation-composer')?.remove()
     delete window.__lensQueryPicker
   }
 
@@ -62,6 +130,9 @@
       selector: uniqueSelector(element),
       outerHtml: sanitizeHtml(element.outerHTML).slice(0, 12000),
       nearbyText: clean(nearby?.innerText || nearby?.textContent || '').slice(0, 8000),
+      __element: element,
+      selectionMode: window.getSelection()?.toString().trim() ? 'selection' : 'object',
+      selectedText: clean(window.getSelection()?.toString() || '').slice(0, 16000),
       media: media ? {
         kind: media.tagName.toLowerCase(),
         currentTime: Number(media.currentTime || 0),
