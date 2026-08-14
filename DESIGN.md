@@ -55,6 +55,8 @@ Canonical tokens live in `src/index.css`.
 ## Background surfaces
 
 - The main window starts hidden. Closing it hides, not quits.
+- A left click on the resident icon starts smart selection immediately. The right-click menu exposes region, object/icon/file, selected-text, and page-text modes before the secondary timeline/settings actions.
+- Every capture mode uses the same transparent selector. Hovering an object or file gives it a light target highlight; clicking selects it, while dragging selects a freeform region.
 - A monochrome template icon lives in the macOS menu bar and adapts to appearance; Windows uses the colored app mark in the system tray.
 - Left click starts the default capture. Right click exposes verb-first shortcuts, followed by Timeline, Models, Settings, and Quit.
 - Native result notifications are concise and bounded; the full Markdown answer remains in the local timeline.

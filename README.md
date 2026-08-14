@@ -8,13 +8,15 @@ LensQuery is an open-source resident utility for Windows and macOS. Press a glob
 
 ## Intended workflow
 
-1. Leave LensQuery running in the system tray/menu bar and press `Ctrl+Shift+Space` (`Command+Shift+Space` is configurable on macOS).
+1. Leave LensQuery running in the system tray/menu bar. A left click on its icon or `Ctrl+Shift+Space` (`Command+Shift+Space` on macOS) starts smart selection immediately; neither action opens the client window.
 2. The current desktop stays visible and the pointer changes to a small question mark.
 3. Click an object or drag a rectangle. LensQuery immediately hides the picker, captures bounded context, and starts the selected agent in the background. There is no client confirmation page in the shortcut path; preview remains available only for manual file imports when enabled.
 4. By default the answer arrives as a native notification; choose notification, window, or both in Settings.
 5. Open the conversation timeline to copy, hear, retry, or continue the same query.
 
-There is no upload-style homepage. Files enter through the native picker, drag/drop, and later Explorer shell integration, then use the same conversation flow.
+Right-clicking the tray/menu-bar icon opens capture choices without opening the client: smart click/drag, region only, one icon/file/object, currently selected text, or article/page text. These choices all enter the same transparent desktop selector. “Conversation timeline”, model configuration, and settings remain explicit secondary actions.
+
+There is no upload-style homepage. Point at a Desktop/Finder/Explorer file and click it in the selector; the file target highlights before selection and then enters the same background conversation flow. Drag/drop and later Explorer shell integration remain secondary paths.
 
 ## Local CLI discovery and reply language
 

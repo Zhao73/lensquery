@@ -16,7 +16,7 @@ use commands::{
 };
 use state::AppState;
 use tauri::{
-    menu::{Menu, MenuItem},
+    menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::TrayIconBuilder,
     AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize,
 };
@@ -286,6 +286,15 @@ pub(crate) fn request_capture_intent(
     analysis_mode: &str,
     text_scope: &str,
 ) -> Result<(), String> {
+    request_capture_selection_intent(app, analysis_mode, text_scope, "auto")
+}
+
+fn request_capture_selection_intent(
+    app: &AppHandle,
+    analysis_mode: &str,
+    text_scope: &str,
+    selection_mode: &str,
+) -> Result<(), String> {
     let output_format = app
         .state::<AppState>()
         .settings
@@ -299,7 +308,8 @@ pub(crate) fn request_capture_intent(
         serde_json::json!({
             "analysisMode": analysis_mode,
             "outputFormat": output_format,
-            "textScope": text_scope
+            "textScope": text_scope,
+            "selectionMode": selection_mode
         }),
     )
     .map_err(|error| error.to_string())?;
@@ -313,7 +323,22 @@ pub(crate) fn request_default_capture(app: &AppHandle) -> Result<(), String> {
         .lock()
         .map_err(|_| "设置存储被锁定。".to_string())?
         .clone();
-    request_capture_intent(app, &settings.default_analysis_mode, "object")
+    request_capture_selection_intent(app, &settings.default_analysis_mode, "object", "auto")
+}
+
+fn request_default_capture_mode(
+    app: &AppHandle,
+    text_scope: &str,
+    selection_mode: &str,
+) -> Result<(), String> {
+    let analysis_mode = app
+        .state::<AppState>()
+        .settings
+        .lock()
+        .map_err(|_| "设置存储被锁定。".to_string())?
+        .default_analysis_mode
+        .clone();
+    request_capture_selection_intent(app, &analysis_mode, text_scope, selection_mode)
 }
 
 pub(crate) fn register_capture_shortcut(app: &AppHandle, shortcut: &str) -> Result<(), String> {
@@ -390,7 +415,10 @@ pub fn run() {
                 .shortcut
                 .clone();
             register_capture_shortcut(app.handle(), &shortcut)?;
-            let tray_tooltip = format!("LensQuery · {}", shortcut_display(&shortcut));
+            let tray_tooltip = format!(
+                "LensQuery · 左键开始识别 · 右键选择方式 · {}",
+                shortcut_display(&shortcut)
+            );
 
             {
                 use tauri_plugin_autostart::ManagerExt;
@@ -405,24 +433,48 @@ pub fn run() {
                 }
             }
 
-            let capture_item = MenuItem::with_id(app, "capture", "快速询问…", true, None::<&str>)?;
+            let capture_item = MenuItem::with_id(
+                app,
+                "capture",
+                "开始识别（点击对象 / 拖动区域）",
+                true,
+                None::<&str>,
+            )?;
+            let region_item = MenuItem::with_id(app, "region", "框选一个区域", true, None::<&str>)?;
+            let element_item = MenuItem::with_id(
+                app,
+                "element",
+                "点击单个图标、文件或对象",
+                true,
+                None::<&str>,
+            )?;
+            let selection_item =
+                MenuItem::with_id(app, "selection", "识别已选文字", true, None::<&str>)?;
+            let article_item =
+                MenuItem::with_id(app, "article", "点击文章读取全文", true, None::<&str>)?;
             let explain_item =
                 MenuItem::with_id(app, "explain", "解释所选内容", true, None::<&str>)?;
             let howto_item = MenuItem::with_id(app, "howto", "分析使用方法", true, None::<&str>)?;
             let deep_item = MenuItem::with_id(app, "deep", "深入分析原理", true, None::<&str>)?;
-            let file_item = MenuItem::with_id(app, "file", "分析文件…", true, None::<&str>)?;
             let open_item = MenuItem::with_id(app, "open", "会话时间线", true, None::<&str>)?;
             let model_item = MenuItem::with_id(app, "models", "模型与智能体", true, None::<&str>)?;
             let settings_item = MenuItem::with_id(app, "settings", "设置…", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "退出 LensQuery", true, None::<&str>)?;
+            let capture_separator = PredefinedMenuItem::separator(app)?;
+            let app_separator = PredefinedMenuItem::separator(app)?;
             let menu = Menu::with_items(
                 app,
                 &[
                     &capture_item,
+                    &region_item,
+                    &element_item,
+                    &selection_item,
+                    &article_item,
+                    &capture_separator,
                     &explain_item,
                     &howto_item,
                     &deep_item,
-                    &file_item,
+                    &app_separator,
                     &open_item,
                     &model_item,
                     &settings_item,
@@ -438,7 +490,25 @@ pub fn run() {
                 .icon(tray_icon)
                 .on_menu_event(|app, event| match event.id().0.as_str() {
                     "capture" => {
-                        let _ = request_capture_intent(app, "identify", "object");
+                        let _ = request_default_capture(app);
+                    }
+                    "region" => {
+                        let _ = request_default_capture_mode(app, "screen", "region");
+                    }
+                    "element" => {
+                        let _ =
+                            request_capture_selection_intent(app, "identify", "object", "element");
+                    }
+                    "selection" => {
+                        let _ = request_capture_selection_intent(
+                            app,
+                            "explain",
+                            "selection",
+                            "element",
+                        );
+                    }
+                    "article" => {
+                        let _ = request_capture_selection_intent(app, "explain", "page", "element");
                     }
                     "explain" => {
                         let _ = request_capture_intent(app, "explain", "selection");
@@ -448,10 +518,6 @@ pub fn run() {
                     }
                     "deep" => {
                         let _ = request_capture_intent(app, "deep-dive", "page");
-                    }
-                    "file" => {
-                        show_main_window(app);
-                        let _ = app.emit_to("main", "lensquery://pick-files", ());
                     }
                     "open" => {
                         show_main_window(app);

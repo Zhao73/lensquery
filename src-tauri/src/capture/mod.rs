@@ -223,15 +223,16 @@ fn macos_inspect_element(
     use std::ptr;
 
     use accessibility_sys::{
-        kAXDescriptionAttribute, kAXDocumentAttribute, kAXErrorSuccess, kAXFilenameAttribute,
-        kAXHelpAttribute, kAXParentAttribute, kAXPositionAttribute, kAXRoleAttribute,
-        kAXRoleDescriptionAttribute, kAXSelectedTextAttribute, kAXSizeAttribute, kAXTitleAttribute,
-        kAXURLAttribute, kAXValueAttribute, kAXValueTypeCGPoint, kAXValueTypeCGSize,
-        AXUIElementCopyAttributeValue, AXUIElementCopyElementAtPosition,
+        kAXChildrenAttribute, kAXDescriptionAttribute, kAXDocumentAttribute, kAXErrorSuccess,
+        kAXFilenameAttribute, kAXHelpAttribute, kAXParentAttribute, kAXPositionAttribute,
+        kAXRoleAttribute, kAXRoleDescriptionAttribute, kAXSelectedTextAttribute, kAXSizeAttribute,
+        kAXTitleAttribute, kAXURLAttribute, kAXValueAttribute, kAXValueTypeCGPoint,
+        kAXValueTypeCGSize, AXUIElementCopyAttributeValue, AXUIElementCopyElementAtPosition,
         AXUIElementCreateSystemWide, AXUIElementGetPid, AXUIElementRef, AXValueGetType,
         AXValueGetTypeID, AXValueGetValue, AXValueRef,
     };
     use core_foundation_sys::{
+        array::{CFArrayGetCount, CFArrayGetTypeID, CFArrayGetValueAtIndex, CFArrayRef},
         base::{CFGetTypeID, CFRelease, CFTypeRef},
         string::{
             CFStringGetCString, CFStringGetLength, CFStringGetMaximumSizeForEncoding,
@@ -389,6 +390,115 @@ fn macos_inspect_element(
             .is_some_and(|identifier| identifier.to_string() == "com.apple.finder")
     }
 
+    unsafe fn collect_descendant_text(
+        element: AXUIElementRef,
+        depth: usize,
+        visited: &mut usize,
+        character_count: &mut usize,
+        chunks: &mut Vec<String>,
+        seen: &mut std::collections::HashSet<String>,
+    ) {
+        const MAX_DEPTH: usize = 14;
+        const MAX_NODES: usize = 1_600;
+        const MAX_CHARACTERS: usize = 60_000;
+
+        if depth > MAX_DEPTH || *visited >= MAX_NODES || *character_count >= MAX_CHARACTERS {
+            return;
+        }
+        *visited += 1;
+
+        for attribute in [
+            kAXValueAttribute,
+            kAXTitleAttribute,
+            kAXDescriptionAttribute,
+            kAXHelpAttribute,
+        ] {
+            let Some(value) = copy_string(element, attribute) else {
+                continue;
+            };
+            let value = value.trim();
+            if value.is_empty() || !seen.insert(value.to_string()) {
+                continue;
+            }
+            let remaining = MAX_CHARACTERS.saturating_sub(*character_count);
+            let bounded = value.chars().take(remaining).collect::<String>();
+            *character_count += bounded.chars().count();
+            chunks.push(bounded);
+            if *character_count >= MAX_CHARACTERS {
+                return;
+            }
+        }
+
+        let Some(children) = copy_attribute(element, kAXChildrenAttribute) else {
+            return;
+        };
+        if CFGetTypeID(children) == CFArrayGetTypeID() {
+            let children = children as CFArrayRef;
+            let count = CFArrayGetCount(children);
+            for index in 0..count {
+                let child = CFArrayGetValueAtIndex(children, index) as AXUIElementRef;
+                if !child.is_null() {
+                    collect_descendant_text(
+                        child,
+                        depth + 1,
+                        visited,
+                        character_count,
+                        chunks,
+                        seen,
+                    );
+                }
+                if *visited >= MAX_NODES || *character_count >= MAX_CHARACTERS {
+                    break;
+                }
+            }
+        }
+        CFRelease(children);
+    }
+
+    unsafe fn collect_page_text(element: AXUIElementRef) -> Option<String> {
+        let mut current = element;
+        let mut owns_current = false;
+        for _ in 0..16 {
+            let role = copy_string(current, kAXRoleAttribute).unwrap_or_default();
+            if matches!(
+                role.as_str(),
+                "AXWebArea" | "AXScrollArea" | "AXTextArea" | "AXDocument"
+            ) {
+                let mut visited = 0;
+                let mut character_count = 0;
+                let mut chunks = Vec::new();
+                let mut seen = std::collections::HashSet::new();
+                collect_descendant_text(
+                    current,
+                    0,
+                    &mut visited,
+                    &mut character_count,
+                    &mut chunks,
+                    &mut seen,
+                );
+                if owns_current {
+                    CFRelease(current as CFTypeRef);
+                }
+                return (!chunks.is_empty()).then(|| chunks.join("\n"));
+            }
+            if matches!(role.as_str(), "AXWindow" | "AXApplication") {
+                break;
+            }
+            let Some(parent) = copy_attribute(current, kAXParentAttribute) else {
+                break;
+            };
+            if owns_current {
+                CFRelease(current as CFTypeRef);
+            }
+            current = parent as AXUIElementRef;
+            owns_current = true;
+        }
+        if owns_current {
+            CFRelease(current as CFTypeRef);
+        }
+        None
+    }
+
     unsafe {
         let system = AXUIElementCreateSystemWide();
         if system.is_null() {
@@ -423,6 +533,9 @@ fn macos_inspect_element(
         let source_path = is_finder_element(element)
             .then(|| find_source_path(element))
             .flatten();
+        let page_text = matches!(text_scope, Some("page") | Some("screen"))
+            .then(|| collect_page_text(element))
+            .flatten();
         let selected =
             copy_string(element, kAXSelectedTextAttribute).filter(|value| !value.trim().is_empty());
         let value =
@@ -437,7 +550,8 @@ fn macos_inspect_element(
             .unwrap_or_else(|| "AXElement".into());
         CFRelease(element as CFTypeRef);
 
-        let source = selected
+        let source = page_text
+            .or(selected)
             .or(value)
             .or(title)
             .or(description)

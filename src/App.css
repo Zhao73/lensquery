@@ -369,6 +369,7 @@ html[data-lensquery-window="capture"] #root {
 .overlay-error { position: fixed; z-index: 4; bottom: 28px; left: 50%; display: flex; max-width: min(620px, calc(100vw - 36px)); align-items: center; gap: 9px; padding: 12px 14px; border-radius: 9px; color: #fff; background: rgb(157 39 31 / 0.96); box-shadow: 0 8px 26px rgb(0 0 0 / 0.28); font-size: 12px; transform: translateX(-50%); }
 .overlay-error span { display: grid; gap: 3px; }
 .overlay-error small { max-width: 64ch; overflow: hidden; opacity: 0.8; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.hover-target { position: absolute; z-index: 1; border: 2px solid #4e8ff0; border-radius: 10px; background: rgb(35 103 209 / 0.10); box-shadow: 0 0 0 3px rgb(78 143 240 / 0.18), 0 8px 24px rgb(5 10 18 / 0.12); pointer-events: none; transition: left 45ms linear, top 45ms linear; }
 .selection-box { position: absolute; z-index: 2; border: 2px solid #4e8ff0; background: rgb(35 103 209 / 0.12); box-shadow: 0 0 0 9999px rgb(5 10 18 / 0.32); }
 .selection-box span { position: absolute; right: -2px; bottom: -28px; padding: 4px 7px; border-radius: 5px; color: #fff; background: #2367d1; font-family: "Cascadia Mono", Consolas, monospace; font-size: 10px; }
 
@@ -417,6 +418,7 @@ html[data-lensquery-window="capture"] #root {
 @media (forced-colors: active) {
   .question-cursor,
   .provider-icon,
+  .hover-target,
   .selection-box,
   .toggle-row i { forced-color-adjust: none; }
 }

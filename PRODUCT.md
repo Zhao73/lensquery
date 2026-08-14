@@ -28,7 +28,8 @@ The product treats the desktop itself as the input surface. One capture action p
 ## Operating Context
 
 - Lives in the Windows system tray or macOS menu bar, starts hidden, and starts capture from a configurable global shortcut.
-- Supports click-to-inspect and drag-to-capture interactions over the current desktop.
+- Left-clicking the resident icon starts smart selection without opening the client; right-clicking exposes direct modes for a region, one object/icon/file, selected text, or page text, all inside the same selector.
+- Supports click-to-inspect and drag-to-capture interactions over the current desktop; an object/file hover target highlights what a click will select.
 - Accepts screenshots, images, videos, PDFs, and other local files via picker, drag-and-drop, or shell integration.
 - Creates a local conversation immediately, sends an optional native result notification, and preserves copy, read-aloud, retry, and follow-up actions in the timeline; the optional preview applies to manual imports rather than the shortcut path.
 - Routes requests to direct model APIs or installed local agent CLIs when available.
@@ -61,7 +62,7 @@ The product treats the desktop itself as the input surface. One capture action p
 
 ## Product Principles
 
-1. One shortcut plus one click/drag is the direct default path; optional preview is reserved for manual imports.
+1. One shortcut or one tray-icon click plus one click/drag is the direct default path; optional preview is reserved for manual imports.
 2. Keep provider choice portable and model IDs editable.
 3. Prefer native desktop affordances and a short path from shortcut to copied answer.
 4. Separate captured evidence, inferred context, model output, and external actions.

@@ -238,7 +238,12 @@ export async function listenForQueryEvidence(
 }
 
 export async function listenForCaptureIntent(
-  handler: (payload: { analysisMode?: AnalysisRequest['analysisMode']; outputFormat?: AnalysisRequest['outputFormat']; textScope?: string }) => void,
+  handler: (payload: {
+    analysisMode?: AnalysisRequest['analysisMode']
+    outputFormat?: AnalysisRequest['outputFormat']
+    textScope?: string
+    selectionMode?: 'auto' | 'region' | 'element'
+  }) => void,
 ): Promise<() => void> {
   if (!isDesktopRuntime()) return () => undefined
   const { listen } = await import('@tauri-apps/api/event')
@@ -249,12 +254,6 @@ export async function listenForNavigation(handler: (view: 'timeline' | 'provider
   if (!isDesktopRuntime()) return () => undefined
   const { listen } = await import('@tauri-apps/api/event')
   return listen<'timeline' | 'providers' | 'settings'>('lensquery://navigate', ({ payload }) => handler(payload))
-}
-
-export async function listenForFilePicker(handler: () => void): Promise<() => void> {
-  if (!isDesktopRuntime()) return () => undefined
-  const { listen } = await import('@tauri-apps/api/event')
-  return listen('lensquery://pick-files', handler)
 }
 
 export async function analyze(request: AnalysisRequest): Promise<AnalysisResult> {

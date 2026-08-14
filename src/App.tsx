@@ -42,7 +42,6 @@ import {
   listenForCaptureErrors,
   listenForCaptureIntent,
   listenForEvidenceDrops,
-  listenForFilePicker,
   listenForQueryEvidence,
   listenForNavigation,
   pickEvidenceFiles,
@@ -347,7 +346,6 @@ function ConversationApp() {
     let disposeEvidence: (() => void) | undefined
     let disposeDrop: (() => void) | undefined
     let disposeNavigation: (() => void) | undefined
-    let disposeFilePicker: (() => void) | undefined
     void listenForCaptureRequests(() => setCaptureStatus('按一下选择对象，按住并拖动选择区域；Esc 取消。')).then((dispose) => { disposeCapture = dispose })
     void listenForCaptureErrors((message) => {
       setCaptureStatus('')
@@ -361,14 +359,12 @@ function ConversationApp() {
       if (files.length) void submitNewQuery({ captures: [], files })
     }).then((dispose) => { disposeDrop = dispose })
     void listenForNavigation((nextView) => setView(nextView)).then((dispose) => { disposeNavigation = dispose })
-    void listenForFilePicker(() => { void openFiles() }).then((dispose) => { disposeFilePicker = dispose })
     return () => {
       disposeCapture?.()
       disposeCaptureError?.()
       disposeEvidence?.()
       disposeDrop?.()
       disposeNavigation?.()
-      disposeFilePicker?.()
     }
   // selectedProvider intentionally refreshes the handler when the route changes.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -833,10 +829,17 @@ function Toggle(props: { checked: boolean; label: string; onChange: (checked: bo
 
 function CaptureOverlay() {
   const [start, setStart] = useState<{ x: number; y: number } | null>(null)
+  const startRef = useRef<{ x: number; y: number } | null>(null)
   const [current, setCurrent] = useState<{ x: number; y: number } | null>(null)
+  const [hoverPoint, setHoverPoint] = useState<{ x: number; y: number } | null>(null)
   const [busy, setBusy] = useState(false)
   const [captureError, setCaptureError] = useState('')
-  const [intent, setIntent] = useState<{ analysisMode: AnalysisMode; outputFormat: OutputFormat; textScope: TextScope }>({ analysisMode: 'explain', outputFormat: 'adaptive', textScope: 'object' })
+  const [intent, setIntent] = useState<{
+    analysisMode: AnalysisMode
+    outputFormat: OutputFormat
+    textScope: TextScope
+    selectionMode: 'auto' | 'region' | 'element'
+  }>({ analysisMode: 'explain', outputFormat: 'adaptive', textScope: 'object', selectionMode: 'auto' })
   const [keyboardSelection, setKeyboardSelection] = useState<{ x: number; y: number; width: number; height: number } | null>(null)
   const selection = keyboardSelection ?? (start && current ? normalizeSelection(start, current) : null)
   useEffect(() => {
@@ -851,7 +854,9 @@ function CaptureOverlay() {
       if (event.key === 'Enter') {
         if (!keyboardSelection || busy) return
         event.preventDefault()
-        setStart({ x: keyboardSelection.x, y: keyboardSelection.y })
+        const keyboardStart = { x: keyboardSelection.x, y: keyboardSelection.y }
+        startRef.current = keyboardStart
+        setStart(keyboardStart)
         setCurrent({ x: keyboardSelection.x + keyboardSelection.width, y: keyboardSelection.y + keyboardSelection.height })
         const centerX = keyboardSelection.x + keyboardSelection.width / 2
         const centerY = keyboardSelection.y + keyboardSelection.height / 2
@@ -885,7 +890,9 @@ function CaptureOverlay() {
     let dispose: (() => void) | undefined
     void listenForCaptureRequests(() => {
       setStart(null)
+      startRef.current = null
       setCurrent(null)
+      setHoverPoint(null)
       setBusy(false)
       setCaptureError('')
       setKeyboardSelection(null)
@@ -899,20 +906,32 @@ function CaptureOverlay() {
         analysisMode: payload.analysisMode ?? current.analysisMode,
         outputFormat: payload.outputFormat ?? current.outputFormat,
         textScope: (payload.textScope as TextScope | undefined) ?? current.textScope,
+        selectionMode: payload.selectionMode ?? current.selectionMode,
       }))
     }).then((unlisten) => { dispose = unlisten })
     return () => dispose?.()
   }, [])
   async function finish(event: React.PointerEvent<HTMLDivElement>) {
-    if (!start || busy) return
+    const origin = startRef.current ?? start
+    if (!origin || busy) return
     const end = { x: event.clientX, y: event.clientY }
-    const bounds = normalizeSelection(start, end)
+    const bounds = normalizeSelection(origin, end)
     const isClick = bounds.width < 8 && bounds.height < 8
+    if (intent.selectionMode === 'region' && isClick) {
+      startRef.current = null
+      setStart(null)
+      setCurrent(null)
+      setCaptureError('当前是“框选区域”模式，请按住鼠标拖出一个区域。')
+      return
+    }
+    const mode = intent.selectionMode === 'auto'
+      ? (isClick ? 'element' : 'region')
+      : intent.selectionMode
     setBusy(true)
     try {
       await completeCapture({
-        mode: isClick ? 'element' : 'region',
-        bounds: isClick
+        mode,
+        bounds: mode === 'element'
           ? { x: event.screenX, y: event.screenY, width: 1, height: 1 }
           : {
               x: event.screenX - (event.clientX - bounds.x),
@@ -926,20 +945,30 @@ function CaptureOverlay() {
       })
     } catch (cause) {
       setBusy(false)
+      startRef.current = null
       setStart(null)
       setCurrent(null)
       setCaptureError(String(cause))
     }
   }
+  const hoverTarget = hoverPoint && !start && intent.selectionMode !== 'region'
+    ? {
+        left: Math.max(3, Math.min(window.innerWidth - 99, hoverPoint.x - 48)),
+        top: Math.max(3, Math.min(window.innerHeight - 99, hoverPoint.y - 48)),
+        width: 96,
+        height: 96,
+      }
+    : null
   return (
     <div
       className="capture-overlay"
-      onPointerDown={(event) => { setCaptureError(''); setKeyboardSelection(null); event.currentTarget.setPointerCapture(event.pointerId); setStart({ x: event.clientX, y: event.clientY }); setCurrent({ x: event.clientX, y: event.clientY }) }}
-      onPointerMove={(event) => { if (start) setCurrent({ x: event.clientX, y: event.clientY }) }}
+      onPointerDown={(event) => { const point = { x: event.clientX, y: event.clientY }; startRef.current = point; setCaptureError(''); setKeyboardSelection(null); event.currentTarget.setPointerCapture(event.pointerId); setStart(point); setCurrent(point) }}
+      onPointerMove={(event) => { const point = { x: event.clientX, y: event.clientY }; setHoverPoint(point); if (startRef.current) setCurrent(point) }}
       onPointerUp={finish}
-      onPointerCancel={() => { setStart(null); setCurrent(null) }}
+      onPointerCancel={() => { startRef.current = null; setStart(null); setCurrent(null) }}
     >
-      {selection && selection.width >= 8 && selection.height >= 8 && <div className="selection-box" style={{ left: selection.x, top: selection.y, width: selection.width, height: selection.height }}><span>{Math.round(selection.width)} × {Math.round(selection.height)}</span></div>}
+      {hoverTarget && <div className="hover-target" style={hoverTarget} />}
+      {intent.selectionMode !== 'element' && selection && selection.width >= 8 && selection.height >= 8 && <div className="selection-box" style={{ left: selection.x, top: selection.y, width: selection.width, height: selection.height }}><span>{Math.round(selection.width)} × {Math.round(selection.height)}</span></div>}
       {captureError && <div className="overlay-error"><WarningCircle size={18} /><span>读取失败，请重新选择；或按 Esc 退出。<small>{captureError}</small></span></div>}
     </div>
   )
