@@ -66,8 +66,16 @@ fn capture_native(selection: CaptureSelection) -> Result<CaptureResponse, String
     #[cfg(target_os = "windows")]
     let source_path = None;
 
-    let monitor = Monitor::from_point(bounds.x.round() as i32, bounds.y.round() as i32)
-        .map_err(|error| format!("没有找到所选位置的显示器: {error}"))?;
+    let monitor_anchor = if selection.mode == "element" {
+        &selection.bounds
+    } else {
+        &bounds
+    };
+    let monitor = Monitor::from_point(
+        monitor_anchor.x.round() as i32,
+        monitor_anchor.y.round() as i32,
+    )
+    .map_err(|error| format!("没有找到所选位置的显示器: {error}"))?;
     let monitor_x = monitor
         .x()
         .map_err(|error| format!("读取显示器坐标失败: {error}"))?;
@@ -80,6 +88,17 @@ fn capture_native(selection: CaptureSelection) -> Result<CaptureResponse, String
     let monitor_height = monitor
         .height()
         .map_err(|error| format!("读取显示器高度失败: {error}"))?;
+
+    if selection.mode == "element" && bounds.width < 2.0 && bounds.height < 2.0 {
+        bounds = contextual_element_bounds(
+            selection.bounds.x,
+            selection.bounds.y,
+            monitor_x,
+            monitor_y,
+            monitor_width,
+            monitor_height,
+        );
+    }
 
     let local_x = (bounds.x.round() as i64 - i64::from(monitor_x))
         .clamp(0, i64::from(monitor_width.saturating_sub(1))) as u32;
@@ -131,6 +150,31 @@ fn capture_native(selection: CaptureSelection) -> Result<CaptureResponse, String
         message: "所选内容已读取，正在后台分析。".into(),
         evidence: Some(evidence),
     })
+}
+
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+fn contextual_element_bounds(
+    point_x: f64,
+    point_y: f64,
+    monitor_x: i32,
+    monitor_y: i32,
+    monitor_width: u32,
+    monitor_height: u32,
+) -> Bounds {
+    let width = monitor_width.clamp(1, 480);
+    let height = monitor_height.clamp(1, 320);
+    let max_x = i64::from(monitor_width.saturating_sub(width));
+    let max_y = i64::from(monitor_height.saturating_sub(height));
+    let local_x =
+        (point_x.round() as i64 - i64::from(monitor_x) - i64::from(width / 2)).clamp(0, max_x);
+    let local_y =
+        (point_y.round() as i64 - i64::from(monitor_y) - i64::from(height / 2)).clamp(0, max_y);
+    Bounds {
+        x: f64::from(monitor_x) + local_x as f64,
+        y: f64::from(monitor_y) + local_y as f64,
+        width: f64::from(width),
+        height: f64::from(height),
+    }
 }
 
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]
@@ -587,5 +631,30 @@ fn scope_accessibility_text(value: &str, scope: Option<&str>) -> String {
             .take(16_000)
             .collect(),
         _ => trimmed.chars().take(16_000).collect(),
+    }
+}
+
+#[cfg(all(test, any(target_os = "windows", target_os = "macos")))]
+mod tests {
+    use super::contextual_element_bounds;
+
+    #[test]
+    fn centers_context_crop_around_unresolved_element() {
+        let bounds = contextual_element_bounds(900.0, 500.0, 0, 0, 1920, 1080);
+        assert_eq!(bounds.x, 660.0);
+        assert_eq!(bounds.y, 340.0);
+        assert_eq!(bounds.width, 480.0);
+        assert_eq!(bounds.height, 320.0);
+    }
+
+    #[test]
+    fn keeps_context_crop_inside_monitor_edges() {
+        let top_left = contextual_element_bounds(-1435.0, 8.0, -1440, 0, 1440, 900);
+        assert_eq!(top_left.x, -1440.0);
+        assert_eq!(top_left.y, 0.0);
+
+        let bottom_right = contextual_element_bounds(-5.0, 895.0, -1440, 0, 1440, 900);
+        assert_eq!(bottom_right.x, -480.0);
+        assert_eq!(bottom_right.y, 580.0);
     }
 }

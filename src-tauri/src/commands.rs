@@ -121,15 +121,8 @@ pub async fn complete_capture(
             Ok(response)
         }
         Err(error) => {
-            use tauri_plugin_notification::NotificationExt;
-
             let _ = app.emit_to("main", "lensquery://capture-error", error.clone());
-            let _ = app
-                .notification()
-                .builder()
-                .title("LensQuery 读取失败")
-                .body(error.chars().take(240).collect::<String>())
-                .show();
+            let _ = crate::show_result_toast(&app, "LensQuery 读取失败", &error);
             Err(error)
         }
     }
@@ -147,20 +140,21 @@ pub fn show_main(app: AppHandle) {
 
 #[tauri::command]
 pub fn show_notification(title: String, body: String, app: AppHandle) -> Result<bool, String> {
-    use tauri_plugin_notification::NotificationExt;
-
-    let title: String = title.chars().take(120).collect();
-    let body: String = body.chars().take(1_000).collect();
-    if title.trim().is_empty() || body.trim().is_empty() {
-        return Err("通知标题和内容不能为空。".into());
-    }
-    app.notification()
-        .builder()
-        .title(title)
-        .body(body)
-        .show()
-        .map_err(|error| format!("发送系统通知失败: {error}"))?;
+    crate::show_result_toast(&app, &title, &body)?;
     Ok(true)
+}
+
+#[tauri::command]
+pub fn hide_result_toast(app: AppHandle) -> Result<(), String> {
+    crate::hide_result_toast_window(&app)
+}
+
+#[tauri::command]
+pub fn open_result_from_toast(app: AppHandle) -> Result<(), String> {
+    crate::hide_result_toast_window(&app)?;
+    crate::show_main_window(&app);
+    app.emit_to("main", "lensquery://navigate", "timeline")
+        .map_err(|error| format!("打开会话时间线失败: {error}"))
 }
 
 #[tauri::command]

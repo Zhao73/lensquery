@@ -34,7 +34,7 @@
 - [x] Timestamped keyframe gallery
 - [ ] Audio-transcription transport
 - [x] Customer-answer prompt template and configurable output contracts
-- [x] Native result notification, conversation timeline, Markdown, speech, and follow-up
+- [x] Upper-right result card, conversation timeline, Markdown, speech, and follow-up
 - [x] Local history and capture-retention controls
 - [ ] Explorer integration
 

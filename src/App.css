@@ -356,6 +356,55 @@ html[data-lensquery-window="capture"] #root {
   background: transparent !important;
 }
 
+html[data-lensquery-window="result-toast"],
+html[data-lensquery-window="result-toast"] body,
+html[data-lensquery-window="result-toast"] #root {
+  min-width: 0;
+  background: transparent !important;
+}
+
+.result-toast-root {
+  display: flex;
+  width: 100vw;
+  height: 100dvh;
+  align-items: flex-start;
+  padding: 8px;
+  background: transparent;
+}
+
+.result-toast-card {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 10px;
+  padding: 13px 13px 12px;
+  border: 1px solid color-mix(in srgb, var(--line-strong) 84%, transparent);
+  border-radius: 13px;
+  color: var(--text);
+  background: color-mix(in srgb, var(--surface) 96%, transparent);
+  box-shadow: 0 14px 40px rgb(15 23 42 / 0.22), 0 2px 8px rgb(15 23 42 / 0.12);
+  animation: result-toast-enter 180ms ease-out;
+  -webkit-backdrop-filter: blur(18px) saturate(1.12);
+  backdrop-filter: blur(18px) saturate(1.12);
+}
+
+.result-toast-card:hover { border-color: var(--line-strong); background: var(--surface); }
+.result-toast-icon { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 9px; color: #fff; background: var(--accent); }
+.result-toast-copy { min-width: 0; }
+.result-toast-copy header { display: flex; min-width: 0; align-items: center; gap: 8px; }
+.result-toast-copy strong { min-width: 0; flex: 1; overflow: hidden; font-size: 13px; font-weight: 650; letter-spacing: -0.005em; text-overflow: ellipsis; white-space: nowrap; }
+.result-toast-copy button { display: grid; width: 24px; height: 24px; flex: 0 0 auto; place-items: center; margin: -5px -5px 0 0; padding: 0; border: 0; border-radius: 6px; color: var(--text-tertiary); background: transparent; }
+.result-toast-copy button:hover { color: var(--text); background: var(--surface-hover); }
+.result-toast-copy p { display: -webkit-box; min-height: 34px; margin: 5px 0 7px; overflow: hidden; color: var(--text-secondary); font-size: 11.5px; line-height: 1.5; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.result-toast-copy .result-toast-open { display: inline-flex; width: auto; height: auto; align-items: center; gap: 3px; margin: 0; padding: 0; color: var(--accent); background: transparent; font-size: 10.5px; font-weight: 600; }
+.result-toast-copy .result-toast-open:hover { color: var(--accent-hover); background: transparent; }
+
+@keyframes result-toast-enter {
+  from { opacity: 0; transform: translateY(-6px) scale(0.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
 .capture-overlay {
   position: fixed;
   inset: 0;
@@ -369,7 +418,6 @@ html[data-lensquery-window="capture"] #root {
 .overlay-error { position: fixed; z-index: 4; bottom: 28px; left: 50%; display: flex; max-width: min(620px, calc(100vw - 36px)); align-items: center; gap: 9px; padding: 12px 14px; border-radius: 9px; color: #fff; background: rgb(157 39 31 / 0.96); box-shadow: 0 8px 26px rgb(0 0 0 / 0.28); font-size: 12px; transform: translateX(-50%); }
 .overlay-error span { display: grid; gap: 3px; }
 .overlay-error small { max-width: 64ch; overflow: hidden; opacity: 0.8; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
-.hover-target { position: absolute; z-index: 1; border: 2px solid #4e8ff0; border-radius: 10px; background: rgb(35 103 209 / 0.10); box-shadow: 0 0 0 3px rgb(78 143 240 / 0.18), 0 8px 24px rgb(5 10 18 / 0.12); pointer-events: none; transition: left 45ms linear, top 45ms linear; }
 .selection-box { position: absolute; z-index: 2; border: 2px solid #4e8ff0; background: rgb(35 103 209 / 0.12); box-shadow: 0 0 0 9999px rgb(5 10 18 / 0.32); }
 .selection-box span { position: absolute; right: -2px; bottom: -28px; padding: 4px 7px; border-radius: 5px; color: #fff; background: #2367d1; font-family: "Cascadia Mono", Consolas, monospace; font-size: 10px; }
 
@@ -418,7 +466,6 @@ html[data-lensquery-window="capture"] #root {
 @media (forced-colors: active) {
   .question-cursor,
   .provider-icon,
-  .hover-target,
   .selection-box,
   .toggle-row i { forced-color-adjust: none; }
 }

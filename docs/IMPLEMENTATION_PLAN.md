@@ -20,7 +20,7 @@ The release is successful when a Windows user can leave LensQuery in the tray, p
 - Configurable global shortcut registration in Rust.
 - Separate transparent all-monitor capture overlay.
 - Transparent desktop, small question-mark cursor, click versus drag threshold, Escape cancellation, and configured analysis intent.
-- Native notifications, notification/window/both result presentation, autostart preference, and system speech.
+- Permission-independent upper-right result card, card/window/both result presentation, autostart preference, and system speech.
 
 macOS compilation is verified locally. Windows behavior must still be exercised on physical Windows 10/11, especially mixed-DPI coordinates and tray lifecycle.
 
@@ -93,4 +93,4 @@ Remaining: OCR/page rendering for scanned PDFs, audio transcription routing, Exp
 
 ## Honest current boundary
 
-The repository now has the intended interaction shell, native capture baseline, browser host code, file extraction, background notifications, and local system speech. It does not yet claim production-ready Windows/macOS packaging, installed browser Native Messaging manifests, exact macOS arbitrary-app text ranges, OCR, direct API transport, or a completed Codex App Server/OpenCode session adapter. Codex Realtime audio is represented as an explicitly disabled experimental route until streaming playback is implemented. Those are implementation gates, not completed features.
+The repository now has the intended interaction shell, native capture baseline, browser host code, file extraction, background upper-right results, and local system speech. It does not yet claim production-ready Windows/macOS packaging, installed browser Native Messaging manifests, exact macOS arbitrary-app text ranges, OCR, direct API transport, or a completed Codex App Server/OpenCode session adapter. Codex Realtime audio is represented as an explicitly disabled experimental route until streaming playback is implemented. Those are implementation gates, not completed features.

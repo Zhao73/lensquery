@@ -9,7 +9,7 @@
 3. The user either clicks an object or drags a rectangle.
 4. LensQuery assembles a context package containing the crop, source bounds, display scale, foreground application, window title, and non-sensitive accessible text when available.
 5. The shortcut plus click/drag is the explicit submission gesture, so analysis starts immediately in the background without opening the main window or a confirmation page.
-6. The answer arrives through the configured native notification/window presentation; the local timeline keeps the conversation and evidence for follow-up.
+6. The answer arrives through the configured upper-right card/window presentation; the local timeline keeps the conversation and evidence for follow-up.
 
 ### Local file analysis
 

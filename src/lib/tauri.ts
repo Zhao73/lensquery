@@ -182,12 +182,30 @@ export async function showMainWindow(): Promise<void> {
 
 export async function showSystemNotification(title: string, body: string): Promise<boolean> {
   if (!isDesktopRuntime()) return false
-  const { isPermissionGranted, requestPermission, sendNotification } = await import('@tauri-apps/plugin-notification')
-  let granted = await isPermissionGranted()
-  if (!granted) granted = (await requestPermission()) === 'granted'
-  if (!granted) return false
-  sendNotification({ title, body })
-  return true
+  return invoke<boolean>('show_notification', { title, body })
+}
+
+export interface ResultToastPayload {
+  title: string
+  body: string
+}
+
+export async function hideResultToast(): Promise<void> {
+  if (!isDesktopRuntime()) return
+  await invoke('hide_result_toast')
+}
+
+export async function openResultFromToast(): Promise<void> {
+  if (!isDesktopRuntime()) return
+  await invoke('open_result_from_toast')
+}
+
+export async function listenForResultToast(
+  handler: (payload: ResultToastPayload) => void,
+): Promise<() => void> {
+  if (!isDesktopRuntime()) return () => undefined
+  const { listen } = await import('@tauri-apps/api/event')
+  return listen<ResultToastPayload>('lensquery://result-toast', ({ payload }) => handler(payload))
 }
 
 export async function speakText(text: string): Promise<string> {

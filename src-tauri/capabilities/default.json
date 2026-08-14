@@ -4,11 +4,11 @@
   "description": "enables the default permissions",
   "windows": [
     "main",
-    "capture"
+    "capture",
+    "result-toast"
   ],
   "permissions": [
     "core:default",
-    "autostart:default",
-    "notification:default"
+    "autostart:default"
   ]
 }

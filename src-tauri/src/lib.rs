@@ -10,9 +10,10 @@ mod state;
 mod video;
 
 use commands::{
-    analyze, bootstrap, cancel_capture, complete_capture, discover_cli_providers, inspect_files,
-    prepare_video, probe_video, save_provider, save_settings, set_provider_secret, show_main,
-    show_notification, speak_text, start_capture, stop_speaking, test_provider,
+    analyze, bootstrap, cancel_capture, complete_capture, discover_cli_providers,
+    hide_result_toast, inspect_files, open_result_from_toast, prepare_video, probe_video,
+    save_provider, save_settings, set_provider_secret, show_main, show_notification, speak_text,
+    start_capture, stop_speaking, test_provider,
 };
 use state::AppState;
 use tauri::{
@@ -61,6 +62,78 @@ pub(crate) fn show_main_window(app: &AppHandle) {
     }
 }
 
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ResultToastPayload {
+    title: String,
+    body: String,
+}
+
+fn truncate_text(value: &str, max_chars: usize) -> String {
+    value.trim().chars().take(max_chars).collect()
+}
+
+fn result_toast_position(
+    monitor_x: i32,
+    monitor_y: i32,
+    monitor_width: u32,
+    toast_width: u32,
+    scale_factor: f64,
+) -> (i32, i32) {
+    let edge = (18.0 * scale_factor).round() as i32;
+    let menu_clearance = (38.0 * scale_factor).round() as i32;
+    let right = monitor_x.saturating_add(monitor_width as i32);
+    let x = right
+        .saturating_sub(toast_width as i32)
+        .saturating_sub(edge)
+        .max(monitor_x);
+    (x, monitor_y.saturating_add(menu_clearance))
+}
+
+pub(crate) fn show_result_toast(app: &AppHandle, title: &str, body: &str) -> Result<(), String> {
+    let payload = ResultToastPayload {
+        title: truncate_text(title, 120),
+        body: truncate_text(body, 1_000),
+    };
+    if payload.title.is_empty() || payload.body.is_empty() {
+        return Err("结果标题和内容不能为空。".into());
+    }
+
+    let window = app
+        .get_webview_window("result-toast")
+        .ok_or_else(|| "右上角结果窗口没有初始化。".to_string())?;
+    if let Some(monitor) = app.primary_monitor().map_err(|error| error.to_string())? {
+        let toast_size = window
+            .outer_size()
+            .unwrap_or_else(|_| PhysicalSize::new(392, 156));
+        let (x, y) = result_toast_position(
+            monitor.position().x,
+            monitor.position().y,
+            monitor.size().width,
+            toast_size.width,
+            monitor.scale_factor(),
+        );
+        window
+            .set_position(PhysicalPosition::new(x, y))
+            .map_err(|error| format!("定位右上角结果失败: {error}"))?;
+    }
+    window
+        .set_always_on_top(true)
+        .map_err(|error| format!("设置结果窗口置顶失败: {error}"))?;
+    app.emit_to("result-toast", "lensquery://result-toast", payload)
+        .map_err(|error| format!("发送右上角结果失败: {error}"))?;
+    window
+        .show()
+        .map_err(|error| format!("显示右上角结果失败: {error}"))
+}
+
+pub(crate) fn hide_result_toast_window(app: &AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("result-toast") {
+        window.hide().map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
 #[cfg(target_os = "macos")]
 #[link(name = "CoreGraphics", kind = "framework")]
 extern "C" {
@@ -71,19 +144,6 @@ extern "C" {
 #[cfg(target_os = "macos")]
 pub(crate) fn screen_capture_access_granted() -> bool {
     unsafe { CGPreflightScreenCaptureAccess() }
-}
-
-#[cfg(target_os = "macos")]
-fn request_screen_capture_access_on_launch(app: &AppHandle) {
-    if screen_capture_access_granted() {
-        return;
-    }
-
-    let _ = app.set_activation_policy(tauri::ActivationPolicy::Regular);
-    activate_capture_app(app);
-    let _ = unsafe { CGRequestScreenCaptureAccess() };
-    let _ = app.set_activation_policy(tauri::ActivationPolicy::Accessory);
-    restore_capture_frontmost_app(app);
 }
 
 #[cfg(target_os = "macos")]
@@ -264,14 +324,7 @@ pub(crate) fn hide_capture_overlay(app: &AppHandle) -> Result<(), String> {
 pub(crate) fn request_capture(app: &AppHandle) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     if let Err(error) = ensure_screen_capture_access(app) {
-        use tauri_plugin_notification::NotificationExt;
-
-        let _ = app
-            .notification()
-            .builder()
-            .title("LensQuery 需要屏幕读取权限")
-            .body(&error)
-            .show();
+        let _ = show_result_toast(app, "LensQuery 需要屏幕读取权限", &error);
         return Err(error);
     }
     app.emit_to("main", "lensquery://capture-requested", ())
@@ -366,7 +419,6 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
@@ -389,15 +441,17 @@ pub fn run() {
             analyze,
             show_main,
             show_notification,
+            hide_result_toast,
+            open_result_from_toast,
             speak_text,
             stop_speaking
         ])
         .setup(|app| {
             #[cfg(target_os = "macos")]
             {
-                request_screen_capture_access_on_launch(app.handle());
                 app.handle()
                     .set_activation_policy(tauri::ActivationPolicy::Accessory)?;
+                restore_capture_frontmost_app(app.handle());
                 install_capture_escape_monitor(app.handle())?;
             }
             if cfg!(debug_assertions) {
@@ -459,9 +513,12 @@ pub fn run() {
             let open_item = MenuItem::with_id(app, "open", "会话时间线", true, None::<&str>)?;
             let model_item = MenuItem::with_id(app, "models", "模型与智能体", true, None::<&str>)?;
             let settings_item = MenuItem::with_id(app, "settings", "设置…", true, None::<&str>)?;
+            let test_result_item =
+                MenuItem::with_id(app, "test-result", "测试右上角结果", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "退出 LensQuery", true, None::<&str>)?;
             let capture_separator = PredefinedMenuItem::separator(app)?;
             let app_separator = PredefinedMenuItem::separator(app)?;
+            let quit_separator = PredefinedMenuItem::separator(app)?;
             let menu = Menu::with_items(
                 app,
                 &[
@@ -478,6 +535,8 @@ pub fn run() {
                     &open_item,
                     &model_item,
                     &settings_item,
+                    &test_result_item,
+                    &quit_separator,
                     &quit_item,
                 ],
             )?;
@@ -531,6 +590,13 @@ pub fn run() {
                         show_main_window(app);
                         let _ = app.emit_to("main", "lensquery://navigate", "settings");
                     }
+                    "test-result" => {
+                        let _ = show_result_toast(
+                            app,
+                            "LensQuery 结果显示正常",
+                            "以后每次分析完成，回答摘要都会直接出现在这里。点击可查看完整会话。",
+                        );
+                    }
                     "quit" => app.exit(0),
                     _ => {}
                 })
@@ -583,4 +649,29 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{result_toast_position, truncate_text};
+
+    #[test]
+    fn result_toast_stays_inside_primary_monitor() {
+        assert_eq!(result_toast_position(0, 0, 1_920, 392, 1.0), (1_510, 38));
+        assert_eq!(
+            result_toast_position(-1_440, -180, 1_440, 784, 2.0),
+            (-820, -104)
+        );
+    }
+
+    #[test]
+    fn result_toast_handles_a_monitor_narrower_than_the_window() {
+        assert_eq!(result_toast_position(80, 20, 300, 392, 1.0), (80, 58));
+    }
+
+    #[test]
+    fn result_toast_text_is_trimmed_and_bounded() {
+        assert_eq!(truncate_text("  分析完成  ", 4), "分析完成");
+        assert_eq!(truncate_text("abcdef", 3), "abc");
+    }
 }

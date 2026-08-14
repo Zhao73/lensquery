@@ -4,14 +4,14 @@ Press one shortcut, point at anything on screen, and ask an AI agent about it.
 
 LensQuery is an open-source resident utility for Windows and macOS. Press a global shortcut, click an interface element or hold-drag a region, and LensQuery starts analysis in the background through Codex, Claude Code, OpenCode, Grok, or a configured API. Its normal window is a quiet local conversation timeline for previous queries and follow-ups.
 
-> Current status: the repository contains the background tray/shortcut shell, a transparent question-cursor capture overlay, XCap region capture, Windows UI Automation lookup, macOS Accessibility element bounds/text and Finder-file lookup, local timeline/follow-up UI, Markdown answers, system notifications and speech, auto-start preference, automatic CLI discovery, bounded CLI adapters, local PDF/text extraction, automatic video preparation, and an MV3 browser element picker. Physical Windows mixed-DPI testing, richer arbitrary-app macOS text ranges, browser Native Messaging installer wiring, Codex App Server/OpenCode session adapters, Realtime audio playback, OCR, and direct API transport remain implementation gates.
+> Current status: the repository contains the background tray/shortcut shell, a transparent question-cursor capture overlay, XCap region capture, Windows UI Automation lookup, macOS Accessibility element bounds/text and Finder-file lookup, local timeline/follow-up UI, Markdown answers, a permission-independent top-right result card and speech, auto-start preference, automatic CLI discovery, bounded CLI adapters, local PDF/text extraction, automatic video preparation, and an MV3 browser element picker. Physical Windows mixed-DPI testing, richer arbitrary-app macOS text ranges, browser Native Messaging installer wiring, Codex App Server/OpenCode session adapters, Realtime audio playback, OCR, and direct API transport remain implementation gates.
 
 ## Intended workflow
 
 1. Leave LensQuery running in the system tray/menu bar. A left click on its icon or `Ctrl+Shift+Space` (`Command+Shift+Space` on macOS) starts smart selection immediately; neither action opens the client window.
 2. The current desktop stays visible and the pointer changes to a small question mark.
 3. Click an object or drag a rectangle. LensQuery immediately hides the picker, captures bounded context, and starts the selected agent in the background. There is no client confirmation page in the shortcut path; preview remains available only for manual file imports when enabled.
-4. By default the answer arrives as a native notification; choose notification, window, or both in Settings.
+4. By default the answer appears in a compact card at the upper-right without opening the client. Choose upper-right card, window, or both in Settings.
 5. Open the conversation timeline to copy, hear, retry, or continue the same query.
 
 Right-clicking the tray/menu-bar icon opens capture choices without opening the client: smart click/drag, region only, one icon/file/object, currently selected text, or article/page text. These choices all enter the same transparent desktop selector. “Conversation timeline”, model configuration, and settings remain explicit secondary actions.
@@ -42,7 +42,7 @@ There is no upload-style homepage. Point at a Desktop/Finder/Explorer file and c
 - [Tauri 2](https://v2.tauri.app/) desktop shell
 - Rust native core and narrow Tauri command boundary
 - React 19 + TypeScript + Zustand webview
-- Official Tauri global-shortcut, notification, autostart, dialog, store, filesystem, clipboard, and opener plugins
+- Official Tauri global-shortcut, autostart, dialog, store, filesystem, clipboard, and opener plugins
 - Provider-independent request/result contracts
 - XCap screen-region capture and Windows UI Automation behind platform modules
 - Codex App Server as the primary planned session runtime; OpenCode Server/SDK and ACP as additional protocol adapters
@@ -66,7 +66,7 @@ Install the [Tauri 2 prerequisites](https://v2.tauri.app/start/prerequisites/) f
 
 ### Install on macOS
 
-The first Rust release build needs at least 12 GiB of free space. This command builds the `.app` and `.dmg`, installs LensQuery into `/Applications`, applies a local ad-hoc signature, and launches the menu-bar app:
+The first Rust release build needs at least 12 GiB of free space. This command builds the `.app` and `.dmg`, installs LensQuery into `/Applications`, signs it with the first available Apple Development identity (falling back to a local ad-hoc signature), and launches the menu-bar app. A stable Apple Development signature prevents macOS from treating every local update as a different screen-capture app:
 
 ```bash
 npm run install:macos
@@ -85,7 +85,7 @@ npm ci
 npm run tauri dev
 ```
 
-Windows 10/11 and macOS share the tray, shortcut, region capture, file, notification, speech, and conversation baseline. Windows additionally reads element/word/paragraph/document ranges through UI Automation. macOS now reads exposed Accessibility element bounds/text and promotes Finder/Desktop selections to real local-file evidence; exact character-range geometry and a guided permission screen remain follow-up work.
+Windows 10/11 and macOS share the tray, shortcut, region capture, file, top-right result card, speech, and conversation baseline. Windows additionally reads element/word/paragraph/document ranges through UI Automation. macOS now reads exposed Accessibility element bounds/text and promotes Finder/Desktop selections to real local-file evidence; exact character-range geometry and a guided permission screen remain follow-up work.
 
 ## Browser connector
 
@@ -93,12 +93,12 @@ Load [`browser-extension`](browser-extension) as an unpacked Chrome/Edge extensi
 
 Video preparation currently requires `ffmpeg` and `ffprobe` on `PATH`. The interface reports a direct recovery message when they are missing; a verified bundled sidecar is planned before the signed 1.0 installer. Scanned/image-only PDFs also need the planned OCR fallback.
 
-## Background, notifications, and voice
+## Background, results, and voice
 
 - The main window starts hidden; closing it returns LensQuery to the tray/menu bar instead of quitting.
 - Left-click the icon for Quick Ask. Right-click offers Identify, Explain, How-to, Deep Dive, Analyze File, Timeline, Models, Settings, and Quit.
 - On notched Macs, the first run seeds the LensQuery item into the visible right-side safe area. Hold Command and drag it to choose another position; macOS remembers that choice.
-- Login auto-start and notification preview are user-configurable. Notification permission is requested only when the first result needs one.
+- Login auto-start and the result preview are user-configurable. The upper-right card is rendered by LensQuery itself, so it works without macOS or Windows notification permission. Use “Test upper-right result” from the tray menu to verify it at any time.
 - macOS `say`, Windows SAPI, and the browser Speech Synthesis fallback provide working local read-aloud. Codex App Server 0.146.1 exposes experimental Realtime audio methods, but an authenticated smoke test reported that an ordinary local thread does not support realtime conversation. The option is therefore disabled in Settings instead of pretending to be available; protocol/session eligibility and PCM playback remain separate gates.
 
 ## Verification

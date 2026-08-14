@@ -63,7 +63,7 @@ The production application does not use Ink, Bubble Tea, Ratatui, or another TUI
 6. XCap captures the bounded region to a local temporary PNG.
 7. The main process receives `lensquery://evidence-ready` and immediately creates a pending conversation.
 8. The selected agent adapter receives the evidence and streams/returns the answer.
-9. LensQuery follows the configured result presentation: native notification, conversation window, or both. The same local conversation remains ready for follow-up.
+9. LensQuery follows the configured result presentation: permission-independent upper-right card, conversation window, or both. The same local conversation remains ready for follow-up.
 
 Native accessibility is best-effort and permission-bound. Canvas applications, protected surfaces, elevated/secure windows, and some GPU/video surfaces may expose no useful element metadata. The pixel crop remains the fallback. The overlay supports pointer selection plus keyboard move/resize/confirm/cancel.
 

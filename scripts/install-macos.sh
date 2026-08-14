@@ -8,6 +8,16 @@ WARM_BUILD_MIN_FREE_GIB=4
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_SOURCE="$PROJECT_ROOT/src-tauri/target/release/bundle/macos/$APP_NAME.app"
 APP_DESTINATION="/Applications/$APP_NAME.app"
+SIGNING_IDENTITY="${APPLE_SIGNING_IDENTITY:-}"
+
+if [[ -z "$SIGNING_IDENTITY" ]]; then
+  SIGNING_IDENTITY="$(/usr/bin/security find-identity -v -p codesigning 2>/dev/null \
+    | /usr/bin/sed -n 's/.*"\(Apple Development:[^"]*\)".*/\1/p' \
+    | /usr/bin/head -n 1)"
+fi
+if [[ -z "$SIGNING_IDENTITY" ]]; then
+  SIGNING_IDENTITY="-"
+fi
 
 log() {
   printf '\n==> %s\n' "$1"
@@ -78,7 +88,7 @@ stop_existing_app() {
 install_bundle() {
   run_install_command /usr/bin/ditto "$APP_SOURCE" "$staging"
   run_install_command /usr/bin/xattr -dr com.apple.quarantine "$staging" 2>/dev/null || true
-  run_install_command /usr/bin/codesign --force --deep --sign - "$staging"
+  run_install_command /usr/bin/codesign --force --deep --timestamp=none --sign "$SIGNING_IDENTITY" "$staging"
 
   if [[ -e "$APP_DESTINATION" ]]; then
     run_install_command /bin/mv "$APP_DESTINATION" "$backup"
@@ -118,4 +128,9 @@ done
 printf '\nInstalled: %s\n' "$APP_DESTINATION"
 printf 'DMG: %s\n' "$PROJECT_ROOT/src-tauri/target/release/bundle/dmg"
 [[ -e "$backup" ]] && printf 'Previous version backup: %s\n' "$backup"
+if [[ "$SIGNING_IDENTITY" == "-" ]]; then
+  printf 'Signature: local ad-hoc (macOS may ask for screen access again after an update).\n'
+else
+  printf 'Signature: %s (stable across local updates).\n' "$SIGNING_IDENTITY"
+fi
 printf 'LensQuery now runs from the menu bar. Press Command+Shift+Space to start.\n'

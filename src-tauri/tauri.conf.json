@@ -37,6 +37,21 @@
         "skipTaskbar": true,
         "resizable": false,
         "focus": true
+      },
+      {
+        "label": "result-toast",
+        "title": "LensQuery Result",
+        "url": "index.html?window=result-toast",
+        "width": 392,
+        "height": 156,
+        "visible": false,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "focus": false,
+        "shadow": false
       }
     ],
     "security": {
