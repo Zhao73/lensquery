@@ -9,6 +9,7 @@
     "lint": "oxlint",
     "preview": "vite preview",
     "tauri": "tauri",
+    "install:macos": "bash scripts/install-macos.sh",
     "typecheck": "tsc -b",
     "test": "vitest run",
     "test:watch": "vitest",

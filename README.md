@@ -59,7 +59,21 @@ The browser preview exercises the timeline, settings, and local file workflow. I
 
 ## Run the desktop app
 
-Install the [Tauri 2 prerequisites](https://v2.tauri.app/start/prerequisites/) for your operating system and Rust stable, then:
+Install the [Tauri 2 prerequisites](https://v2.tauri.app/start/prerequisites/) for your operating system and Rust stable.
+
+### Install on macOS
+
+The first Rust release build needs at least 12 GiB of free space. This command builds the `.app` and `.dmg`, installs LensQuery into `/Applications`, applies a local ad-hoc signature, and launches the menu-bar app:
+
+```bash
+npm run install:macos
+```
+
+LensQuery starts hidden in the menu bar. Press `Command+Shift+Space` to activate the question cursor. The generated DMG remains under `src-tauri/target/release/bundle/dmg/`.
+
+`npm run tauri dev` is the development runner; it compiles and launches a debug build but does **not** install an application into `/Applications`.
+
+### Development
 
 ```bash
 npm ci
