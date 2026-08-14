@@ -1,8 +1,7 @@
-use std::{
-    collections::HashMap,
-    process::Child,
-    sync::{atomic::AtomicBool, Mutex},
-};
+use std::{collections::HashMap, process::Child, sync::Mutex};
+
+#[cfg(target_os = "macos")]
+use std::sync::atomic::AtomicBool;
 
 use crate::models::{AppSettings, ProviderProfile};
 
