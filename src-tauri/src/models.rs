@@ -241,6 +241,8 @@ pub struct CaptureEvidence {
     pub process_name: Option<String>,
     pub accessible_text: Option<String>,
     #[serde(default)]
+    pub source_path: Option<String>,
+    #[serde(default)]
     pub text_scope: Option<String>,
     #[serde(default)]
     pub annotation: Option<String>,
@@ -415,6 +417,8 @@ fn default_output_format() -> String {
 #[serde(rename_all = "camelCase")]
 pub struct QueryEvidenceEvent {
     pub capture: Option<CaptureEvidence>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub files: Vec<FileEvidence>,
     pub browser_context: Option<BrowserContext>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub analysis_mode: Option<String>,

@@ -66,6 +66,7 @@ async fn run_cli(
     } else {
         "Use only the supplied evidence and distinguish direct observation from inference."
     };
+    let visual_instruction = visual_instruction(request);
     let analysis_instruction = match request.analysis_mode.as_str() {
         "identify" => "Identify the selected subject first, then state what it is for.",
         "how-to" => "Explain how to use the selected subject with ordered, practical steps and prerequisites.",
@@ -88,11 +89,18 @@ async fn run_cli(
     let custom_instruction = settings.custom_reply_instruction.trim();
     let conversation = build_conversation_manifest(request);
     let prompt = format!(
-        "You are LensQuery's read-only analyst. Do not execute commands, call tools, access the network, or modify files. {video_instruction} {analysis_instruction} {output_instruction} {language_instruction} {style_instruction}\nUser annotation: {annotation}\nUser reply instruction: {custom_instruction}\n\nConversation so far:\n{conversation}\n\nPreset: {}\nQuestion: {}\n\nEvidence manifest:\n{evidence_manifest}",
+        "You are LensQuery's read-only analyst. Do not execute commands, call tools, access the network, or modify files. {video_instruction} {visual_instruction} {analysis_instruction} {output_instruction} {language_instruction} {style_instruction}\nUser annotation: {annotation}\nUser reply instruction: {custom_instruction}\n\nConversation so far:\n{conversation}\n\nPreset: {}\nQuestion: {}\n\nEvidence manifest:\n{evidence_manifest}",
         request.prompt_id, request.question
     );
 
     let mut command = Command::new(&executable);
+    let working_directory = std::env::temp_dir().join("lensquery-agent-work");
+    std::fs::create_dir_all(&working_directory)
+        .map_err(|error| format!("创建本地分析工作目录失败: {error}"))?;
+    // Never inherit the launcher's working directory. A locally installed CLI
+    // may probe its CWD even when every tool is disabled, which would otherwise
+    // trigger unrelated Documents/Desktop permission prompts.
+    command.current_dir(&working_directory);
     match profile.kind.as_str() {
         "codex-cli" => {
             command.args([
@@ -198,6 +206,19 @@ async fn run_cli(
         return Err(format!("{} 没有返回可显示的文字。", executable.display()));
     }
     Ok(stdout)
+}
+
+fn visual_instruction(request: &AnalysisRequest) -> &'static str {
+    if !request.captures.is_empty()
+        || request
+            .files
+            .iter()
+            .any(|file| matches!(file.kind.as_str(), "image" | "video"))
+    {
+        "For visual evidence, identify the subject, visible text, composition, style, lighting, and relevant surrounding context. If an image appears AI-generated, label that as an inference and add a reusable reconstruction prompt covering subject, composition, medium, palette, lighting, camera or lens cues, and useful negative constraints. Never claim to know the exact original prompt."
+    } else {
+        ""
+    }
 }
 
 fn collect_attachment_paths(request: &AnalysisRequest) -> Vec<String> {
@@ -448,6 +469,7 @@ mod tests {
         let manifest = build_evidence_manifest(&request);
         assert!(manifest.contains("at 0.00s"));
         assert!(manifest.contains("audio derivative: absent"));
+        assert!(visual_instruction(&request).contains("reconstruction prompt"));
     }
 
     #[test]

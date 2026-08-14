@@ -30,7 +30,7 @@ The product treats the desktop itself as the input surface. One capture action p
 - Lives in the Windows system tray or macOS menu bar, starts hidden, and starts capture from a configurable global shortcut.
 - Supports click-to-inspect and drag-to-capture interactions over the current desktop.
 - Accepts screenshots, images, videos, PDFs, and other local files via picker, drag-and-drop, or shell integration.
-- Creates a local conversation immediately, sends an optional native result notification, and preserves copy, read-aloud, retry, and follow-up actions in the timeline; an optional privacy preview can pause submission when enabled.
+- Creates a local conversation immediately, sends an optional native result notification, and preserves copy, read-aloud, retry, and follow-up actions in the timeline; the optional preview applies to manual imports rather than the shortcut path.
 - Routes requests to direct model APIs or installed local agent CLIs when available.
 
 ## Capabilities and Constraints
@@ -40,7 +40,7 @@ The product treats the desktop itself as the input surface. One capture action p
 - Local-agent adapters: Codex CLI, Claude Code, OpenCode, and Grok headless modes, with explicit executable detection, bounded probes, and no implicit command-execution permission.
 - Customer-response language can follow the detected language in the customer's text/evidence or use a configured fallback; reply style and custom guidance remain user-controlled.
 - API secrets must use the operating-system credential vault; configuration files store only non-secret metadata.
-- Screen and file content stays local until the explicit shortcut plus click/drag action. Optional preview can add a second confirmation. History is local and can be disabled or cleared.
+- Screen and file content stays local until the explicit shortcut plus click/drag action. Manual imports can use an optional second confirmation. History is local and can be disabled or cleared.
 - Browser-page understanding uses a companion extension for object/selection/word/paragraph/page text, the clicked DOM element, URL/title, accessible name, nearby text, annotation, and video/audio state. Deeper DevTools/CDP inspection is a separate explicit action.
 - Desktop element identification uses Windows UI Automation when available and pixel-region fallback otherwise.
 - PDF analysis uses local bounded text extraction for machine-readable files, with native model file input where supported. OCR/page-image rendering for scanned PDFs remains a distinct fallback milestone.
@@ -61,7 +61,7 @@ The product treats the desktop itself as the input surface. One capture action p
 
 ## Product Principles
 
-1. One shortcut plus one click/drag is the default path; optional preview is a user-configurable privacy gate.
+1. One shortcut plus one click/drag is the direct default path; optional preview is reserved for manual imports.
 2. Keep provider choice portable and model IDs editable.
 3. Prefer native desktop affordances and a short path from shortcut to copied answer.
 4. Separate captured evidence, inferred context, model output, and external actions.

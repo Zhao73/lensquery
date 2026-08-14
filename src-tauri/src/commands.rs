@@ -1,4 +1,4 @@
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, State};
 
 use crate::{
     capture, cli, files,
@@ -70,7 +70,12 @@ pub fn start_capture(mode: String, app: AppHandle) -> Result<CaptureResponse, St
     if mode != "region" && mode != "element" {
         return Err("不支持的捕获模式。".into());
     }
-    crate::request_capture(&app)?;
+    let (analysis_mode, text_scope) = if mode == "region" {
+        ("explain", "screen")
+    } else {
+        ("identify", "object")
+    };
+    crate::request_capture_intent(&app, analysis_mode, text_scope)?;
     Ok(capture::started())
 }
 
@@ -79,17 +84,24 @@ pub async fn complete_capture(
     selection: CaptureSelection,
     app: AppHandle,
 ) -> Result<CaptureResponse, String> {
-    if let Some(window) = app.get_webview_window("capture") {
-        window.hide().map_err(|error| error.to_string())?;
-    }
+    crate::hide_capture_overlay(&app)?;
     tokio::time::sleep(std::time::Duration::from_millis(110)).await;
     match capture::complete(selection).await {
         Ok(response) => {
+            let detected_files = match response
+                .evidence
+                .as_ref()
+                .and_then(|evidence| evidence.source_path.clone())
+            {
+                Some(path) => files::inspect(vec![path]).await.unwrap_or_default(),
+                None => Vec::new(),
+            };
             app.emit_to(
                 "main",
                 "lensquery://evidence-ready",
                 QueryEvidenceEvent {
                     capture: response.evidence.clone(),
+                    files: detected_files,
                     browser_context: None,
                     analysis_mode: response
                         .evidence
@@ -109,8 +121,15 @@ pub async fn complete_capture(
             Ok(response)
         }
         Err(error) => {
-            crate::show_main_window(&app);
+            use tauri_plugin_notification::NotificationExt;
+
             let _ = app.emit_to("main", "lensquery://capture-error", error.clone());
+            let _ = app
+                .notification()
+                .builder()
+                .title("LensQuery 读取失败")
+                .body(error.chars().take(240).collect::<String>())
+                .show();
             Err(error)
         }
     }
@@ -118,10 +137,7 @@ pub async fn complete_capture(
 
 #[tauri::command]
 pub fn cancel_capture(app: AppHandle) -> Result<(), String> {
-    if let Some(window) = app.get_webview_window("capture") {
-        window.hide().map_err(|error| error.to_string())?;
-    }
-    Ok(())
+    crate::hide_capture_overlay(&app)
 }
 
 #[tauri::command]
@@ -355,7 +371,7 @@ pub async fn analyze(
     for path in cleanup_paths {
         let _ = std::fs::remove_file(path);
     }
-    if should_show_window || result.is_err() {
+    if should_show_window {
         crate::show_main_window(&app);
     }
     result

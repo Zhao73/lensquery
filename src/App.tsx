@@ -135,7 +135,10 @@ function shortcutParts(shortcut: string) {
 }
 
 function App() {
-  if (new URLSearchParams(window.location.search).get('window') === 'capture') {
+  const captureWindow = new URLSearchParams(window.location.search).get('window') === 'capture'
+  document.documentElement.dataset.lensqueryWindow = captureWindow ? 'capture' : 'main'
+  document.body.dataset.lensqueryWindow = captureWindow ? 'capture' : 'main'
+  if (captureWindow) {
     return <CaptureOverlay />
   }
   return <ConversationApp />
@@ -219,7 +222,10 @@ function ConversationApp() {
   }, [isNarrow, sidebarOpen])
 
   const selectedProvider = useMemo(
-    () => providers.find(({ id }) => id === settings?.defaultProviderId) ?? providers.find(({ ready: isReady }) => isReady) ?? providers[0],
+    () => providers.find(({ id, ready: isReady }) => id === settings?.defaultProviderId && isReady)
+      ?? providers.find(({ ready: isReady }) => isReady)
+      ?? providers.find(({ id }) => id === settings?.defaultProviderId)
+      ?? providers[0],
     [providers, settings?.defaultProviderId],
   )
 
@@ -242,7 +248,7 @@ function ConversationApp() {
     if (!provider?.ready) {
       setError('还没有可用的模型通道。请先在“模型”中扫描本机 CLI 或配置 API。')
       setView('providers')
-      void showMainWindow()
+      void showSystemNotification('LensQuery 未开始分析', '未找到可用的模型通道，请从菜单栏图标打开“模型与智能体”。').catch(() => undefined)
       return
     }
     const question = input.question?.trim() || DEFAULT_QUESTION
@@ -264,7 +270,7 @@ function ConversationApp() {
       const failedVideo = preparedFiles.find(({ kind, videoPreparation }) => kind === 'video' && !videoPreparation)
       if (failedVideo) {
         setError(failedVideo.processingError || `视频 ${failedVideo.name} 的本地关键帧提取失败。`)
-        void showMainWindow()
+        void showSystemNotification('LensQuery 视频准备失败', failedVideo.processingError || `无法读取 ${failedVideo.name}。`).catch(() => undefined)
         return
       }
     }
@@ -320,14 +326,18 @@ function ConversationApp() {
         void speakText(result.answer).catch(() => undefined)
       }
     } catch (cause) {
+      const errorMessage = String(cause)
       upsertSession({
         ...session,
         updatedAt: now(),
         messages: session.messages.map((message) => message.id === pending.id
-          ? { ...message, content: String(cause), status: 'error' as const }
+          ? { ...message, content: errorMessage, status: 'error' as const }
           : message),
       })
-      setError(String(cause))
+      setError(errorMessage)
+      if (settings?.notificationsEnabled) {
+        void showSystemNotification('LensQuery 分析失败', errorMessage.slice(0, 240)).catch(() => undefined)
+      }
     }
   }
 
@@ -345,7 +355,7 @@ function ConversationApp() {
     }).then((dispose) => { disposeCaptureError = dispose })
     void listenForQueryEvidence((payload) => {
       setCaptureStatus('')
-      void submitNewQuery({ captures: payload.capture ? [payload.capture] : [], files: [], browserContext: payload.browserContext, analysisMode: payload.analysisMode, outputFormat: payload.outputFormat, annotation: payload.annotation })
+      void submitNewQuery({ captures: payload.capture ? [payload.capture] : [], files: payload.files ?? [], browserContext: payload.browserContext, analysisMode: payload.analysisMode, outputFormat: payload.outputFormat, annotation: payload.annotation, confirmed: true })
     }).then((dispose) => { disposeEvidence = dispose })
     void listenForEvidenceDrops((files) => {
       if (files.length) void submitNewQuery({ captures: [], files })
@@ -806,7 +816,7 @@ function SettingsPanel(props: { settings: AppSettings; onSave: (settings: AppSet
   return (
     <section className="settings-surface narrow">
       <header className="section-heading"><div><h1>设置</h1><p>快捷键、语言、回复方式和本地记录。</p></div></header>
-      <div className="settings-group"><h2>取景</h2><label>全局快捷键<input value={draft.shortcut} onChange={(event) => setDraft({ ...draft, shortcut: event.target.value })} /><small>从任何应用进入问号询问模式</small></label><Toggle checked={draft.showPreview} label="分析前显示上下文预览" onChange={(showPreview) => setDraft({ ...draft, showPreview })} /></div>
+      <div className="settings-group"><h2>取景</h2><label>全局快捷键<input value={draft.shortcut} onChange={(event) => setDraft({ ...draft, shortcut: event.target.value })} /><small>从任何应用进入问号询问模式，点击或框选后直接在后台分析</small></label><Toggle checked={draft.showPreview} label="手动导入文件时显示预览" onChange={(showPreview) => setDraft({ ...draft, showPreview })} /></div>
       <div className="settings-group"><h2>分析与回复</h2><label>默认分析方式<select value={draft.defaultAnalysisMode} onChange={(event) => setDraft({ ...draft, defaultAnalysisMode: event.target.value as AnalysisMode })}>{analysisModes.map((mode) => <option key={mode.id} value={mode.id}>{mode.label} · {mode.hint}</option>)}</select></label><label>默认回复格式<select value={draft.defaultOutputFormat} onChange={(event) => setDraft({ ...draft, defaultOutputFormat: event.target.value as OutputFormat })}>{outputFormats.map((format) => <option key={format.id} value={format.id}>{format.label}</option>)}</select></label><label>回答风格<select value={draft.replyStyle} onChange={(event) => setDraft({ ...draft, replyStyle: event.target.value as AppSettings['replyStyle'] })}><option value="customer-ready">客户可直接使用</option><option value="concise">简短结论</option><option value="detailed">详细分析</option></select></label><label>自定义要求<textarea value={draft.customReplyInstruction} onChange={(event) => setDraft({ ...draft, customReplyInstruction: event.target.value })} placeholder="例如：先给结论，再说明原理、步骤和验证方法。" /></label></div>
       <div className="settings-group"><h2>语言</h2><label>界面语言<select value={draft.language} onChange={(event) => setDraft({ ...draft, language: event.target.value as AppSettings['language'] })}><option value="zh-CN">简体中文</option><option value="en">English</option></select></label><Toggle checked={draft.detectCustomerLanguage} label="自动跟随顾客语言回答" onChange={(detectCustomerLanguage) => setDraft({ ...draft, detectCustomerLanguage })} /><label>无法识别时的语言<select value={draft.responseLanguage} onChange={(event) => setDraft({ ...draft, responseLanguage: event.target.value as AppSettings['responseLanguage'] })}><option value="zh-CN">简体中文</option><option value="en">English</option><option value="ja-JP">日本語</option><option value="ko-KR">한국어</option><option value="es-ES">Español</option><option value="fr-FR">Français</option><option value="de-DE">Deutsch</option></select></label></div>
       <div className="settings-group"><h2>后台与通知</h2><Toggle checked={draft.launchAtStartup} label="登录系统后自动在后台启动" onChange={(launchAtStartup) => setDraft({ ...draft, launchAtStartup })} /><Toggle checked={draft.notificationsEnabled} label="分析完成后发送系统通知" onChange={(notificationsEnabled) => setDraft({ ...draft, notificationsEnabled })} /><Toggle checked={draft.notificationPreview} label="在通知中显示回答摘要" onChange={(notificationPreview) => setDraft({ ...draft, notificationPreview })} /><label>结果呈现<select value={draft.resultPresentation} onChange={(event) => setDraft({ ...draft, resultPresentation: event.target.value as AppSettings['resultPresentation'] })}><option value="notification">只推送通知，继续后台运行</option><option value="window">自动打开会话窗口</option><option value="both">通知并打开窗口</option></select></label></div>
@@ -827,7 +837,6 @@ function CaptureOverlay() {
   const [busy, setBusy] = useState(false)
   const [captureError, setCaptureError] = useState('')
   const [intent, setIntent] = useState<{ analysisMode: AnalysisMode; outputFormat: OutputFormat; textScope: TextScope }>({ analysisMode: 'explain', outputFormat: 'adaptive', textScope: 'object' })
-  const [annotationDraft, setAnnotationDraft] = useState('')
   const [keyboardSelection, setKeyboardSelection] = useState<{ x: number; y: number; width: number; height: number } | null>(null)
   const selection = keyboardSelection ?? (start && current ? normalizeSelection(start, current) : null)
   useEffect(() => {
@@ -874,6 +883,17 @@ function CaptureOverlay() {
   }, [busy, keyboardSelection])
   useEffect(() => {
     let dispose: (() => void) | undefined
+    void listenForCaptureRequests(() => {
+      setStart(null)
+      setCurrent(null)
+      setBusy(false)
+      setCaptureError('')
+      setKeyboardSelection(null)
+    }).then((unlisten) => { dispose = unlisten })
+    return () => dispose?.()
+  }, [])
+  useEffect(() => {
+    let dispose: (() => void) | undefined
     void listenForCaptureIntent((payload) => {
       setIntent((current) => ({
         analysisMode: payload.analysisMode ?? current.analysisMode,
@@ -901,7 +921,6 @@ function CaptureOverlay() {
               height: bounds.height,
             },
         textScope: intent.textScope,
-        annotation: annotationDraft.trim() || undefined,
         analysisMode: intent.analysisMode,
         outputFormat: intent.outputFormat,
       })
@@ -918,10 +937,9 @@ function CaptureOverlay() {
       onPointerDown={(event) => { setCaptureError(''); setKeyboardSelection(null); event.currentTarget.setPointerCapture(event.pointerId); setStart({ x: event.clientX, y: event.clientY }); setCurrent({ x: event.clientX, y: event.clientY }) }}
       onPointerMove={(event) => { if (start) setCurrent({ x: event.clientX, y: event.clientY }) }}
       onPointerUp={finish}
+      onPointerCancel={() => { setStart(null); setCurrent(null) }}
     >
-      <div className="overlay-help"><Question size={20} weight="bold" /><span>点对象 · 拖动框选 · 方向键移动 · Alt + 方向键缩放 · Enter 确认 · Esc 取消</span></div><div className="overlay-toolbar" onPointerDown={(event) => event.stopPropagation()}><label>文字<select value={intent.textScope} onChange={(event) => setIntent({ ...intent, textScope: event.target.value as TextScope })}><option value="object">对象</option><option value="word">单词</option><option value="paragraph">段落</option><option value="page">全文</option><option value="screen">屏幕</option></select></label><label>分析<select value={intent.analysisMode} onChange={(event) => setIntent({ ...intent, analysisMode: event.target.value as AnalysisMode })}>{analysisModes.map((mode) => <option key={mode.id} value={mode.id}>{mode.label}</option>)}</select></label><input value={annotationDraft} maxLength={1000} onChange={(event) => setAnnotationDraft(event.target.value)} placeholder="简单注释（可选）" aria-label="简单注释" /></div>
       {selection && selection.width >= 8 && selection.height >= 8 && <div className="selection-box" style={{ left: selection.x, top: selection.y, width: selection.width, height: selection.height }}><span>{Math.round(selection.width)} × {Math.round(selection.height)}</span></div>}
-      {busy && <div className="overlay-busy">正在读取所选内容…</div>}
       {captureError && <div className="overlay-error"><WarningCircle size={18} /><span>读取失败，请重新选择；或按 Esc 退出。<small>{captureError}</small></span></div>}
     </div>
   )

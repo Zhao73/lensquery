@@ -101,6 +101,7 @@ fn poll_once(app: &AppHandle) {
                 "lensquery://evidence-ready",
                 QueryEvidenceEvent {
                     capture: None,
+                    files: Vec::new(),
                     analysis_mode: browser_context.analysis_mode.clone(),
                     output_format: browser_context.output_format.clone(),
                     annotation: browser_context.annotation.clone(),

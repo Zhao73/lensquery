@@ -29,10 +29,12 @@ async fn complete_platform(selection: CaptureSelection) -> Result<CaptureRespons
 fn capture_native(selection: CaptureSelection) -> Result<CaptureResponse, String> {
     use xcap::Monitor;
 
-    #[cfg(target_os = "windows")]
+    #[cfg(target_os = "macos")]
+    if !crate::screen_capture_access_granted() {
+        return Err("LensQuery 尚未取得“屏幕与系统音频录制”权限；已停止本次分析，避免把桌面壁纸误当成所选内容。".into());
+    }
+
     let mut bounds = selection.bounds.clone();
-    #[cfg(not(target_os = "windows"))]
-    let bounds = selection.bounds.clone();
     #[cfg(target_os = "windows")]
     let accessible_text = if selection.mode == "element" {
         inspect_element(&selection.bounds, selection.text_scope.as_deref()).map(|element| {
@@ -43,11 +45,26 @@ fn capture_native(selection: CaptureSelection) -> Result<CaptureResponse, String
         None
     };
     #[cfg(target_os = "macos")]
-    let accessible_text = if selection.mode == "element" {
-        macos_accessibility_text(&selection.bounds, selection.text_scope.as_deref())
+    let inspection = if selection.mode == "element" {
+        macos_inspect_element(&selection.bounds, selection.text_scope.as_deref())
     } else {
         None
     };
+    #[cfg(target_os = "macos")]
+    if let Some(element_bounds) = inspection
+        .as_ref()
+        .and_then(|element| element.bounds.clone())
+    {
+        bounds = element_bounds;
+    }
+    #[cfg(target_os = "macos")]
+    let accessible_text = inspection
+        .as_ref()
+        .and_then(|element| element.description.clone());
+    #[cfg(target_os = "macos")]
+    let source_path = inspection.and_then(|element| element.source_path);
+    #[cfg(target_os = "windows")]
+    let source_path = None;
 
     let monitor = Monitor::from_point(bounds.x.round() as i32, bounds.y.round() as i32)
         .map_err(|error| format!("没有找到所选位置的显示器: {error}"))?;
@@ -102,6 +119,7 @@ fn capture_native(selection: CaptureSelection) -> Result<CaptureResponse, String
         window_title: None,
         process_name: None,
         accessible_text,
+        source_path,
         text_scope: selection.text_scope,
         annotation: selection.annotation,
         analysis_mode: selection.analysis_mode,
@@ -191,56 +209,184 @@ fn inspect_element(point: &Bounds, text_scope: Option<&str>) -> Option<Inspected
 }
 
 #[cfg(target_os = "macos")]
-fn macos_accessibility_text(point: &Bounds, text_scope: Option<&str>) -> Option<String> {
+struct MacosElementInspection {
+    bounds: Option<Bounds>,
+    description: Option<String>,
+    source_path: Option<String>,
+}
+
+#[cfg(target_os = "macos")]
+fn macos_inspect_element(
+    point: &Bounds,
+    text_scope: Option<&str>,
+) -> Option<MacosElementInspection> {
     use std::ptr;
 
     use accessibility_sys::{
-        kAXErrorSuccess, kAXRoleAttribute, kAXSelectedTextAttribute, kAXTitleAttribute,
-        kAXValueAttribute, AXUIElementCopyAttributeValue, AXUIElementCopyElementAtPosition,
-        AXUIElementCreateSystemWide, AXUIElementRef,
+        kAXDescriptionAttribute, kAXDocumentAttribute, kAXErrorSuccess, kAXFilenameAttribute,
+        kAXHelpAttribute, kAXParentAttribute, kAXPositionAttribute, kAXRoleAttribute,
+        kAXRoleDescriptionAttribute, kAXSelectedTextAttribute, kAXSizeAttribute, kAXTitleAttribute,
+        kAXURLAttribute, kAXValueAttribute, kAXValueTypeCGPoint, kAXValueTypeCGSize,
+        AXUIElementCopyAttributeValue, AXUIElementCopyElementAtPosition,
+        AXUIElementCreateSystemWide, AXUIElementGetPid, AXUIElementRef, AXValueGetType,
+        AXValueGetTypeID, AXValueGetValue, AXValueRef,
     };
     use core_foundation_sys::{
         base::{CFGetTypeID, CFRelease, CFTypeRef},
         string::{
             CFStringGetCString, CFStringGetLength, CFStringGetMaximumSizeForEncoding,
-            CFStringGetTypeID,
+            CFStringGetTypeID, CFStringRef,
         },
+        url::{kCFURLPOSIXPathStyle, CFURLCopyFileSystemPath, CFURLGetTypeID, CFURLRef},
     };
 
     const UTF8: u32 = 0x0800_0100;
 
-    unsafe fn copy_string(element: AXUIElementRef, attribute: &str) -> Option<String> {
-        use core_foundation_sys::string::{CFStringCreateWithCString, CFStringRef};
+    #[repr(C)]
+    #[derive(Default)]
+    struct AxPoint {
+        x: f64,
+        y: f64,
+    }
+
+    #[repr(C)]
+    #[derive(Default)]
+    struct AxSize {
+        width: f64,
+        height: f64,
+    }
+
+    unsafe fn copy_attribute(element: AXUIElementRef, attribute: &str) -> Option<CFTypeRef> {
+        use core_foundation_sys::string::CFStringCreateWithCString;
+
         let attribute = std::ffi::CString::new(attribute).ok()?;
-        let key: CFStringRef = CFStringCreateWithCString(ptr::null(), attribute.as_ptr(), UTF8);
+        let key = CFStringCreateWithCString(ptr::null(), attribute.as_ptr(), UTF8);
         if key.is_null() {
             return None;
         }
         let mut value: CFTypeRef = ptr::null();
         let status = AXUIElementCopyAttributeValue(element, key, &mut value);
         CFRelease(key as CFTypeRef);
-        if status != kAXErrorSuccess || value.is_null() {
+        (status == kAXErrorSuccess && !value.is_null()).then_some(value)
+    }
+
+    unsafe fn string_from_ref(value: CFStringRef) -> Option<String> {
+        if value.is_null() {
             return None;
         }
+        let length = CFStringGetLength(value);
+        let capacity = CFStringGetMaximumSizeForEncoding(length, UTF8).saturating_add(1) as usize;
+        let mut buffer = vec![0_i8; capacity.max(1)];
+        if CFStringGetCString(value, buffer.as_mut_ptr(), buffer.len() as isize, UTF8) == 0 {
+            return None;
+        }
+        std::ffi::CStr::from_ptr(buffer.as_ptr())
+            .to_str()
+            .ok()
+            .map(ToOwned::to_owned)
+    }
+
+    unsafe fn copy_string(element: AXUIElementRef, attribute: &str) -> Option<String> {
+        let value = copy_attribute(element, attribute)?;
         let result = if CFGetTypeID(value) == CFStringGetTypeID() {
-            let string = value as CFStringRef;
-            let length = CFStringGetLength(string);
-            let capacity =
-                CFStringGetMaximumSizeForEncoding(length, UTF8).saturating_add(1) as usize;
-            let mut buffer = vec![0_i8; capacity.max(1)];
-            if CFStringGetCString(string, buffer.as_mut_ptr(), buffer.len() as isize, UTF8) != 0 {
-                std::ffi::CStr::from_ptr(buffer.as_ptr())
-                    .to_str()
-                    .ok()
-                    .map(ToOwned::to_owned)
-            } else {
-                None
-            }
+            string_from_ref(value as CFStringRef)
         } else {
             None
         };
         CFRelease(value);
         result
+    }
+
+    unsafe fn copy_point(element: AXUIElementRef) -> Option<AxPoint> {
+        let value = copy_attribute(element, kAXPositionAttribute)?;
+        let mut point = AxPoint::default();
+        let valid = CFGetTypeID(value) == AXValueGetTypeID()
+            && AXValueGetType(value as AXValueRef) == kAXValueTypeCGPoint
+            && AXValueGetValue(
+                value as AXValueRef,
+                kAXValueTypeCGPoint,
+                (&mut point as *mut AxPoint).cast(),
+            );
+        CFRelease(value);
+        valid.then_some(point)
+    }
+
+    unsafe fn copy_size(element: AXUIElementRef) -> Option<AxSize> {
+        let value = copy_attribute(element, kAXSizeAttribute)?;
+        let mut size = AxSize::default();
+        let valid = CFGetTypeID(value) == AXValueGetTypeID()
+            && AXValueGetType(value as AXValueRef) == kAXValueTypeCGSize
+            && AXValueGetValue(
+                value as AXValueRef,
+                kAXValueTypeCGSize,
+                (&mut size as *mut AxSize).cast(),
+            );
+        CFRelease(value);
+        valid.then_some(size)
+    }
+
+    unsafe fn path_from_attribute(element: AXUIElementRef, attribute: &str) -> Option<String> {
+        let value = copy_attribute(element, attribute)?;
+        let candidate = if CFGetTypeID(value) == CFURLGetTypeID() {
+            let path = CFURLCopyFileSystemPath(value as CFURLRef, kCFURLPOSIXPathStyle);
+            let result = string_from_ref(path);
+            if !path.is_null() {
+                CFRelease(path as CFTypeRef);
+            }
+            result
+        } else if CFGetTypeID(value) == CFStringGetTypeID() {
+            string_from_ref(value as CFStringRef).map(|path| {
+                path.strip_prefix("file://")
+                    .unwrap_or(&path)
+                    .replace("%20", " ")
+            })
+        } else {
+            None
+        };
+        CFRelease(value);
+        candidate.filter(|path| {
+            let path = std::path::Path::new(path);
+            path.is_absolute() && path.is_file()
+        })
+    }
+
+    unsafe fn find_source_path(element: AXUIElementRef) -> Option<String> {
+        let mut current = element;
+        let mut owns_current = false;
+        for _ in 0..6 {
+            for attribute in [kAXURLAttribute, kAXFilenameAttribute, kAXDocumentAttribute] {
+                if let Some(path) = path_from_attribute(current, attribute) {
+                    if owns_current {
+                        CFRelease(current as CFTypeRef);
+                    }
+                    return Some(path);
+                }
+            }
+            let Some(parent) = copy_attribute(current, kAXParentAttribute) else {
+                break;
+            };
+            if owns_current {
+                CFRelease(current as CFTypeRef);
+            }
+            current = parent as AXUIElementRef;
+            owns_current = true;
+        }
+        if owns_current {
+            CFRelease(current as CFTypeRef);
+        }
+        None
+    }
+
+    unsafe fn is_finder_element(element: AXUIElementRef) -> bool {
+        use objc2_app_kit::NSRunningApplication;
+
+        let mut pid = 0;
+        if AXUIElementGetPid(element, &mut pid) != kAXErrorSuccess {
+            return false;
+        }
+        NSRunningApplication::runningApplicationWithProcessIdentifier(pid)
+            .and_then(|application| application.bundleIdentifier())
+            .is_some_and(|identifier| identifier.to_string() == "com.apple.finder")
     }
 
     unsafe {
@@ -255,19 +401,56 @@ fn macos_accessibility_text(point: &Bounds, text_scope: Option<&str>) -> Option<
         if status != kAXErrorSuccess || element.is_null() {
             return None;
         }
-        let selected = copy_string(element, kAXSelectedTextAttribute);
-        let value = copy_string(element, kAXValueAttribute);
-        let title = copy_string(element, kAXTitleAttribute);
-        let role = copy_string(element, kAXRoleAttribute);
+        let position = copy_point(element);
+        let size = copy_size(element);
+        let bounds = position.zip(size).and_then(|(position, size)| {
+            (position.x.is_finite()
+                && position.y.is_finite()
+                && size.width.is_finite()
+                && size.height.is_finite()
+                && size.width >= 2.0
+                && size.height >= 2.0)
+                .then_some(Bounds {
+                    x: position.x,
+                    y: position.y,
+                    width: size.width,
+                    height: size.height,
+                })
+        });
+        // Only Finder/Desktop clicks become file evidence. Other applications may
+        // expose a current-document URL on an ancestor, which must not turn an
+        // ordinary button or text click into protected-folder access.
+        let source_path = is_finder_element(element)
+            .then(|| find_source_path(element))
+            .flatten();
+        let selected =
+            copy_string(element, kAXSelectedTextAttribute).filter(|value| !value.trim().is_empty());
+        let value =
+            copy_string(element, kAXValueAttribute).filter(|value| !value.trim().is_empty());
+        let title =
+            copy_string(element, kAXTitleAttribute).filter(|value| !value.trim().is_empty());
+        let help = copy_string(element, kAXHelpAttribute).filter(|value| !value.trim().is_empty());
+        let description =
+            copy_string(element, kAXDescriptionAttribute).filter(|value| !value.trim().is_empty());
+        let role = copy_string(element, kAXRoleDescriptionAttribute)
+            .or_else(|| copy_string(element, kAXRoleAttribute))
+            .unwrap_or_else(|| "AXElement".into());
         CFRelease(element as CFTypeRef);
 
         let source = selected
-            .filter(|value| !value.trim().is_empty())
-            .or_else(|| value.filter(|value| !value.trim().is_empty()))
-            .or(title.filter(|value| !value.trim().is_empty()))?;
-        let scoped = scope_accessibility_text(&source, text_scope);
-        let role = role.unwrap_or_else(|| "AXElement".into());
-        Some(format!("类型: {role} · 文字: {scoped}"))
+            .or(value)
+            .or(title)
+            .or(description)
+            .or(help)
+            .map(|value| scope_accessibility_text(&value, text_scope));
+        let description = source
+            .map(|text| format!("类型: {role} · 文字: {text}"))
+            .or_else(|| Some(format!("类型: {role}")));
+        Some(MacosElementInspection {
+            bounds,
+            description,
+            source_path,
+        })
     }
 }
 

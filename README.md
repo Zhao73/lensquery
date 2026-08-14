@@ -2,15 +2,15 @@
 
 Press one shortcut, point at anything on screen, and ask an AI agent about it.
 
-LensQuery is an open-source resident utility for Windows and macOS. Press a global shortcut, click an interface element or hold-drag a region, add an optional note, and LensQuery starts analysis in the background through Codex, Claude Code, OpenCode, Grok, or a configured API. Its normal window is a quiet local conversation timeline for previous queries and follow-ups.
+LensQuery is an open-source resident utility for Windows and macOS. Press a global shortcut, click an interface element or hold-drag a region, and LensQuery starts analysis in the background through Codex, Claude Code, OpenCode, Grok, or a configured API. Its normal window is a quiet local conversation timeline for previous queries and follow-ups.
 
-> Current status: the repository contains the background tray/shortcut shell, separate question-cursor capture overlay, XCap region capture, Windows UI Automation text-range lookup, local timeline/follow-up UI, Markdown answers, system notifications and speech, auto-start preference, automatic CLI discovery, bounded CLI adapters, local PDF/text extraction, automatic video preparation, and an MV3 browser element picker. Physical Windows mixed-DPI testing, macOS Accessibility text-range integration, browser Native Messaging installer wiring, Codex App Server/OpenCode session adapters, Realtime audio playback, OCR, and direct API transport remain implementation gates.
+> Current status: the repository contains the background tray/shortcut shell, a transparent question-cursor capture overlay, XCap region capture, Windows UI Automation lookup, macOS Accessibility element bounds/text and Finder-file lookup, local timeline/follow-up UI, Markdown answers, system notifications and speech, auto-start preference, automatic CLI discovery, bounded CLI adapters, local PDF/text extraction, automatic video preparation, and an MV3 browser element picker. Physical Windows mixed-DPI testing, richer arbitrary-app macOS text ranges, browser Native Messaging installer wiring, Codex App Server/OpenCode session adapters, Realtime audio playback, OCR, and direct API transport remain implementation gates.
 
 ## Intended workflow
 
 1. Leave LensQuery running in the system tray/menu bar and press `Ctrl+Shift+Space` (`Command+Shift+Space` is configurable on macOS).
-2. Choose object, word, paragraph, whole-page, or screen context; optionally add a one-line annotation.
-3. Click an object or drag a rectangle. LensQuery hides the picker, captures bounded context, and starts the selected agent in the background. Outbound preview is optional and off by default so the core path remains one shortcut plus one selection.
+2. The current desktop stays visible and the pointer changes to a small question mark.
+3. Click an object or drag a rectangle. LensQuery immediately hides the picker, captures bounded context, and starts the selected agent in the background. There is no client confirmation page in the shortcut path; preview remains available only for manual file imports when enabled.
 4. By default the answer arrives as a native notification; choose notification, window, or both in Settings.
 5. Open the conversation timeline to copy, hear, retry, or continue the same query.
 
@@ -31,6 +31,7 @@ There is no upload-style homepage. Files enter through the native picker, drag/d
 - Anything visible on screen: controls, icons, error dialogs, charts, screenshots, and surrounding application context.
 - Website elements through the companion extension: clicked text, controls, images, video/audio state, bounded nearby DOM, URL, and title.
 - Images, videos, PDFs, text, code, logs, and other bounded local files. Text and machine-readable PDFs are extracted locally before the model request.
+- Visual answers describe the subject, visible text, composition, style, lighting, and surrounding context. When an image appears AI-generated, the answer labels that as an inference and adds a reusable reconstruction prompt rather than claiming to recover the exact original prompt.
 - Videos are probed and sampled locally as part of file submission. Vision routes receive ordered timestamped frames; an audio derivative is prepared, while transcription remains provider-dependent.
 - Fast customer-answer tasks through the built-in “Customer reply” prompt template.
 
@@ -71,6 +72,8 @@ npm run install:macos
 
 LensQuery starts hidden in the menu bar. Press `Command+Shift+Space` to activate the question cursor. The generated DMG remains under `src-tauri/target/release/bundle/dmg/`.
 
+The first actual capture on macOS requires **Privacy & Security → Screen & System Audio Recording → LensQuery**. If it is not enabled, the first shortcut opens that System Settings page and stops the request instead of analyzing the desktop wallpaper by mistake. If LensQuery is absent from the list, press `+` and choose `/Applications/LensQuery.app`, then reopen the app. Accessibility permission improves exact element bounds/text and Finder file detection; without it LensQuery still uses the selected pixel region as the fallback. macOS may require Touch ID or the account password when either permission is enabled.
+
 `npm run tauri dev` is the development runner; it compiles and launches a debug build but does **not** install an application into `/Applications`.
 
 ### Development
@@ -80,7 +83,7 @@ npm ci
 npm run tauri dev
 ```
 
-Windows 10/11 and macOS share the tray, shortcut, region capture, file, notification, speech, and conversation baseline. Windows additionally reads element/word/paragraph/document ranges through UI Automation. Exact arbitrary-app text ranges on macOS still require a dedicated Accessibility adapter and permission UX.
+Windows 10/11 and macOS share the tray, shortcut, region capture, file, notification, speech, and conversation baseline. Windows additionally reads element/word/paragraph/document ranges through UI Automation. macOS now reads exposed Accessibility element bounds/text and promotes Finder/Desktop selections to real local-file evidence; exact character-range geometry and a guided permission screen remain follow-up work.
 
 ## Browser connector
 

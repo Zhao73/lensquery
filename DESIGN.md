@@ -47,10 +47,10 @@ Canonical tokens live in `src/index.css`.
 
 ## Capture overlay
 
-- Transparent full-desktop layer with a custom blue question-mark cursor.
+- Fully transparent full-desktop layer with a small arrow-plus-question-mark cursor; the current application remains visually unchanged.
 - Click reads an object; movement beyond eight logical pixels becomes a rectangular drag.
 - The selected region is a blue outline with a dimmed exterior and pixel dimensions.
-- One compact instruction plaque and a dark bounded intent bar appear at the top. The intent bar owns text scope, analysis mode, and a short annotation; it never opens the main window. Escape always cancels.
+- No toolbar, instruction plaque, client confirmation, or busy card appears over the desktop. The configured intent is applied in the background, and Escape always cancels.
 
 ## Background surfaces
 

@@ -45,7 +45,9 @@ xcap = "0.9.8"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 accessibility-sys = "0.2"
+block2 = "0.6"
 core-foundation-sys = "0.8"
+objc2-app-kit = { version = "0.3", features = ["NSEvent", "NSResponder", "NSRunningApplication", "NSView", "NSWindow", "NSWorkspace", "block2", "libc"] }
 objc2-foundation = { version = "0.3", features = ["NSString", "NSUserDefaults"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]

@@ -5,12 +5,11 @@
 ### Shortcut capture
 
 1. User presses the configurable global shortcut.
-2. LensQuery freezes a visual snapshot of all displays and opens a transparent selection layer.
+2. LensQuery leaves the current desktop visible and opens a transparent selection layer with a small question-mark pointer.
 3. The user either clicks an object or drags a rectangle.
 4. LensQuery assembles a context package containing the crop, source bounds, display scale, foreground application, window title, and non-sensitive accessible text when available.
-5. A preview appears before any network request. Every attachment and metadata field can be removed.
-6. The user asks a question or chooses a prompt preset and submits.
-7. A compact answer window appears near the selection; the full window keeps the conversation and evidence.
+5. The shortcut plus click/drag is the explicit submission gesture, so analysis starts immediately in the background without opening the main window or a confirmation page.
+6. The answer arrives through the configured native notification/window presentation; the local timeline keeps the conversation and evidence for follow-up.
 
 ### Local file analysis
 
@@ -36,7 +35,7 @@
 | AI-03 | Switch model before retry | Evidence and question stay intact while profile changes |
 | CLI-01 | Detect Codex and Claude Code executables | Settings reports resolved path and an explicit health result |
 | CLI-02 | Run a read-only non-interactive query | Invocation has bounded turns/time and does not grant command tools by default |
-| PRIV-01 | Preview outbound data | No submission occurs before explicit confirmation |
+| PRIV-01 | Bound explicit capture | Only the shortcut plus the following click/drag is submitted; manual imports may use the optional preview |
 | PRIV-02 | Redact protected UI fields | Password and secret-like accessible values are absent from request snapshots |
 | HIST-01 | Keep optional local history | User can disable screenshot retention and clear all history |
 

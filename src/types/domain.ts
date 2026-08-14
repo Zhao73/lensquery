@@ -28,6 +28,7 @@ export interface CaptureEvidence {
   windowTitle?: string
   processName?: string
   accessibleText?: string
+  sourcePath?: string
   textScope?: TextScope
   annotation?: string
   analysisMode?: AnalysisMode

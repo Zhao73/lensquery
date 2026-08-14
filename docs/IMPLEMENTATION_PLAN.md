@@ -19,7 +19,7 @@ The release is successful when a Windows user can leave LensQuery in the tray, p
 - Main-window close hides to tray.
 - Configurable global shortcut registration in Rust.
 - Separate transparent all-monitor capture overlay.
-- Question-mark cursor, click versus drag threshold, Escape cancellation, text scope, analysis intent, and short annotation.
+- Transparent desktop, small question-mark cursor, click versus drag threshold, Escape cancellation, and configured analysis intent.
 - Native notifications, notification/window/both result presentation, autostart preference, and system speech.
 
 macOS compilation is verified locally. Windows behavior must still be exercised on physical Windows 10/11, especially mixed-DPI coordinates and tray lifecycle.
@@ -29,7 +29,7 @@ macOS compilation is verified locally. Windows behavior must still be exercised 
 - XCap region capture to a temporary PNG.
 - Windows UI Automation `ElementFromPoint` lookup for name, role, class, AutomationId, and bounding rectangle.
 - Pixel fallback when UI Automation exposes nothing useful.
-- Automatic evidence event into the conversation pipeline.
+- Automatic confirmed evidence event into the background conversation pipeline without a client confirmation page.
 
 Remaining: multi-monitor mixed-DPI test matrix, protected/elevated-surface errors, capture-retention cleanup, and optional frozen-snapshot rendering so dynamic content does not move while dragging.
 

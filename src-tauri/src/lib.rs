@@ -47,11 +47,65 @@ fn shortcut_display(shortcut: &str) -> String {
 }
 
 pub(crate) fn show_main_window(app: &AppHandle) {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = app.set_activation_policy(tauri::ActivationPolicy::Regular);
+        use objc2_app_kit::{NSApplicationActivationOptions, NSRunningApplication};
+        let _ = NSRunningApplication::currentApplication()
+            .activateWithOptions(NSApplicationActivationOptions::empty());
+    }
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
         let _ = window.unminimize();
         let _ = window.set_focus();
     }
+}
+
+#[cfg(target_os = "macos")]
+#[link(name = "CoreGraphics", kind = "framework")]
+extern "C" {
+    fn CGPreflightScreenCaptureAccess() -> bool;
+    fn CGRequestScreenCaptureAccess() -> bool;
+}
+
+#[cfg(target_os = "macos")]
+pub(crate) fn screen_capture_access_granted() -> bool {
+    unsafe { CGPreflightScreenCaptureAccess() }
+}
+
+#[cfg(target_os = "macos")]
+fn request_screen_capture_access_on_launch(app: &AppHandle) {
+    if screen_capture_access_granted() {
+        return;
+    }
+
+    let _ = app.set_activation_policy(tauri::ActivationPolicy::Regular);
+    activate_capture_app(app);
+    let _ = unsafe { CGRequestScreenCaptureAccess() };
+    let _ = app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+    restore_capture_frontmost_app(app);
+}
+
+#[cfg(target_os = "macos")]
+fn ensure_screen_capture_access(app: &AppHandle) -> Result<(), String> {
+    if screen_capture_access_granted() {
+        return Ok(());
+    }
+
+    app.set_activation_policy(tauri::ActivationPolicy::Regular)
+        .map_err(|error| error.to_string())?;
+    activate_capture_app(app);
+    let granted = unsafe { CGRequestScreenCaptureAccess() };
+    if granted || screen_capture_access_granted() {
+        return Ok(());
+    }
+
+    let _ = app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+    restore_capture_frontmost_app(app);
+    let _ = std::process::Command::new("open")
+        .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
+        .spawn();
+    Err("需要先在“系统设置 → 隐私与安全性 → 屏幕与系统音频录制”中允许 LensQuery；若列表中没有它，请点左下角“+”选择 /Applications/LensQuery.app，然后重新打开。".into())
 }
 
 fn show_capture_overlay(app: &AppHandle) -> Result<(), String> {
@@ -92,33 +146,174 @@ fn show_capture_overlay(app: &AppHandle) -> Result<(), String> {
             ))
             .map_err(|error| error.to_string())?;
     }
+    #[cfg(target_os = "macos")]
+    app.set_activation_policy(tauri::ActivationPolicy::Regular)
+        .map_err(|error| error.to_string())?;
     window.show().map_err(|error| error.to_string())?;
+    #[cfg(target_os = "macos")]
+    {
+        activate_capture_app(app);
+        configure_capture_window_for_keyboard(&window)?;
+    }
     window.set_focus().map_err(|error| error.to_string())?;
     Ok(())
 }
 
+#[cfg(target_os = "macos")]
+fn activate_capture_app(app: &AppHandle) {
+    use objc2_app_kit::{NSApplicationActivationOptions, NSRunningApplication, NSWorkspace};
+
+    let current = NSRunningApplication::currentApplication();
+    if let Some(previous) = NSWorkspace::sharedWorkspace().frontmostApplication() {
+        let previous_pid = previous.processIdentifier();
+        if previous_pid > 0 && previous_pid != current.processIdentifier() {
+            if let Ok(mut stored) = app.state::<AppState>().capture_frontmost_pid.lock() {
+                *stored = Some(previous_pid);
+            }
+        }
+    }
+    let _ = current.activateWithOptions(NSApplicationActivationOptions::empty());
+}
+
+#[cfg(target_os = "macos")]
+fn configure_capture_window_for_keyboard(window: &tauri::WebviewWindow) -> Result<(), String> {
+    use objc2_app_kit::{NSView, NSWindow, NSWindowStyleMask, NSWindowTitleVisibility};
+
+    let window_pointer = window.ns_window().map_err(|error| error.to_string())?;
+    let view_pointer = window.ns_view().map_err(|error| error.to_string())?;
+    let native_window = unsafe { &*window_pointer.cast::<NSWindow>() };
+    let native_view = unsafe { &*view_pointer.cast::<NSView>() };
+    native_window.setStyleMask(
+        native_window.styleMask()
+            | NSWindowStyleMask::Titled
+            | NSWindowStyleMask::FullSizeContentView,
+    );
+    native_window.setTitleVisibility(NSWindowTitleVisibility::Hidden);
+    native_window.setTitlebarAppearsTransparent(true);
+    native_window.makeKeyAndOrderFront(None);
+    if !native_window.makeFirstResponder(Some(native_view)) {
+        return Err("取景窗口没有取得键盘焦点。".into());
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn install_capture_escape_monitor(app: &AppHandle) -> Result<(), String> {
+    use std::ptr::NonNull;
+
+    use block2::RcBlock;
+    use objc2_app_kit::{NSEvent, NSEventMask};
+
+    // AppKit's local monitor receives keyboard events before the borderless
+    // WebView. This keeps Escape deterministic after global-shortcut activation.
+    let app = app.clone();
+    let block: RcBlock<dyn Fn(NonNull<NSEvent>) -> *mut NSEvent> =
+        RcBlock::new(move |event: NonNull<NSEvent>| {
+            let event_ref = unsafe { event.as_ref() };
+            let capture_is_visible = app
+                .get_webview_window("capture")
+                .and_then(|window| window.is_visible().ok())
+                .unwrap_or(false);
+            if event_ref.keyCode() == 53 && capture_is_visible {
+                let _ = hide_capture_overlay(&app);
+                std::ptr::null_mut()
+            } else {
+                event.as_ptr()
+            }
+        });
+    let monitor = unsafe {
+        NSEvent::addLocalMonitorForEventsMatchingMask_handler(NSEventMask::KeyDown, &block)
+    }
+    .ok_or_else(|| "macOS Esc 取景监听器初始化失败。".to_string())?;
+    // Retain both the monitor token and block until process exit.
+    std::mem::forget(monitor);
+    std::mem::forget(block);
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn restore_capture_frontmost_app(app: &AppHandle) {
+    use objc2_app_kit::{NSApplicationActivationOptions, NSRunningApplication};
+
+    let previous_pid = app
+        .state::<AppState>()
+        .capture_frontmost_pid
+        .lock()
+        .ok()
+        .and_then(|mut value| value.take());
+    if let Some(previous) =
+        previous_pid.and_then(NSRunningApplication::runningApplicationWithProcessIdentifier)
+    {
+        let _ = previous.activateWithOptions(NSApplicationActivationOptions::empty());
+    }
+}
+
+pub(crate) fn hide_capture_overlay(app: &AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("capture") {
+        window.hide().map_err(|error| error.to_string())?;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        app.set_activation_policy(tauri::ActivationPolicy::Accessory)
+            .map_err(|error| error.to_string())?;
+        restore_capture_frontmost_app(app);
+    }
+    Ok(())
+}
+
 pub(crate) fn request_capture(app: &AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    if let Err(error) = ensure_screen_capture_access(app) {
+        use tauri_plugin_notification::NotificationExt;
+
+        let _ = app
+            .notification()
+            .builder()
+            .title("LensQuery 需要屏幕读取权限")
+            .body(&error)
+            .show();
+        return Err(error);
+    }
     app.emit_to("main", "lensquery://capture-requested", ())
+        .map_err(|error| error.to_string())?;
+    app.emit_to("capture", "lensquery://capture-requested", ())
         .map_err(|error| error.to_string())?;
     show_capture_overlay(app)
 }
 
-fn request_capture_intent(
+pub(crate) fn request_capture_intent(
     app: &AppHandle,
     analysis_mode: &str,
     text_scope: &str,
 ) -> Result<(), String> {
+    let output_format = app
+        .state::<AppState>()
+        .settings
+        .lock()
+        .map_err(|_| "设置存储被锁定。".to_string())?
+        .default_output_format
+        .clone();
     app.emit_to(
         "capture",
         "lensquery://capture-intent",
         serde_json::json!({
             "analysisMode": analysis_mode,
-            "outputFormat": "adaptive",
+            "outputFormat": output_format,
             "textScope": text_scope
         }),
     )
     .map_err(|error| error.to_string())?;
     request_capture(app)
+}
+
+pub(crate) fn request_default_capture(app: &AppHandle) -> Result<(), String> {
+    let settings = app
+        .state::<AppState>()
+        .settings
+        .lock()
+        .map_err(|_| "设置存储被锁定。".to_string())?
+        .clone();
+    request_capture_intent(app, &settings.default_analysis_mode, "object")
 }
 
 pub(crate) fn register_capture_shortcut(app: &AppHandle, shortcut: &str) -> Result<(), String> {
@@ -128,7 +323,7 @@ pub(crate) fn register_capture_shortcut(app: &AppHandle, shortcut: &str) -> Resu
     app.global_shortcut()
         .on_shortcut(shortcut, |app, _, event| {
             if event.state == ShortcutState::Pressed {
-                let _ = request_capture(app);
+                let _ = request_default_capture(app);
             }
         })
         .map_err(|error| format!("注册快捷键 {shortcut} 失败: {error}"))
@@ -174,8 +369,12 @@ pub fn run() {
         ])
         .setup(|app| {
             #[cfg(target_os = "macos")]
-            app.handle()
-                .set_activation_policy(tauri::ActivationPolicy::Accessory)?;
+            {
+                request_screen_capture_access_on_launch(app.handle());
+                app.handle()
+                    .set_activation_policy(tauri::ActivationPolicy::Accessory)?;
+                install_capture_escape_monitor(app.handle())?;
+            }
             if cfg!(debug_assertions) {
                 app.handle().plugin(
                     tauri_plugin_log::Builder::default()
@@ -279,7 +478,7 @@ pub fn run() {
                         if button == tauri::tray::MouseButton::Left
                             && button_state == tauri::tray::MouseButtonState::Up
                         {
-                            let _ = request_capture_intent(tray.app_handle(), "identify", "object");
+                            let _ = request_default_capture(tray.app_handle());
                         }
                     }
                 })
@@ -309,6 +508,10 @@ pub fn run() {
                 if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                     api.prevent_close();
                     let _ = window.hide();
+                    #[cfg(target_os = "macos")]
+                    let _ = window
+                        .app_handle()
+                        .set_activation_policy(tauri::ActivationPolicy::Accessory);
                 }
             }
         })

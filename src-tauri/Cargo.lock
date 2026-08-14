@@ -2528,10 +2528,12 @@ version = "0.1.0"
 dependencies = [
  "accessibility-sys",
  "base64 0.22.1",
+ "block2",
  "chrono",
  "core-foundation-sys",
  "keyring",
  "log",
+ "objc2-app-kit",
  "objc2-foundation",
  "pdf-extract",
  "serde",

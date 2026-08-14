@@ -210,6 +210,7 @@ export async function stopSpeaking(): Promise<void> {
 
 export interface QueryEvidenceEvent {
   capture?: CaptureEvidence
+  files?: FileEvidence[]
   browserContext?: BrowserContext
   analysisMode?: AnalysisRequest['analysisMode']
   outputFormat?: AnalysisRequest['outputFormat']
