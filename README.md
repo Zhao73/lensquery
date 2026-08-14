@@ -92,6 +92,7 @@ Video preparation currently requires `ffmpeg` and `ffprobe` on `PATH`. The inter
 
 - The main window starts hidden; closing it returns LensQuery to the tray/menu bar instead of quitting.
 - Left-click the icon for Quick Ask. Right-click offers Identify, Explain, How-to, Deep Dive, Analyze File, Timeline, Models, Settings, and Quit.
+- On notched Macs, the first run seeds the LensQuery item into the visible right-side safe area. Hold Command and drag it to choose another position; macOS remembers that choice.
 - Login auto-start and notification preview are user-configurable. Notification permission is requested only when the first result needs one.
 - macOS `say`, Windows SAPI, and the browser Speech Synthesis fallback provide working local read-aloud. Codex App Server 0.146.1 exposes experimental Realtime audio methods, but an authenticated smoke test reported that an ordinary local thread does not support realtime conversation. The option is therefore disabled in Settings instead of pretending to be available; protocol/session eligibility and PCM playback remain separate gates.
 

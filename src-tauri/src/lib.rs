@@ -231,7 +231,7 @@ pub fn run() {
                 ],
             )?;
             let tray_icon = tauri::include_image!("icons/tray-template-44.png");
-            TrayIconBuilder::new()
+            let _tray_icon_handle = TrayIconBuilder::new()
                 .tooltip(&tray_tooltip)
                 .menu(&menu)
                 .show_menu_on_left_click(false)
@@ -284,6 +284,23 @@ pub fn run() {
                     }
                 })
                 .build(app)?;
+            #[cfg(target_os = "macos")]
+            _tray_icon_handle.with_inner_tray_icon(|inner| {
+                use objc2_foundation::{NSString, NSUserDefaults};
+
+                // Give macOS a stable identity for Command-drag ordering. Seed a visible
+                // right-side slot once so a new install is not placed behind a display notch.
+                let autosave_name = NSString::from_str("LensQuery");
+                let position_key = NSString::from_str("NSStatusItem Preferred Position LensQuery");
+                let defaults = NSUserDefaults::standardUserDefaults();
+                if defaults.objectForKey(&position_key).is_none() {
+                    defaults.setDouble_forKey(180.0, &position_key);
+                }
+
+                if let Some(status_item) = inner.ns_status_item() {
+                    status_item.setAutosaveName(Some(&autosave_name));
+                }
+            })?;
             browser_bridge::start_queue_poller(app.handle().clone());
             Ok(())
         })

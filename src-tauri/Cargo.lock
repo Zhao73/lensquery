@@ -2532,6 +2532,7 @@ dependencies = [
  "core-foundation-sys",
  "keyring",
  "log",
+ "objc2-foundation",
  "pdf-extract",
  "serde",
  "serde_json",
