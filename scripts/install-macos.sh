@@ -4,6 +4,7 @@ set -Eeuo pipefail
 
 APP_NAME="LensQuery"
 MIN_FREE_GIB=12
+WARM_BUILD_MIN_FREE_GIB=4
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_SOURCE="$PROJECT_ROOT/src-tauri/target/release/bundle/macos/$APP_NAME.app"
 APP_DESTINATION="/Applications/$APP_NAME.app"
@@ -23,11 +24,16 @@ command -v cargo >/dev/null 2>&1 || fail "Rust/Cargo is missing. Install Rust st
 command -v xcode-select >/dev/null 2>&1 || fail "Xcode Command Line Tools are missing."
 xcode-select -p >/dev/null 2>&1 || fail "run 'xcode-select --install', then rerun this installer."
 
+required_free_gib=$MIN_FREE_GIB
+if [[ -x "$PROJECT_ROOT/src-tauri/target/release/lensquery" && -d "$APP_SOURCE" ]]; then
+  required_free_gib=$WARM_BUILD_MIN_FREE_GIB
+fi
+
 available_kib="$(df -Pk "$PROJECT_ROOT" | awk 'NR == 2 { print $4 }')"
-required_kib=$((MIN_FREE_GIB * 1024 * 1024))
+required_kib=$((required_free_gib * 1024 * 1024))
 if (( available_kib < required_kib )); then
   available_gib=$((available_kib / 1024 / 1024))
-  fail "the first Rust build needs at least ${MIN_FREE_GIB} GiB free; only about ${available_gib} GiB is available. Remove regenerable build caches such as src-tauri/target, then retry."
+  fail "this Rust build needs at least ${required_free_gib} GiB free; only about ${available_gib} GiB is available. Remove regenerable build caches such as src-tauri/target, then retry."
 fi
 
 cd "$PROJECT_ROOT"
