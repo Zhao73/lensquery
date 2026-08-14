@@ -6,6 +6,7 @@ pub struct AppState {
     pub settings: Mutex<AppSettings>,
     pub providers: Mutex<HashMap<String, ProviderProfile>>,
     pub speech: Mutex<Option<Child>>,
+    #[cfg(target_os = "macos")]
     pub capture_frontmost_pid: Mutex<Option<i32>>,
 }
 
@@ -19,6 +20,7 @@ impl Default for AppState {
             settings: Mutex::new(AppSettings::default()),
             providers: Mutex::new(providers),
             speech: Mutex::new(None),
+            #[cfg(target_os = "macos")]
             capture_frontmost_pid: Mutex::new(None),
         }
     }
