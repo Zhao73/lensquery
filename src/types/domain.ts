@@ -35,6 +35,15 @@ export interface CaptureEvidence {
   outputFormat?: OutputFormat
 }
 
+export interface CaptureTarget {
+  bounds: Bounds
+  label: string
+  kind: 'pdf' | 'image' | 'video' | 'file' | 'element' | 'screen-context'
+  sourcePath?: string
+  accessibleText?: string
+  fallback: boolean
+}
+
 export interface BrowserContext {
   url: string
   title: string
@@ -47,6 +56,8 @@ export interface BrowserContext {
   nearbyText?: string
   selectionMode?: TextScope
   selectedText?: string
+  captions?: string
+  transcript?: string
   annotation?: string
   analysisMode?: AnalysisMode
   outputFormat?: OutputFormat

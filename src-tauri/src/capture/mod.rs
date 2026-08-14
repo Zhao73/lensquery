@@ -1,12 +1,12 @@
 use crate::models::{CaptureResponse, CaptureSelection};
 
 #[cfg(any(target_os = "windows", target_os = "macos"))]
-use crate::models::{Bounds, CaptureEvidence};
+use crate::models::{Bounds, CaptureEvidence, CaptureTarget};
 
 pub fn started() -> CaptureResponse {
     CaptureResponse {
         status: "started".into(),
-        message: "询问模式已开启：点一下识别对象，按住拖动选择区域；Esc 取消。".into(),
+        message: "询问模式已开启：第一次点击高亮对象，再点一次确认；拖动直接选择区域。".into(),
         evidence: None,
     }
 }
@@ -16,6 +16,111 @@ pub async fn complete(selection: CaptureSelection) -> Result<CaptureResponse, St
         return Err("不支持的取景模式。".into());
     }
     complete_platform(selection).await
+}
+
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+pub async fn inspect_target(
+    point: Bounds,
+    text_scope: Option<String>,
+) -> Result<CaptureTarget, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        inspect_target_native(point, text_scope.as_deref())
+    })
+    .await
+    .map_err(|error| format!("目标检测任务异常结束: {error}"))?
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+pub async fn inspect_target(
+    _point: crate::models::Bounds,
+    _text_scope: Option<String>,
+) -> Result<crate::models::CaptureTarget, String> {
+    Err("当前 Linux 构建尚未接入桌面目标检测。".into())
+}
+
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+fn inspect_target_native(point: Bounds, text_scope: Option<&str>) -> Result<CaptureTarget, String> {
+    use xcap::Monitor;
+
+    let monitor = Monitor::from_point(point.x.round() as i32, point.y.round() as i32)
+        .map_err(|error| format!("没有找到所选位置的显示器: {error}"))?;
+    let monitor_x = monitor.x().map_err(|error| error.to_string())?;
+    let monitor_y = monitor.y().map_err(|error| error.to_string())?;
+    let monitor_width = monitor.width().map_err(|error| error.to_string())?;
+    let monitor_height = monitor.height().map_err(|error| error.to_string())?;
+
+    #[cfg(target_os = "windows")]
+    let inspection = inspect_element(&point, text_scope).map(|element| TargetInspection {
+        bounds: Some(element.bounds),
+        description: Some(element.description.clone()),
+        label: element.description,
+        source_path: None,
+    });
+    #[cfg(target_os = "macos")]
+    let inspection = macos_inspect_element(&point, text_scope);
+
+    let fallback_bounds = contextual_element_bounds(
+        point.x,
+        point.y,
+        monitor_x,
+        monitor_y,
+        monitor_width,
+        monitor_height,
+    );
+    let Some(inspection) = inspection else {
+        return Ok(CaptureTarget {
+            bounds: fallback_bounds,
+            label: "屏幕上下文".into(),
+            kind: "screen-context".into(),
+            source_path: None,
+            accessible_text: None,
+            fallback: true,
+        });
+    };
+    let source_path = inspection.source_path;
+    let kind = source_path
+        .as_deref()
+        .map(target_kind_for_path)
+        .unwrap_or("element")
+        .to_string();
+    let label = source_path
+        .as_deref()
+        .and_then(|path| std::path::Path::new(path).file_name())
+        .and_then(|name| name.to_str())
+        .map(ToOwned::to_owned)
+        .unwrap_or(inspection.label);
+    Ok(CaptureTarget {
+        bounds: inspection.bounds.unwrap_or(fallback_bounds),
+        label,
+        kind,
+        source_path,
+        accessible_text: inspection.description,
+        fallback: false,
+    })
+}
+
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+fn target_kind_for_path(path: &str) -> &'static str {
+    match std::path::Path::new(path)
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "pdf" => "pdf",
+        "png" | "jpg" | "jpeg" | "webp" | "gif" | "heic" => "image",
+        "mp4" | "mov" | "m4v" | "webm" | "mkv" | "avi" | "wmv" | "mpeg" | "mpg" => "video",
+        _ => "file",
+    }
+}
+
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+struct TargetInspection {
+    bounds: Option<Bounds>,
+    description: Option<String>,
+    label: String,
+    source_path: Option<String>,
 }
 
 #[cfg(any(target_os = "windows", target_os = "macos"))]
@@ -253,17 +358,7 @@ fn inspect_element(point: &Bounds, text_scope: Option<&str>) -> Option<Inspected
 }
 
 #[cfg(target_os = "macos")]
-struct MacosElementInspection {
-    bounds: Option<Bounds>,
-    description: Option<String>,
-    source_path: Option<String>,
-}
-
-#[cfg(target_os = "macos")]
-fn macos_inspect_element(
-    point: &Bounds,
-    text_scope: Option<&str>,
-) -> Option<MacosElementInspection> {
+fn macos_inspect_element(point: &Bounds, text_scope: Option<&str>) -> Option<TargetInspection> {
     use std::ptr;
 
     use accessibility_sys::{
@@ -272,8 +367,8 @@ fn macos_inspect_element(
         kAXRoleAttribute, kAXRoleDescriptionAttribute, kAXSelectedTextAttribute, kAXSizeAttribute,
         kAXTitleAttribute, kAXURLAttribute, kAXValueAttribute, kAXValueTypeCGPoint,
         kAXValueTypeCGSize, AXUIElementCopyAttributeValue, AXUIElementCopyElementAtPosition,
-        AXUIElementCreateSystemWide, AXUIElementGetPid, AXUIElementRef, AXValueGetType,
-        AXValueGetTypeID, AXValueGetValue, AXValueRef,
+        AXUIElementCreateSystemWide, AXUIElementRef, AXValueGetType, AXValueGetTypeID,
+        AXValueGetValue, AXValueRef,
     };
     use core_foundation_sys::{
         array::{CFArrayGetCount, CFArrayGetTypeID, CFArrayGetValueAtIndex, CFArrayRef},
@@ -398,7 +493,7 @@ fn macos_inspect_element(
     unsafe fn find_source_path(element: AXUIElementRef) -> Option<String> {
         let mut current = element;
         let mut owns_current = false;
-        for _ in 0..6 {
+        for _ in 0..16 {
             for attribute in [kAXURLAttribute, kAXFilenameAttribute, kAXDocumentAttribute] {
                 if let Some(path) = path_from_attribute(current, attribute) {
                     if owns_current {
@@ -420,18 +515,6 @@ fn macos_inspect_element(
             CFRelease(current as CFTypeRef);
         }
         None
-    }
-
-    unsafe fn is_finder_element(element: AXUIElementRef) -> bool {
-        use objc2_app_kit::NSRunningApplication;
-
-        let mut pid = 0;
-        if AXUIElementGetPid(element, &mut pid) != kAXErrorSuccess {
-            return false;
-        }
-        NSRunningApplication::runningApplicationWithProcessIdentifier(pid)
-            .and_then(|application| application.bundleIdentifier())
-            .is_some_and(|identifier| identifier.to_string() == "com.apple.finder")
     }
 
     unsafe fn collect_descendant_text(
@@ -571,12 +654,10 @@ fn macos_inspect_element(
                     height: size.height,
                 })
         });
-        // Only Finder/Desktop clicks become file evidence. Other applications may
-        // expose a current-document URL on an ancestor, which must not turn an
-        // ordinary button or text click into protected-folder access.
-        let source_path = is_finder_element(element)
-            .then(|| find_source_path(element))
-            .flatten();
+        // The first click only previews this path and the second click confirms it.
+        // This makes Finder icons and document surfaces in Preview/PDF readers
+        // real file evidence instead of a one-pixel screenshot.
+        let source_path = find_source_path(element);
         let page_text = matches!(text_scope, Some("page") | Some("screen"))
             .then(|| collect_page_text(element))
             .flatten();
@@ -594,6 +675,15 @@ fn macos_inspect_element(
             .unwrap_or_else(|| "AXElement".into());
         CFRelease(element as CFTypeRef);
 
+        let label = source_path
+            .as_deref()
+            .and_then(|path| std::path::Path::new(path).file_name())
+            .and_then(|name| name.to_str())
+            .map(ToOwned::to_owned)
+            .or_else(|| title.clone())
+            .or_else(|| description.clone())
+            .or_else(|| help.clone())
+            .unwrap_or_else(|| role.clone());
         let source = page_text
             .or(selected)
             .or(value)
@@ -604,9 +694,10 @@ fn macos_inspect_element(
         let description = source
             .map(|text| format!("类型: {role} · 文字: {text}"))
             .or_else(|| Some(format!("类型: {role}")));
-        Some(MacosElementInspection {
+        Some(TargetInspection {
             bounds,
             description,
+            label,
             source_path,
         })
     }
@@ -636,7 +727,7 @@ fn scope_accessibility_text(value: &str, scope: Option<&str>) -> String {
 
 #[cfg(all(test, any(target_os = "windows", target_os = "macos")))]
 mod tests {
-    use super::contextual_element_bounds;
+    use super::{contextual_element_bounds, target_kind_for_path};
 
     #[test]
     fn centers_context_crop_around_unresolved_element() {
@@ -656,5 +747,13 @@ mod tests {
         let bottom_right = contextual_element_bounds(-5.0, 895.0, -1440, 0, 1440, 900);
         assert_eq!(bottom_right.x, -480.0);
         assert_eq!(bottom_right.y, 580.0);
+    }
+
+    #[test]
+    fn classifies_confirmed_file_targets() {
+        assert_eq!(target_kind_for_path("/tmp/brief.PDF"), "pdf");
+        assert_eq!(target_kind_for_path("/tmp/photo.heic"), "image");
+        assert_eq!(target_kind_for_path("/tmp/lesson.mov"), "video");
+        assert_eq!(target_kind_for_path("/tmp/source.rs"), "file");
     }
 }

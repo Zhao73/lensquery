@@ -57,13 +57,13 @@ The production application does not use Ink, Bubble Tea, Ratatui, or another TUI
 
 1. The global shortcut calls `request_capture` from Rust.
 2. The capture window covers all monitors using virtual-screen coordinates.
-3. Pointer up yields either a one-pixel element probe or a dragged rectangle.
-4. LensQuery hides its overlay before acquiring pixels.
+3. A click temporarily hides the overlay, resolves the underlying accessibility/file target, then restores the overlay around the real bounds; a second click confirms it. A dragged rectangle bypasses this target-confirmation step.
+4. LensQuery hides its overlay before target inspection and final pixel acquisition.
 5. On Windows, UI Automation resolves the click to a role, name, class, AutomationId, true element rectangle, and word/paragraph/document range when exposed. On macOS, Accessibility reads bounded `AXSelectedText`, `AXValue`, or title context when the user grants permission.
 6. XCap captures the bounded region to a local temporary PNG.
 7. The main process receives `lensquery://evidence-ready` and immediately creates a pending conversation.
 8. The selected agent adapter receives the evidence and streams/returns the answer.
-9. LensQuery follows the configured result presentation: permission-independent upper-right card, conversation window, or both. The same local conversation remains ready for follow-up.
+9. LensQuery follows the configured result presentation: permission-independent upper-right card, conversation window, or both. The local conversation keeps the selected image/file metadata, full answer, media quick actions, and follow-up context.
 
 Native accessibility is best-effort and permission-bound. Canvas applications, protected surfaces, elevated/secure windows, and some GPU/video surfaces may expose no useful element metadata. The pixel crop remains the fallback. The overlay supports pointer selection plus keyboard move/resize/confirm/cancel.
 

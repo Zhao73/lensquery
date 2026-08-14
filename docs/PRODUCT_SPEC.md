@@ -5,10 +5,10 @@
 ### Shortcut capture
 
 1. User presses the configurable global shortcut.
-2. LensQuery leaves the current desktop visible and opens a transparent selection layer with a small question-mark pointer.
-3. The user either clicks an object or drags a rectangle.
+2. LensQuery leaves the current desktop visible and opens a transparent selection layer with a small question-mark pointer and no cursor-following box.
+3. The user clicks once to resolve/highlight the real object or file and clicks it again to confirm, or drags a rectangle that submits on release.
 4. LensQuery assembles a context package containing the crop, source bounds, display scale, foreground application, window title, and non-sensitive accessible text when available.
-5. The shortcut plus click/drag is the explicit submission gesture, so analysis starts immediately in the background without opening the main window or a confirmation page.
+5. The shortcut plus second confirming click/drag release is the explicit submission gesture, so analysis starts immediately in the background without opening the main window or a confirmation page.
 6. The answer arrives through the configured upper-right card/window presentation; the local timeline keeps the conversation and evidence for follow-up.
 
 ### Local file analysis

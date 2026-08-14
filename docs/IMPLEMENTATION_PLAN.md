@@ -15,11 +15,11 @@ The release is successful when a Windows user can leave LensQuery in the tray, p
 ### M1 — Resident shortcut shell: implemented, runtime verification pending
 
 - Hidden-at-login resident process with a template menu-bar/tray mark.
-- Left-click Quick Ask plus right-click Identify, Explain, How-to, Deep Dive, File, Timeline, Models, Settings, and Quit.
+- Left-click Quick Ask plus a distilled right-click menu: Start, Analyze Files, Timeline, Settings, and Quit.
 - Main-window close hides to tray.
 - Configurable global shortcut registration in Rust.
 - Separate transparent all-monitor capture overlay.
-- Transparent desktop, small question-mark cursor, click versus drag threshold, Escape cancellation, and configured analysis intent.
+- Transparent desktop, small question-mark cursor, real-target first-click highlight, second-click confirmation, drag threshold, Escape cancellation, and configured analysis intent.
 - Permission-independent upper-right result card, card/window/both result presentation, autostart preference, and system speech.
 
 macOS compilation is verified locally. Windows behavior must still be exercised on physical Windows 10/11, especially mixed-DPI coordinates and tray lifecycle.
@@ -29,7 +29,7 @@ macOS compilation is verified locally. Windows behavior must still be exercised 
 - XCap region capture to a temporary PNG.
 - Windows UI Automation `ElementFromPoint` lookup for name, role, class, AutomationId, and bounding rectangle.
 - Pixel fallback when UI Automation exposes nothing useful.
-- Automatic confirmed evidence event into the background conversation pipeline without a client confirmation page.
+- Automatic confirmed evidence event into the background conversation pipeline without a client confirmation page; macOS document URLs are promoted to PDF/image/video/file evidence after explicit two-click confirmation.
 
 Remaining: multi-monitor mixed-DPI test matrix, protected/elevated-surface errors, capture-retention cleanup, and optional frozen-snapshot rendering so dynamic content does not move while dragging.
 

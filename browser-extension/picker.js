@@ -4,7 +4,7 @@
     return
   }
 
-  const state = { active: true, highlighted: null }
+  const state = { active: true, highlighted: null, locked: null }
   document.documentElement.classList.add('lensquery-picking')
   const badge = document.createElement('div')
   badge.id = 'lensquery-picker-badge'
@@ -19,6 +19,7 @@
   }
 
   function onMove(event) {
+    if (state.locked) return
     highlight(document.elementFromPoint(event.clientX, event.clientY))
   }
 
@@ -31,8 +32,25 @@
     event.stopImmediatePropagation()
     const element = event.composedPath().find((item) => item instanceof Element)
     if (!element) return stop()
+    if (state.locked !== element) {
+      state.locked = element
+      highlight(element)
+      badge.textContent = '已高亮目标 · 再点一次识别 · ⌥ 点击可设置范围'
+      return
+    }
     const context = buildContext(element)
-    showComposer(context, event.clientX, event.clientY)
+    if (event.altKey) {
+      showComposer(context, event.clientX, event.clientY)
+      return
+    }
+    context.selectionMode = window.getSelection()?.toString().trim() ? 'selection' : 'object'
+    context.selectedText = textForScope(element, context.selectionMode)
+    context.analysisMode = undefined
+    context.outputFormat = undefined
+    delete context.__element
+    stop()
+    const response = await chrome.runtime.sendMessage({ type: 'lensquery-context', context })
+    if (!response?.ok) showFailure(response?.error)
   }
 
   function showComposer(context, x, y) {
@@ -107,6 +125,7 @@
   function stop() {
     state.active = false
     state.highlighted?.classList.remove('lensquery-target')
+    state.locked = null
     badge.remove()
     document.documentElement.classList.remove('lensquery-picking')
     window.removeEventListener('pointermove', onMove, true)
@@ -118,8 +137,10 @@
 
   function buildContext(element) {
     const media = element.closest('video, audio')
+      || element.closest('.html5-video-player, [data-media-player]')?.querySelector('video, audio')
     const nearby = element.closest('article, section, main, li, form, nav, header, footer') || element.parentElement
     const text = clean(element.innerText || element.textContent || element.getAttribute('alt') || element.getAttribute('title') || '')
+    const mediaText = media ? collectMediaText(media) : {}
     return {
       url: location.href,
       title: document.title,
@@ -133,6 +154,8 @@
       __element: element,
       selectionMode: window.getSelection()?.toString().trim() ? 'selection' : 'object',
       selectedText: clean(window.getSelection()?.toString() || '').slice(0, 16000),
+      captions: mediaText.captions,
+      transcript: mediaText.transcript,
       media: media ? {
         kind: media.tagName.toLowerCase(),
         currentTime: Number(media.currentTime || 0),
@@ -140,6 +163,39 @@
         source: media.currentSrc || media.src || media.querySelector('source')?.src,
         paused: Boolean(media.paused),
       } : undefined,
+    }
+  }
+
+  function collectMediaText(media) {
+    const cueLines = []
+    try {
+      for (const track of media.textTracks || []) {
+        for (const cue of track.activeCues || []) {
+          const value = clean(cue.text || '')
+          if (value && !cueLines.includes(value)) cueLines.push(value)
+        }
+      }
+    } catch {
+      // Some players expose only rendered caption nodes.
+    }
+    document.querySelectorAll('.ytp-caption-segment, [class*="caption"] [class*="text"]')
+      .forEach((node) => {
+        const value = clean(node.textContent || '')
+        if (value && !cueLines.includes(value)) cueLines.push(value)
+      })
+
+    const transcriptLines = []
+    document.querySelectorAll('ytd-transcript-segment-renderer, [data-transcript-segment], [class*="transcript-segment"]')
+      .forEach((node) => {
+        const timestamp = clean(node.querySelector('[class*="timestamp"], .segment-timestamp')?.textContent || '')
+        const line = clean(node.querySelector('[class*="segment-text"], yt-formatted-string')?.textContent || node.textContent || '')
+        const value = clean(`${timestamp} ${line}`)
+        if (value && !transcriptLines.includes(value)) transcriptLines.push(value)
+      })
+
+    return {
+      captions: cueLines.join(' ').slice(0, 16000) || undefined,
+      transcript: transcriptLines.join('\n').slice(0, 120000) || undefined,
     }
   }
 

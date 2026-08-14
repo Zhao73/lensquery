@@ -12,7 +12,9 @@ import type {
   VideoPreparation,
   BrowserContext,
   CaptureEvidence,
+  CaptureTarget,
   CaptureSelection,
+  Bounds,
 } from '../types/domain'
 
 export const isDesktopRuntime = () => '__TAURI_INTERNALS__' in window
@@ -170,6 +172,19 @@ export async function completeCapture(selection: CaptureSelection): Promise<Capt
   throw new Error('桌面取景层只在 Tauri 应用中运行。')
 }
 
+export async function inspectCaptureTarget(
+  point: Bounds,
+  textScope?: string,
+): Promise<CaptureTarget> {
+  if (isDesktopRuntime()) return invoke<CaptureTarget>('inspect_capture_target', { point, textScope })
+  return {
+    bounds: { x: point.x - 160, y: point.y - 100, width: 320, height: 200 },
+    label: '屏幕上下文',
+    kind: 'screen-context',
+    fallback: true,
+  }
+}
+
 export async function cancelCapture(): Promise<void> {
   if (!isDesktopRuntime()) return
   await invoke('cancel_capture')
@@ -178,6 +193,21 @@ export async function cancelCapture(): Promise<void> {
 export async function showMainWindow(): Promise<void> {
   if (!isDesktopRuntime()) return
   await invoke('show_main')
+}
+
+export interface DesktopPermissionStatus {
+  screenCapture: boolean
+  accessibility: boolean
+}
+
+export async function getPermissionStatus(): Promise<DesktopPermissionStatus> {
+  if (!isDesktopRuntime()) return { screenCapture: true, accessibility: true }
+  return invoke<DesktopPermissionStatus>('permission_status')
+}
+
+export async function openPermissionSettings(permission: 'screen' | 'accessibility'): Promise<void> {
+  if (!isDesktopRuntime()) return
+  await invoke('open_permission_settings', { permission })
 }
 
 export async function showSystemNotification(title: string, body: string): Promise<boolean> {
@@ -272,6 +302,12 @@ export async function listenForNavigation(handler: (view: 'timeline' | 'provider
   if (!isDesktopRuntime()) return () => undefined
   const { listen } = await import('@tauri-apps/api/event')
   return listen<'timeline' | 'providers' | 'settings'>('lensquery://navigate', ({ payload }) => handler(payload))
+}
+
+export async function listenForFilePickRequest(handler: () => void): Promise<() => void> {
+  if (!isDesktopRuntime()) return () => undefined
+  const { listen } = await import('@tauri-apps/api/event')
+  return listen('lensquery://pick-files', handler)
 }
 
 export async function analyze(request: AnalysisRequest): Promise<AnalysisResult> {

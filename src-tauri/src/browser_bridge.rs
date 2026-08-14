@@ -127,6 +127,14 @@ fn validate_context(context: &BrowserContext) -> Result<(), String> {
             .outer_html
             .as_ref()
             .is_some_and(|value| value.len() > 64_000)
+        || context
+            .captions
+            .as_ref()
+            .is_some_and(|value| value.len() > 16_000)
+        || context
+            .transcript
+            .as_ref()
+            .is_some_and(|value| value.len() > 160_000)
     {
         return Err("浏览器上下文超出边界。".into());
     }
@@ -168,6 +176,8 @@ mod tests {
             nearby_text: None,
             selection_mode: None,
             selected_text: None,
+            captions: None,
+            transcript: None,
             annotation: None,
             analysis_mode: None,
             output_format: None,

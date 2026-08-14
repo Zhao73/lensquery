@@ -252,6 +252,17 @@ pub struct CaptureEvidence {
     pub output_format: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CaptureTarget {
+    pub bounds: Bounds,
+    pub label: String,
+    pub kind: String,
+    pub source_path: Option<String>,
+    pub accessible_text: Option<String>,
+    pub fallback: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BrowserContext {
@@ -268,6 +279,10 @@ pub struct BrowserContext {
     pub selection_mode: Option<String>,
     #[serde(default)]
     pub selected_text: Option<String>,
+    #[serde(default)]
+    pub captions: Option<String>,
+    #[serde(default)]
+    pub transcript: Option<String>,
     #[serde(default)]
     pub annotation: Option<String>,
     #[serde(default)]

@@ -48,18 +48,18 @@ Canonical tokens live in `src/index.css`.
 ## Capture overlay
 
 - Fully transparent full-desktop layer with a small arrow-plus-question-mark cursor; the current application remains visually unchanged.
-- Click reads an object; movement beyond eight logical pixels becomes a rectangular drag.
+- The first click resolves and outlines the real object/file bounds; clicking that highlighted target again confirms it. Movement beyond eight logical pixels becomes a rectangular drag and submits on release.
 - The selected region is a blue outline with a dimmed exterior and pixel dimensions.
 - No toolbar, instruction plaque, client confirmation, or busy card appears over the desktop. The configured intent is applied in the background, and Escape always cancels.
 
 ## Background surfaces
 
 - The main window starts hidden. Closing it hides, not quits.
-- A left click on the resident icon starts smart selection immediately. The right-click menu exposes region, object/icon/file, selected-text, and page-text modes before the secondary timeline/settings actions.
-- Every capture mode uses the same transparent selector. Hovering an object or file gives it a light target highlight; clicking selects it, while dragging selects a freeform region.
+- A left click on the resident icon starts smart selection immediately. The right-click menu contains only Start Recognition, Analyze Files, Timeline, Settings, and Quit; analysis modes and diagnostics live in the client/settings surface.
+- The transparent selector never draws a fixed cursor-following frame. A first click highlights resolved text, image, PDF, file, or control bounds; a second click confirms it, while dragging selects a freeform region immediately.
 - A monochrome template icon lives in the macOS menu bar and adapts to appearance; Windows uses the colored app mark in the system tray.
-- Left click starts the default capture. Right click exposes verb-first shortcuts, followed by Timeline, Models, Settings, and Quit.
-- Native result notifications are concise and bounded; the full Markdown answer remains in the local timeline.
+- Left click starts the default capture. Right click exposes only Start Recognition and Analyze Files, followed by Timeline, Settings, and Quit.
+- The upper-right result card is concise and bounded; the full Markdown answer and selected evidence thumbnail remain in the local timeline.
 
 ## Motion
 

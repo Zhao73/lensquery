@@ -62,7 +62,7 @@ async fn run_cli(
 
     let evidence_manifest = build_evidence_manifest(request);
     let video_instruction = if request.prompt_id == "video" {
-        "For video evidence, reconstruct the sequence in timestamp order. Return: concise summary, key moments with timestamps, visible text or objects, audio limitations, and a customer-ready answer when relevant. Never claim continuous motion that the sampled frames do not prove."
+        "For video evidence, reconstruct the sequence in timestamp order. Return: a one-paragraph quick introduction, concise summary, interesting or useful moments with timestamps, learning takeaways, visible text or objects, transcript/caption coverage, audio limitations, and a customer-ready answer when relevant. Never claim continuous motion or a full transcript that the supplied frames/captions do not prove."
     } else {
         "Use only the supplied evidence and distinguish direct observation from inference."
     };
@@ -276,6 +276,10 @@ fn collect_image_paths(request: &AnalysisRequest) -> Result<Vec<String>, String>
                     .ok_or_else(|| format!("请先对视频 {} 执行“快速准备视频”。", file.name))?;
                 images.extend(preparation.frames.iter().map(|frame| frame.path.clone()));
             }
+            "pdf" if !request.captures.is_empty() => {
+                // A scanned PDF may expose no extractable text. The confirmed
+                // on-screen page capture remains valid visual evidence.
+            }
             _ if file.extracted_text.is_some() => {}
             _ => {
                 return Err(format!(
@@ -339,6 +343,12 @@ fn build_evidence_manifest(request: &AnalysisRequest) -> String {
                 browser.selection_mode.as_deref().unwrap_or("selection"),
                 selected_text
             ));
+        }
+        if let Some(captions) = &browser.captions {
+            lines.push(format!("Visible/current video captions: {captions}"));
+        }
+        if let Some(transcript) = &browser.transcript {
+            lines.push(format!("Page-exposed video transcript:\n{transcript}"));
         }
         if let Some(annotation) = &browser.annotation {
             lines.push(format!("Browser annotation: {annotation}"));

@@ -11,9 +11,10 @@ mod video;
 
 use commands::{
     analyze, bootstrap, cancel_capture, complete_capture, discover_cli_providers,
-    hide_result_toast, inspect_files, open_result_from_toast, prepare_video, probe_video,
-    save_provider, save_settings, set_provider_secret, show_main, show_notification, speak_text,
-    start_capture, stop_speaking, test_provider,
+    hide_result_toast, inspect_capture_target, inspect_files, open_permission_settings,
+    open_result_from_toast, permission_status, prepare_video, probe_video, save_provider,
+    save_settings, set_provider_secret, show_main, show_notification, speak_text, start_capture,
+    stop_speaking, test_provider,
 };
 use state::AppState;
 use tauri::{
@@ -148,8 +149,21 @@ pub(crate) fn screen_capture_access_granted() -> bool {
 
 #[cfg(target_os = "macos")]
 fn ensure_screen_capture_access(app: &AppHandle) -> Result<(), String> {
+    use std::sync::atomic::Ordering;
+
     if screen_capture_access_granted() {
+        app.state::<AppState>()
+            .screen_capture_prompted
+            .store(false, Ordering::Relaxed);
         return Ok(());
+    }
+
+    if app
+        .state::<AppState>()
+        .screen_capture_prompted
+        .swap(true, Ordering::Relaxed)
+    {
+        return Err("录屏权限尚未生效。请在系统设置中允许 LensQuery，然后完全退出并重新打开应用；本次不再重复弹出系统请求。".into());
     }
 
     app.set_activation_policy(tauri::ActivationPolicy::Regular)
@@ -162,13 +176,15 @@ fn ensure_screen_capture_access(app: &AppHandle) -> Result<(), String> {
 
     let _ = app.set_activation_policy(tauri::ActivationPolicy::Accessory);
     restore_capture_frontmost_app(app);
-    let _ = std::process::Command::new("open")
-        .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
-        .spawn();
-    Err("需要先在“系统设置 → 隐私与安全性 → 屏幕与系统音频录制”中允许 LensQuery；若列表中没有它，请点左下角“+”选择 /Applications/LensQuery.app，然后重新打开。".into())
+    Err("需要先在“系统设置 → 隐私与安全性 → 屏幕与系统音频录制”中允许 LensQuery，然后完全退出并重新打开。".into())
 }
 
-fn show_capture_overlay(app: &AppHandle) -> Result<(), String> {
+#[cfg(target_os = "macos")]
+pub(crate) fn accessibility_access_granted() -> bool {
+    unsafe { accessibility_sys::AXIsProcessTrusted() }
+}
+
+pub(crate) fn show_capture_overlay(app: &AppHandle) -> Result<(), String> {
     let window = app
         .get_webview_window("capture")
         .ok_or_else(|| "取景窗口没有初始化。".to_string())?;
@@ -379,21 +395,6 @@ pub(crate) fn request_default_capture(app: &AppHandle) -> Result<(), String> {
     request_capture_selection_intent(app, &settings.default_analysis_mode, "object", "auto")
 }
 
-fn request_default_capture_mode(
-    app: &AppHandle,
-    text_scope: &str,
-    selection_mode: &str,
-) -> Result<(), String> {
-    let analysis_mode = app
-        .state::<AppState>()
-        .settings
-        .lock()
-        .map_err(|_| "设置存储被锁定。".to_string())?
-        .default_analysis_mode
-        .clone();
-    request_capture_selection_intent(app, &analysis_mode, text_scope, selection_mode)
-}
-
 pub(crate) fn register_capture_shortcut(app: &AppHandle, shortcut: &str) -> Result<(), String> {
     app.global_shortcut()
         .unregister_all()
@@ -430,6 +431,9 @@ pub fn run() {
             discover_cli_providers,
             start_capture,
             complete_capture,
+            inspect_capture_target,
+            permission_status,
+            open_permission_settings,
             cancel_capture,
             save_settings,
             save_provider,
@@ -470,7 +474,7 @@ pub fn run() {
                 .clone();
             register_capture_shortcut(app.handle(), &shortcut)?;
             let tray_tooltip = format!(
-                "LensQuery · 左键开始识别 · 右键选择方式 · {}",
+                "LensQuery · 左键开始识别 · 右键打开菜单 · {}",
                 shortcut_display(&shortcut)
             );
 
@@ -487,55 +491,22 @@ pub fn run() {
                 }
             }
 
-            let capture_item = MenuItem::with_id(
-                app,
-                "capture",
-                "开始识别（点击对象 / 拖动区域）",
-                true,
-                None::<&str>,
-            )?;
-            let region_item = MenuItem::with_id(app, "region", "框选一个区域", true, None::<&str>)?;
-            let element_item = MenuItem::with_id(
-                app,
-                "element",
-                "点击单个图标、文件或对象",
-                true,
-                None::<&str>,
-            )?;
-            let selection_item =
-                MenuItem::with_id(app, "selection", "识别已选文字", true, None::<&str>)?;
-            let article_item =
-                MenuItem::with_id(app, "article", "点击文章读取全文", true, None::<&str>)?;
-            let explain_item =
-                MenuItem::with_id(app, "explain", "解释所选内容", true, None::<&str>)?;
-            let howto_item = MenuItem::with_id(app, "howto", "分析使用方法", true, None::<&str>)?;
-            let deep_item = MenuItem::with_id(app, "deep", "深入分析原理", true, None::<&str>)?;
+            let capture_item = MenuItem::with_id(app, "capture", "开始识别", true, None::<&str>)?;
+            let file_item =
+                MenuItem::with_id(app, "pick-files", "选择文件分析…", true, None::<&str>)?;
             let open_item = MenuItem::with_id(app, "open", "会话时间线", true, None::<&str>)?;
-            let model_item = MenuItem::with_id(app, "models", "模型与智能体", true, None::<&str>)?;
             let settings_item = MenuItem::with_id(app, "settings", "设置…", true, None::<&str>)?;
-            let test_result_item =
-                MenuItem::with_id(app, "test-result", "测试右上角结果", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "退出 LensQuery", true, None::<&str>)?;
-            let capture_separator = PredefinedMenuItem::separator(app)?;
             let app_separator = PredefinedMenuItem::separator(app)?;
             let quit_separator = PredefinedMenuItem::separator(app)?;
             let menu = Menu::with_items(
                 app,
                 &[
                     &capture_item,
-                    &region_item,
-                    &element_item,
-                    &selection_item,
-                    &article_item,
-                    &capture_separator,
-                    &explain_item,
-                    &howto_item,
-                    &deep_item,
+                    &file_item,
                     &app_separator,
                     &open_item,
-                    &model_item,
                     &settings_item,
-                    &test_result_item,
                     &quit_separator,
                     &quit_item,
                 ],
@@ -551,51 +522,16 @@ pub fn run() {
                     "capture" => {
                         let _ = request_default_capture(app);
                     }
-                    "region" => {
-                        let _ = request_default_capture_mode(app, "screen", "region");
-                    }
-                    "element" => {
-                        let _ =
-                            request_capture_selection_intent(app, "identify", "object", "element");
-                    }
-                    "selection" => {
-                        let _ = request_capture_selection_intent(
-                            app,
-                            "explain",
-                            "selection",
-                            "element",
-                        );
-                    }
-                    "article" => {
-                        let _ = request_capture_selection_intent(app, "explain", "page", "element");
-                    }
-                    "explain" => {
-                        let _ = request_capture_intent(app, "explain", "selection");
-                    }
-                    "howto" => {
-                        let _ = request_capture_intent(app, "how-to", "object");
-                    }
-                    "deep" => {
-                        let _ = request_capture_intent(app, "deep-dive", "page");
+                    "pick-files" => {
+                        let _ = app.emit_to("main", "lensquery://pick-files", ());
                     }
                     "open" => {
                         show_main_window(app);
                         let _ = app.emit_to("main", "lensquery://navigate", "timeline");
                     }
-                    "models" => {
-                        show_main_window(app);
-                        let _ = app.emit_to("main", "lensquery://navigate", "providers");
-                    }
                     "settings" => {
                         show_main_window(app);
                         let _ = app.emit_to("main", "lensquery://navigate", "settings");
-                    }
-                    "test-result" => {
-                        let _ = show_result_toast(
-                            app,
-                            "LensQuery 结果显示正常",
-                            "以后每次分析完成，回答摘要都会直接出现在这里。点击可查看完整会话。",
-                        );
                     }
                     "quit" => app.exit(0),
                     _ => {}

@@ -1,10 +1,18 @@
 use tauri::{AppHandle, Emitter, State};
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DesktopPermissionStatus {
+    screen_capture: bool,
+    accessibility: bool,
+}
+
 use crate::{
     capture, cli, files,
     models::{
-        AnalysisRequest, AnalysisResult, AppSettings, BootstrapState, CaptureResponse,
-        CaptureSelection, ProviderProfile, QueryEvidenceEvent, VideoMetadata, VideoPreparation,
+        AnalysisRequest, AnalysisResult, AppSettings, BootstrapState, Bounds, CaptureResponse,
+        CaptureSelection, CaptureTarget, ProviderProfile, QueryEvidenceEvent, VideoMetadata,
+        VideoPreparation,
     },
     providers, secrets,
     state::AppState,
@@ -129,6 +137,23 @@ pub async fn complete_capture(
 }
 
 #[tauri::command]
+pub async fn inspect_capture_target(
+    point: Bounds,
+    text_scope: Option<String>,
+    app: AppHandle,
+) -> Result<CaptureTarget, String> {
+    crate::hide_capture_overlay(&app)?;
+    tokio::time::sleep(std::time::Duration::from_millis(110)).await;
+    let inspection = capture::inspect_target(point, text_scope).await;
+    let restore = crate::show_capture_overlay(&app);
+    match (inspection, restore) {
+        (Ok(target), Ok(())) => Ok(target),
+        (Err(error), Ok(())) => Err(error),
+        (_, Err(error)) => Err(format!("恢复取景层失败: {error}")),
+    }
+}
+
+#[tauri::command]
 pub fn cancel_capture(app: AppHandle) -> Result<(), String> {
     crate::hide_capture_overlay(&app)
 }
@@ -136,6 +161,44 @@ pub fn cancel_capture(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub fn show_main(app: AppHandle) {
     crate::show_main_window(&app);
+}
+
+#[tauri::command]
+pub fn permission_status() -> DesktopPermissionStatus {
+    #[cfg(target_os = "macos")]
+    return DesktopPermissionStatus {
+        screen_capture: crate::screen_capture_access_granted(),
+        accessibility: crate::accessibility_access_granted(),
+    };
+
+    #[cfg(not(target_os = "macos"))]
+    DesktopPermissionStatus {
+        screen_capture: true,
+        accessibility: true,
+    }
+}
+
+#[tauri::command]
+pub fn open_permission_settings(permission: String) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let destination = match permission.as_str() {
+            "screen" => {
+                "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
+            }
+            "accessibility" => {
+                "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+            }
+            _ => return Err("不支持的系统权限页面。".into()),
+        };
+        std::process::Command::new("open")
+            .arg(destination)
+            .spawn()
+            .map_err(|error| format!("打开系统设置失败: {error}"))?;
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = permission;
+    Ok(())
 }
 
 #[tauri::command]
@@ -362,8 +425,15 @@ pub async fn analyze(
             .collect::<Vec<_>>()
     };
     let result = providers::analyze(request, profile, settings).await;
-    for path in cleanup_paths {
-        let _ = std::fs::remove_file(path);
+    if !cleanup_paths.is_empty() {
+        tauri::async_runtime::spawn(async move {
+            // Keep the selected image available long enough for the conversation
+            // evidence preview, while retaining the default ephemeral policy.
+            tokio::time::sleep(std::time::Duration::from_secs(3_600)).await;
+            for path in cleanup_paths {
+                let _ = std::fs::remove_file(path);
+            }
+        });
     }
     if should_show_window {
         crate::show_main_window(&app);

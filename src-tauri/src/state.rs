@@ -1,4 +1,8 @@
-use std::{collections::HashMap, process::Child, sync::Mutex};
+use std::{
+    collections::HashMap,
+    process::Child,
+    sync::{atomic::AtomicBool, Mutex},
+};
 
 use crate::models::{AppSettings, ProviderProfile};
 
@@ -8,6 +12,8 @@ pub struct AppState {
     pub speech: Mutex<Option<Child>>,
     #[cfg(target_os = "macos")]
     pub capture_frontmost_pid: Mutex<Option<i32>>,
+    #[cfg(target_os = "macos")]
+    pub screen_capture_prompted: AtomicBool,
 }
 
 impl Default for AppState {
@@ -22,6 +28,8 @@ impl Default for AppState {
             speech: Mutex::new(None),
             #[cfg(target_os = "macos")]
             capture_frontmost_pid: Mutex::new(None),
+            #[cfg(target_os = "macos")]
+            screen_capture_prompted: AtomicBool::new(false),
         }
     }
 }
