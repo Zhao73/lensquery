@@ -284,7 +284,13 @@ async fn run_cli(
 }
 
 fn sanitize_parent_agent_environment(command: &mut Command, provider_kind: &str) {
-    let keys: &[&str] = match provider_kind {
+    for key in parent_agent_environment_keys(provider_kind) {
+        command.env_remove(key);
+    }
+}
+
+fn parent_agent_environment_keys(provider_kind: &str) -> &'static [&'static str] {
+    match provider_kind {
         "codex-cli" => &[
             "CODEX_CI",
             "CODEX_INTERNAL_ORIGINATOR_OVERRIDE",
@@ -300,9 +306,6 @@ fn sanitize_parent_agent_environment(command: &mut Command, provider_kind: &str)
         ],
         "opencode-cli" => &["OPENCODE_SESSION_ID"],
         _ => &[],
-    };
-    for key in keys {
-        command.env_remove(key);
     }
 }
 
@@ -706,16 +709,14 @@ mod tests {
 
     #[test]
     fn parent_agent_session_variables_are_not_required_configuration() {
-        let mut command = Command::new("codex");
-        sanitize_parent_agent_environment(&mut command, "codex-cli");
-        let debug = format!("{command:?}");
+        let keys = parent_agent_environment_keys("codex-cli");
         for key in [
             "CODEX_INTERNAL_ORIGINATOR_OVERRIDE",
             "CODEX_SESSION_ID",
             "CODEX_THREAD_ID",
         ] {
-            assert!(debug.contains(key));
+            assert!(keys.contains(&key));
         }
-        assert!(!debug.contains("CODEX_HOME"));
+        assert!(!keys.contains(&"CODEX_HOME"));
     }
 }
