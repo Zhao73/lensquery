@@ -35,7 +35,8 @@ Canonical tokens live in `src/index.css`.
 - Conversation: source/title bar, centered message stream, persistent follow-up dock.
 - New-conversation state uses one centered, spacious composer with optional instruction, intent, output contract, attachment, and send controls. It is not a homepage or upload landing page.
 - Settings use ruled groups rather than decorative cards.
-- Extensions use two quiet tabs (Plugins and Skills), a single install source row, a list with enable/audit/remove actions, and an explicit capability boundary. It is not an app-store gallery.
+- Extensions use two quiet tabs (Plugins and Skills), a compact reviewed-source block, one install source row, a list with enable/audit/remove actions, and an explicit capability boundary. It is not an app-store gallery; the reviewed block is evidence-first rather than promotional.
+- Providers use one search field and restrained category filters over a flat, scannable directory. Built-ins, local endpoints, and custom profiles share the same row grammar instead of separate dashboards.
 
 ## Components
 

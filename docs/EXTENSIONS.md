@@ -6,7 +6,7 @@ LensQuery Electron treats extensions as local, auditable instruction packages. T
 
 1. Open **Extensions** in the left sidebar.
 2. Choose **Plugins** or **Skills**.
-3. Use **Install from folder**, or paste a Git repository URL/local directory path into the source row.
+3. Use **Install from folder**, choose a reviewed GitHub catalog item, or paste a Git repository URL/local directory path into the source row.
 4. Review the package name, origin, path, declared permissions, and compatibility.
 5. Keep the package enabled for all new analyses, or disable it without removing its files.
 
@@ -67,14 +67,17 @@ LensQuery also discovers `~/.agents/skills`, but does not move or delete those e
 Use an HTTPS, SSH, or `git@...` repository URL. LensQuery performs a shallow clone with Git and accepts:
 
 - a package at the repository root; or
-- exactly one package one directory below the root.
+- exactly one package one directory below the root;
+- a GitHub tree URL such as `https://github.com/openai/skills/tree/main/skills/.curated/pdf`; or
+- an explicit fragment such as `https://github.com/openai/skills.git#skills/.curated/pdf`.
 
-If a repository contains several packages, clone it yourself and install the specific package directory.
+Subdirectory paths are normalized and may not contain `..` or escape the cloned repository.
 
 ## Runtime behavior
 
-- New managed installs are enabled automatically.
+- New managed installs are enabled automatically unless a reviewed catalog entry contains a script/tool workflow; those entries install disabled.
 - Existing Skills discovered on disk start disabled in LensQuery until the user opts in.
+- A `scripts/` directory is displayed as `bundled-scripts-disabled`; its files are copied for audit/compatibility but never executed by LensQuery.
 - Enabled `PLUGIN.md`/`SKILL.md` content is appended to analysis guidance, never treated as authority to run tools or modify files.
 - One package contributes at most 12,000 characters; all enabled packages contribute at most 40,000 characters per request.
 - Codex-compatible Skills remain visible to Codex itself because their files live under `~/.codex/skills`.

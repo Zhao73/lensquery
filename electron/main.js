@@ -24,6 +24,12 @@ import {
 } from 'electron'
 
 import { createExtensionManager } from './extension-manager.js'
+import {
+  isDirectProvider,
+  normalizeProviderBaseUrl,
+  runDirectProvider,
+  testDirectProvider as testDirectApiProvider,
+} from './direct-provider.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const devUrl = process.env.LENSQUERY_DEV_URL
@@ -53,12 +59,23 @@ const defaultSettings = {
 }
 
 const defaultProviders = [
-  provider('openai', 'OpenAI', 'openai', 'gpt-5', false, true),
-  provider('anthropic', 'Anthropic', 'anthropic', 'claude-sonnet-4-5', false, true),
-  provider('codex-cli', 'Codex CLI', 'codex-cli', 'default', true, true),
-  provider('claude-cli', 'Claude Code', 'claude-cli', 'default', true, false),
-  provider('opencode-cli', 'OpenCode', 'opencode-cli', 'default', true, true),
-  provider('grok-cli', 'Grok CLI', 'grok-cli', 'grok-build', true, false),
+  provider('codex-cli', 'Codex CLI', 'codex-cli', 'default', true, true, { category: 'agent' }),
+  provider('claude-cli', 'Claude Code', 'claude-cli', 'default', true, false, { category: 'agent' }),
+  provider('opencode-cli', 'OpenCode', 'opencode-cli', 'default', true, true, { category: 'agent' }),
+  provider('grok-cli', 'Grok CLI', 'grok-cli', 'grok-build', true, false, { category: 'agent' }),
+  provider('openai', 'OpenAI', 'openai', 'gpt-5', false, true, { baseUrl: 'https://api.openai.com/v1' }),
+  provider('anthropic', 'Anthropic', 'anthropic', 'claude-sonnet-4-5', false, true, { baseUrl: 'https://api.anthropic.com' }),
+  provider('gemini', 'Google Gemini', 'compatible', 'gemini-2.5-flash', false, true, { baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai' }),
+  provider('xai', 'xAI', 'compatible', 'grok-4-1-fast-reasoning', false, true, { baseUrl: 'https://api.x.ai/v1' }),
+  provider('deepseek', 'DeepSeek', 'compatible', 'deepseek-chat', false, false, { baseUrl: 'https://api.deepseek.com' }),
+  provider('openrouter', 'OpenRouter', 'compatible', 'openai/gpt-5', false, true, { baseUrl: 'https://openrouter.ai/api/v1' }),
+  provider('groq-cloud', 'Groq Cloud', 'compatible', 'openai/gpt-oss-120b', false, true, { baseUrl: 'https://api.groq.com/openai/v1' }),
+  provider('mistral', 'Mistral AI', 'compatible', 'mistral-small-latest', false, true, { baseUrl: 'https://api.mistral.ai/v1' }),
+  provider('together', 'Together AI', 'compatible', 'meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8', false, true, { baseUrl: 'https://api.together.xyz/v1' }),
+  provider('fireworks', 'Fireworks AI', 'compatible', 'accounts/fireworks/models/qwen3-235b-a22b', false, true, { baseUrl: 'https://api.fireworks.ai/inference/v1' }),
+  provider('siliconflow', 'SiliconFlow', 'compatible', 'Qwen/Qwen3-235B-A22B-Instruct-2507', false, true, { baseUrl: 'https://api.siliconflow.cn/v1' }),
+  provider('ollama', 'Ollama', 'compatible', 'qwen3-vl:8b', false, true, { baseUrl: 'http://localhost:11434/v1', category: 'local', apiKeyRequired: false }),
+  provider('lm-studio', 'LM Studio', 'compatible', 'local-model', false, true, { baseUrl: 'http://localhost:1234/v1', category: 'local', apiKeyRequired: false }),
 ]
 
 let mainWindow
@@ -75,12 +92,16 @@ function debugRuntime(event, details = {}) {
   process.stdout.write(`[LensQuery] ${event} ${JSON.stringify(details)}\n`)
 }
 
-function provider(id, name, kind, model, cli, vision) {
+function provider(id, name, kind, model, cli, vision, options = {}) {
   return {
     id,
     name,
     kind,
     model,
+    baseUrl: options.baseUrl,
+    category: options.category || (cli ? 'agent' : 'cloud'),
+    builtIn: true,
+    apiKeyRequired: options.apiKeyRequired !== false,
     ready: false,
     secretConfigured: false,
     capabilities: { vision, pdf: vision, files: vision, video: vision, audioTranscription: false, streaming: false },
@@ -94,10 +115,22 @@ function statePath() {
 
 async function loadState() {
   const persisted = await readJson(statePath(), {})
+  const secrets = persisted.secrets || {}
+  const providers = mergeProviders(defaultProviders, persisted.providers || []).map((profile) => {
+    if (!isDirectProvider(profile)) return profile
+    const secretConfigured = Boolean(secrets[profile.id])
+    return {
+      ...profile,
+      category: profile.category || 'cloud',
+      apiKeyRequired: profile.apiKeyRequired !== false,
+      secretConfigured,
+      ready: profile.apiKeyRequired === false || secretConfigured,
+    }
+  })
   return {
     settings: { ...defaultSettings, ...(persisted.settings || {}) },
-    providers: mergeProviders(defaultProviders, persisted.providers || []),
-    secrets: persisted.secrets || {},
+    providers,
+    secrets,
   }
 }
 
@@ -109,7 +142,10 @@ async function saveState() {
 
 function mergeProviders(base, configured) {
   const result = new Map(base.map((item) => [item.id, item]))
-  for (const item of configured) result.set(item.id, { ...(result.get(item.id) || {}), ...item })
+  for (const item of configured) {
+    const defined = Object.fromEntries(Object.entries(item).filter(([, value]) => value !== null && value !== undefined))
+    result.set(item.id, { ...(result.get(item.id) || {}), ...defined })
+  }
   return [...result.values()]
 }
 
@@ -337,9 +373,11 @@ async function invokeSidecar(method, payload = {}) {
 
 async function discoverProviders() {
   const providers = await invokeSidecar('discoverCliProviders', { providers: state.providers })
-  state.providers = providers
+  // Rust only understands provider transport fields. Preserve Electron-only
+  // catalog metadata such as category, builtIn, and apiKeyRequired.
+  state.providers = mergeProviders(state.providers, providers)
   await saveState()
-  return providers
+  return state.providers
 }
 
 function registerIpc() {
@@ -378,14 +416,37 @@ function registerIpc() {
     return state.settings
   })
   handle('saveProvider', async ({ profile }) => {
-    state.providers = mergeProviders(state.providers, [profile])
+    const saved = sanitizeProvider(profile)
+    state.providers = mergeProviders(state.providers, [saved])
     await saveState()
-    return profile
+    return saved
+  })
+  handle('removeProvider', async ({ providerId }) => {
+    const profile = state.providers.find((item) => item.id === providerId)
+    if (!profile) throw new Error('没有找到该提供商。')
+    if (profile.builtIn !== false) throw new Error('内置提供商可以重新配置，不会从目录中删除。')
+    state.providers = state.providers.filter((item) => item.id !== providerId)
+    delete state.secrets[providerId]
+    if (state.settings.defaultProviderId === providerId) {
+      state.settings.defaultProviderId = state.providers.find((item) => item.ready)?.id || 'codex-cli'
+    }
+    await saveState()
+    return { providers: state.providers, settings: state.settings }
   })
   handle('setProviderSecret', async ({ providerId, secret }) => {
-    if (!secret?.trim()) return false
+    const profile = state.providers.find((item) => item.id === providerId)
+    if (!profile) throw new Error('没有找到该提供商。')
+    if (!secret?.trim()) {
+      delete state.secrets[providerId]
+      profile.secretConfigured = false
+      profile.ready = profile.apiKeyRequired === false
+      await saveState()
+      return false
+    }
     if (!safeStorage.isEncryptionAvailable()) throw new Error('系统安全存储当前不可用。')
     state.secrets[providerId] = safeStorage.encryptString(secret.trim()).toString('base64')
+    profile.secretConfigured = true
+    profile.ready = true
     await saveState()
     return true
   })
@@ -394,8 +455,17 @@ function registerIpc() {
     const profile = state.providers.find((item) => item.id === request.providerId)
     if (!profile) throw new Error('没有找到所选模型通道。')
     const extensionInstructions = await extensionManager.collectInstructions()
+    const enrichedRequest = { ...request, extensionInstructions }
+    if (isDirectProvider(profile)) {
+      return runDirectProvider({
+        profile,
+        secret: decryptProviderSecret(profile.id),
+        request: enrichedRequest,
+        settings: state.settings,
+      })
+    }
     return invokeSidecar('analyze', {
-      request: { ...request, extensionInstructions },
+      request: enrichedRequest,
       profile,
       settings: state.settings,
     })
@@ -412,8 +482,8 @@ function registerIpc() {
     sendEvent('lensquery://extensions-changed')
     return installed
   })
-  handle('extensions:installSource', async ({ kind, source }) => {
-    const installed = await extensionManager.install({ kind, source })
+  handle('extensions:installSource', async ({ kind, source, enabled }) => {
+    const installed = await extensionManager.install({ kind, source, enabled: enabled !== false })
     sendEvent('lensquery://extensions-changed')
     return installed
   })
@@ -448,11 +518,57 @@ async function pickEvidenceFiles() {
 }
 
 async function testProvider(profile) {
-  if (!profile.kind.endsWith('-cli')) return '直接 API 连接测试将在凭据出站预览完成后开启。'
+  if (isDirectProvider(profile)) {
+    const configured = state.providers.find((item) => item.id === profile.id) || sanitizeProvider(profile)
+    return testDirectApiProvider(configured, decryptProviderSecret(profile.id))
+  }
   const refreshed = await discoverProviders()
   const found = refreshed.find((item) => item.id === profile.id)
   if (!found?.ready) throw new Error(`没有找到 ${profile.name} 可执行文件。`)
   return `${found.name} 已就绪${found.cli?.version ? ` · ${found.cli.version}` : ''}`
+}
+
+function decryptProviderSecret(providerId) {
+  const encrypted = state.secrets[providerId]
+  if (!encrypted) return ''
+  if (!safeStorage.isEncryptionAvailable()) throw new Error('系统安全存储当前不可用。')
+  try {
+    return safeStorage.decryptString(Buffer.from(encrypted, 'base64'))
+  } catch {
+    throw new Error('无法解密该提供商的 API Key，请重新保存。')
+  }
+}
+
+function sanitizeProvider(input) {
+  if (!input || typeof input !== 'object') throw new Error('提供商配置格式错误。')
+  const id = String(input.id || '').trim().toLowerCase()
+  if (!/^[a-z0-9][a-z0-9._-]{0,79}$/.test(id)) throw new Error('提供商 ID 只能包含小写字母、数字、点、下划线和连字符。')
+  const existing = state.providers.find((item) => item.id === id)
+  const builtIn = defaultProviders.some((item) => item.id === id) || existing?.builtIn === true
+  const kind = builtIn && existing ? existing.kind : String(input.kind || 'compatible')
+  if (!['openai', 'anthropic', 'compatible', 'codex-cli', 'claude-cli', 'opencode-cli', 'grok-cli'].includes(kind)) {
+    throw new Error('不支持该提供商协议。')
+  }
+  const name = String(input.name || '').trim().slice(0, 120)
+  const model = String(input.model || '').trim().slice(0, 240)
+  if (!name || !model) throw new Error('提供商名称和模型 ID 不能为空。')
+  const direct = ['openai', 'anthropic', 'compatible'].includes(kind)
+  const apiKeyRequired = direct ? input.apiKeyRequired !== false : false
+  const secretConfigured = Boolean(state.secrets[id])
+  return {
+    ...(existing || {}),
+    ...input,
+    id,
+    name,
+    kind,
+    model,
+    baseUrl: direct ? normalizeProviderBaseUrl(input.baseUrl) : undefined,
+    category: direct ? (input.category === 'local' ? 'local' : input.category === 'custom' ? 'custom' : 'cloud') : 'agent',
+    builtIn,
+    apiKeyRequired,
+    secretConfigured,
+    ready: direct ? !apiKeyRequired || secretConfigured : Boolean(input.ready),
+  }
 }
 
 async function openPermissionSettings(permission) {

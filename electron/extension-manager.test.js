@@ -3,7 +3,7 @@ import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-import { createExtensionManager } from './extension-manager.js'
+import { createExtensionManager, parseExtensionSource } from './extension-manager.js'
 
 const temporaryRoots = []
 
@@ -25,6 +25,20 @@ afterEach(async () => {
 })
 
 describe('Electron extension manager', () => {
+  it('parses GitHub tree URLs and safe repository subdirectories', () => {
+    expect(parseExtensionSource('https://github.com/openai/skills/tree/main/skills/.curated/pdf')).toEqual({
+      kind: 'git',
+      repositoryUrl: 'https://github.com/openai/skills.git',
+      ref: 'main',
+      subdirectory: 'skills/.curated/pdf',
+    })
+    expect(parseExtensionSource('https://github.com/openai/skills.git#skills/.curated/transcribe')).toMatchObject({
+      repositoryUrl: 'https://github.com/openai/skills.git',
+      subdirectory: 'skills/.curated/transcribe',
+    })
+    expect(() => parseExtensionSource('https://github.com/openai/skills.git#../outside')).toThrow('路径无效')
+  })
+
   it('installs, enables, reads, and disables a Codex-compatible skill', async () => {
     const { root, manager } = await fixture()
     const source = path.join(root, 'source-skill')
@@ -68,5 +82,28 @@ describe('Electron extension manager', () => {
     await fs.symlink('/tmp', path.join(source, 'outside'))
 
     await expect(manager.install({ kind: 'skill', source })).rejects.toThrow('符号链接')
+  })
+
+  it('can install a reviewed skill without enabling its prompt instructions', async () => {
+    const { root, manager } = await fixture()
+    const source = path.join(root, 'reviewed-skill')
+    await fs.mkdir(path.join(source, 'scripts'), { recursive: true })
+    await fs.writeFile(path.join(source, 'SKILL.md'), `---\nname: reviewed-media\ndescription: Reviewed media workflow.\n---\n\nUse the supplied media evidence.\n`)
+    await fs.writeFile(path.join(source, 'scripts', 'helper.py'), 'print("manual only")\n')
+
+    const installed = await manager.install({ kind: 'skill', source, enabled: false })
+    expect(installed.enabled).toBe(false)
+    expect(installed.permissions).toContain('bundled-scripts-disabled')
+    expect(await manager.collectInstructions()).toBeUndefined()
+  })
+
+  it('reads folded YAML descriptions instead of displaying the block marker', async () => {
+    const { root, manager } = await fixture()
+    const source = path.join(root, 'folded-skill')
+    await fs.mkdir(source, { recursive: true })
+    await fs.writeFile(path.join(source, 'SKILL.md'), `---\nname: folded-skill\ndescription: >\n  Analyze the selected object and\n  explain the surrounding context.\n---\n\n# Instructions\n`)
+
+    const installed = await manager.install({ kind: 'skill', source })
+    expect(installed.description).toBe('Analyze the selected object and explain the surrounding context.')
   })
 })

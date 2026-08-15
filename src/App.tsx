@@ -57,6 +57,7 @@ import {
   openPermissionSettings,
   pickEvidenceFiles,
   saveProvider,
+  removeProvider as removeProviderProfile,
   saveSettings,
   setProviderSecret,
   showMainWindow,
@@ -73,6 +74,7 @@ import {
   listExtensions,
   listenForExtensionChanges,
   openExtensionFolder,
+  recommendedSkills,
   removeExtension,
   setExtensionEnabled,
 } from './lib/extensions'
@@ -231,6 +233,7 @@ function ConversationApp() {
     setProviders,
     setSettings,
     upsertProvider,
+    removeProvider: removeProviderFromStore,
     setActiveSession,
     upsertSession,
     removeSession,
@@ -645,7 +648,13 @@ function ConversationApp() {
               setSettings(next)
               void saveSettings(next)
             }}
-            onSave={(profile) => { upsertProvider(profile); return saveProvider(profile) }}
+            onSave={async (profile) => { const saved = await saveProvider(profile); upsertProvider(saved); return saved }}
+            onRemove={async (providerId) => {
+              const removed = await removeProviderProfile(providerId)
+              removeProviderFromStore(providerId)
+              setProviders(removed.providers)
+              setSettings(removed.settings)
+            }}
             onRescan={async () => { const profiles = await discoverCliProviders(); setProviders(profiles); return profiles }}
           />
         )}
@@ -850,41 +859,80 @@ function ProvidersPanel(props: {
   selectedId: string
   onSelect: (id: string) => void
   onSave: (profile: ProviderProfile) => Promise<ProviderProfile>
+  onRemove: (id: string) => Promise<void>
   onRescan: () => Promise<ProviderProfile[]>
 }) {
   const [scanning, setScanning] = useState(false)
   const [testingId, setTestingId] = useState('')
   const [message, setMessage] = useState('')
+  const [error, setError] = useState('')
   const [editing, setEditing] = useState<ProviderProfile | null>(null)
+  const [query, setQuery] = useState('')
+  const [category, setCategory] = useState<'all' | 'agent' | 'cloud' | 'local' | 'custom'>('all')
+  const categories: Array<{ id: typeof category; label: string }> = [
+    { id: 'all', label: '全部' },
+    { id: 'agent', label: '本机智能体' },
+    { id: 'cloud', label: '云 API' },
+    { id: 'local', label: '本地模型' },
+    { id: 'custom', label: '自定义' },
+  ]
+  const visible = props.providers.filter((provider) => {
+    const matchesCategory = category === 'all' || (provider.category ?? (provider.kind.endsWith('cli') ? 'agent' : 'cloud')) === category
+    const haystack = `${provider.name} ${provider.model} ${provider.baseUrl ?? ''} ${provider.kind}`.toLowerCase()
+    return matchesCategory && haystack.includes(query.trim().toLowerCase())
+  })
+
+  function createCustomProvider() {
+    setEditing({
+      id: `custom-${crypto.randomUUID()}`,
+      name: '自定义 API',
+      kind: 'compatible',
+      model: '',
+      baseUrl: 'https://HOST/v1',
+      category: 'custom',
+      builtIn: false,
+      apiKeyRequired: true,
+      ready: false,
+      secretConfigured: false,
+      capabilities: { vision: true, pdf: true, files: true, video: true, audioTranscription: false, streaming: false },
+    })
+  }
+
   return (
     <section className="settings-surface">
-      <header className="section-heading"><div><h1>模型与本机智能体</h1><p>自动发现本机安装的 Codex、Claude Code、OpenCode 和 Grok，也可配置直接 API。</p></div><button type="button" className="secondary-button" disabled={scanning} onClick={async () => { setScanning(true); await props.onRescan(); setScanning(false); setMessage('扫描完成') }}><ArrowCounterClockwise className={scanning ? 'spin' : ''} size={17} />{scanning ? '正在扫描' : '重新扫描'}</button></header>
+      <header className="section-heading"><div><h1>模型与本机智能体</h1><p>选择本机 CLI、云 API、Ollama / LM Studio，或添加任意 OpenAI 兼容端点。</p></div><div className="section-heading-actions"><button type="button" className="secondary-button" onClick={createCustomProvider}><Plus size={17} />添加提供商</button><button type="button" className="secondary-button" disabled={scanning} onClick={async () => { setScanning(true); setError(''); try { await props.onRescan(); setMessage('本机智能体扫描完成') } catch (cause) { setMessage(''); setError(String(cause)) } finally { setScanning(false) } }}><ArrowCounterClockwise className={scanning ? 'spin' : ''} size={17} />{scanning ? '正在扫描' : '重新扫描'}</button></div></header>
       {message && <div className="inline-note"><Check size={16} />{message}</div>}
+      {error && <div className="provider-error" role="alert"><WarningCircle size={16} /><span>{error}</span><button type="button" className="icon-button" onClick={() => setError('')} aria-label="关闭错误"><X size={14} /></button></div>}
+      <div className="provider-toolbar">
+        <label className="provider-search"><MagnifyingGlass size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索提供商、模型或 API 地址" aria-label="搜索提供商" /></label>
+        <div className="provider-filters" role="tablist" aria-label="提供商类型">{categories.map((item) => <button type="button" role="tab" aria-selected={category === item.id} className={category === item.id ? 'active' : ''} key={item.id} onClick={() => setCategory(item.id)}>{item.label}<small>{item.id === 'all' ? props.providers.length : props.providers.filter((provider) => (provider.category ?? (provider.kind.endsWith('cli') ? 'agent' : 'cloud')) === item.id).length}</small></button>)}</div>
+      </div>
       <div className="provider-list">
-        {props.providers.map((provider) => (
+        {visible.map((provider) => (
           <div className={provider.id === props.selectedId ? 'provider-row selected' : 'provider-row'} key={provider.id}>
             <button type="button" className="provider-main" onClick={() => props.onSelect(provider.id)}>
-              <span className={provider.ready ? 'provider-icon ready' : 'provider-icon'}>{provider.kind.endsWith('cli') ? <TerminalWindow size={20} /> : <Sparkle size={20} />}</span>
+              <span className={provider.ready ? 'provider-icon ready' : 'provider-icon'}>{provider.kind.endsWith('cli') ? <TerminalWindow size={20} /> : provider.category === 'local' ? <PlugsConnected size={20} /> : <Sparkle size={20} />}</span>
               <span><strong>{provider.name}</strong><small>{provider.cli?.executablePath || provider.baseUrl || provider.kind}</small></span>
               <span className="provider-model-name">{provider.model}</span>
-              <span className={provider.ready ? 'availability ready' : 'availability'}>{provider.ready ? '可用' : provider.kind.endsWith('cli') ? '未发现' : '未配置'}</span>
+              <span className={provider.ready ? 'availability ready' : 'availability'}>{provider.kind.endsWith('cli') ? (provider.ready ? '已发现' : '未发现') : provider.ready ? '已配置' : '未配置'}</span>
             </button>
             <div className="provider-actions">
               {provider.id === props.selectedId && <span className="default-mark"><Check size={13} />默认</span>}
-              <button type="button" onClick={async () => { setTestingId(provider.id); try { setMessage(await testProvider(provider)) } catch (cause) { setMessage(String(cause)) } finally { setTestingId('') } }}>{testingId === provider.id ? '测试中' : '测试'}</button>
+              <button type="button" onClick={async () => { setTestingId(provider.id); setError(''); try { setMessage(await testProvider(provider)) } catch (cause) { setMessage(''); setError(String(cause)) } finally { setTestingId('') } }}>{testingId === provider.id ? '测试中' : '测试'}</button>
               <button type="button" onClick={() => setEditing(provider)}>配置</button>
             </div>
           </div>
         ))}
+        {!visible.length && <div className="provider-empty"><MagnifyingGlass size={21} /><strong>没有匹配的提供商</strong><p>调整搜索或类型筛选，也可添加自定义兼容端点。</p></div>}
       </div>
-      <div className="runtime-note"><strong>推荐底座</strong><p>Codex 使用 App Server 承载线程、回合、流式事件和追问；OpenCode 使用 Server / SDK；其他智能体通过 ACP 或受限 CLI 适配。界面不复制任何一个终端，只复用它们的会话运行时。</p></div>
-      {editing && <ProviderEditor profile={editing} onClose={() => setEditing(null)} onSave={async (profile, secret) => { if (secret) await setProviderSecret(profile.id, secret); await props.onSave({ ...profile, ready: profile.kind.endsWith('cli') ? profile.ready : Boolean(secret) || profile.secretConfigured, secretConfigured: Boolean(secret) || profile.secretConfigured }); setEditing(null); setMessage('配置已保存') }} />}
+      <div className="runtime-note"><strong>运行边界</strong><p>本机 CLI 在只读沙盒中运行；直接 API 只发送已确认的问题、文字与有上限的图像证据。API Key 由 Electron safeStorage 加密，不写入会话记录。</p></div>
+      {editing && <ProviderEditor profile={editing} onClose={() => setEditing(null)} onRemove={editing.builtIn === false ? async () => { if (!window.confirm(`删除 ${editing.name} 及其已保存的 API Key？`)) return; await props.onRemove(editing.id); setEditing(null); setMessage('自定义提供商已删除') } : undefined} onClearSecret={async (profile) => { await setProviderSecret(profile.id, ''); return props.onSave({ ...profile, secretConfigured: false, ready: profile.apiKeyRequired === false }) }} onSave={async (profile, secret) => { let saved = await props.onSave(profile); if (secret) { await setProviderSecret(saved.id, secret); saved = await props.onSave({ ...saved, secretConfigured: true, ready: true }) } setEditing(null); setMessage(`${saved.name} 配置已保存`) }} />}
     </section>
   )
 }
 
 function ExtensionsPanel() {
-  const [kind, setKind] = useState<ExtensionKind>('plugin')
+  const [kind, setKind] = useState<ExtensionKind>('skill')
   const [packages, setPackages] = useState<ExtensionPackage[]>([])
   const [source, setSource] = useState('')
   const [busy, setBusy] = useState('')
@@ -940,6 +988,20 @@ function ExtensionsPanel() {
     }
   }
 
+  async function installRecommended(source: string, defaultEnabled: boolean, name: string) {
+    setBusy(source)
+    setError('')
+    try {
+      const installed = await installExtensionSource('skill', source, defaultEnabled)
+      setMessage(`${name} 已安装${installed.enabled ? '并启用' : '；因包含脚本型流程，已安全地保持关闭'}`)
+      await refresh()
+    } catch (cause) {
+      setError(String(cause))
+    } finally {
+      setBusy('')
+    }
+  }
+
   return (
     <section className="settings-surface extension-surface">
       <header className="section-heading extension-heading">
@@ -959,9 +1021,22 @@ function ExtensionsPanel() {
         <button type="button" className="quiet-action" disabled={!electronAvailable || Boolean(busy)} onClick={() => { setMessage(''); void refresh().catch((cause) => setError(String(cause))) }}><ArrowCounterClockwise size={15} />重新扫描</button>
       </div>
 
+      {kind === 'skill' && <section className="skill-catalog" aria-labelledby="skill-catalog-title">
+        <header><div><h2 id="skill-catalog-title">GitHub 审查目录</h2><p>仅列出来源可核对、许可明确且与 PDF / 音视频相关的 Skill。</p></div><small>Agent Skills 标准</small></header>
+        <div className="skill-catalog-list">{recommendedSkills.map((item) => {
+          const installed = packages.some((entry) => entry.kind === 'skill' && entry.id === item.id)
+          return <article key={item.id}>
+            <div className="skill-catalog-mark"><PuzzlePiece size={18} /></div>
+            <div><strong>{item.name}</strong><p>{item.description}</p><span><code>{item.repository}</code><code>{item.license}</code><code>{item.fit === 'reference' ? '参考型' : '原生兼容'}</code></span></div>
+            <button type="button" className="secondary-button" disabled={!electronAvailable || Boolean(busy) || installed} onClick={() => void installRecommended(item.source, item.defaultEnabled, item.name)}>{installed ? <><Check size={15} />已安装</> : busy === item.source ? '正在审查安装' : <><DownloadSimple size={15} />安装</>}</button>
+          </article>
+        })}</div>
+        <footer>OpenAI 当前的 <code>openai/plugins</code> 以 MCP、连接器和可执行智能体为主；LensQuery 现阶段不将这些外部权限伪装成可用的“提示词插件”。</footer>
+      </section>}
+
       <form className="extension-source" onSubmit={(event) => { event.preventDefault(); void installSource() }}>
         <DownloadSimple size={17} />
-        <input value={source} onChange={(event) => setSource(event.target.value)} disabled={!electronAvailable || Boolean(busy)} placeholder="GitHub / Git 地址，或本地目录路径" aria-label="扩展安装来源" />
+        <input value={source} onChange={(event) => setSource(event.target.value)} disabled={!electronAvailable || Boolean(busy)} placeholder="GitHub 仓库子目录、Git 地址，或本地目录" aria-label="扩展安装来源" />
         <button type="submit" className="primary-button" disabled={!electronAvailable || !source.trim() || Boolean(busy)}>{busy === 'source' ? '校验中' : '安装'}</button>
       </form>
 
@@ -989,16 +1064,21 @@ function ExtensionsPanel() {
   )
 }
 
-function ProviderEditor(props: { profile: ProviderProfile; onClose: () => void; onSave: (profile: ProviderProfile, secret: string) => Promise<void> }) {
+function ProviderEditor(props: { profile: ProviderProfile; onClose: () => void; onSave: (profile: ProviderProfile, secret: string) => Promise<void>; onClearSecret: (profile: ProviderProfile) => Promise<ProviderProfile>; onRemove?: () => Promise<void> }) {
   const [profile, setProfile] = useState(props.profile)
   const [secret, setSecret] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const direct = !profile.kind.endsWith('cli')
   return (
     <div className="editor-drawer">
-      <header><div><h2>{profile.name}</h2><p>配置模型和连接信息</p></div><button type="button" className="icon-button" onClick={props.onClose}><X size={18} /></button></header>
+      <header><div><h2>{props.profile.builtIn === false ? '自定义提供商' : profile.name}</h2><p>配置协议、模型和连接信息</p></div><button type="button" className="icon-button" onClick={props.onClose} aria-label="关闭配置"><X size={18} /></button></header>
+      {props.profile.builtIn === false && <label>协议<select value={profile.kind} onChange={(event) => setProfile({ ...profile, kind: event.target.value as ProviderProfile['kind'] })}><option value="compatible">OpenAI 兼容</option><option value="openai">OpenAI</option><option value="anthropic">Anthropic Messages</option></select><small>大多数中转、云平台和本地模型选“OpenAI 兼容”。</small></label>}
       <label>显示名称<input value={profile.name} onChange={(event) => setProfile({ ...profile, name: event.target.value })} /></label>
       <label>模型 ID<input value={profile.model} onChange={(event) => setProfile({ ...profile, model: event.target.value })} /></label>
-      {!profile.kind.endsWith('cli') && <><label>API 地址<input value={profile.baseUrl ?? ''} onChange={(event) => setProfile({ ...profile, baseUrl: event.target.value })} /></label><label>API Key<input type="password" value={secret} placeholder={profile.secretConfigured ? '已保存在系统凭据库' : '输入 API Key'} onChange={(event) => setSecret(event.target.value)} /></label></>}
-      <div className="drawer-actions"><button type="button" className="secondary-button" onClick={props.onClose}>取消</button><button type="button" className="primary-button" onClick={() => void props.onSave(profile, secret)}>保存</button></div>
+      {direct && <><label>API 根地址<input value={profile.baseUrl ?? ''} onChange={(event) => setProfile({ ...profile, baseUrl: event.target.value })} placeholder="https://HOST/v1" /><small>LensQuery 会自动追加 /chat/completions 或 /v1/messages。</small></label>{props.profile.builtIn === false && <label className="drawer-check"><input type="checkbox" checked={profile.apiKeyRequired !== false} onChange={(event) => setProfile({ ...profile, apiKeyRequired: event.target.checked, category: event.target.checked ? 'custom' : 'local' })} /><span><strong>需要 API Key</strong><small>Ollama、LM Studio 等本机端点可取消勾选。</small></span></label>}{profile.apiKeyRequired !== false && <label>API Key<input type="password" autoComplete="off" value={secret} placeholder={profile.secretConfigured ? '已加密保存；留空表示保留' : '输入 API Key'} onChange={(event) => setSecret(event.target.value)} /><small>密钥只交给 Electron 主进程的系统安全存储。</small>{profile.secretConfigured && <button type="button" className="clear-secret" disabled={busy} onClick={async () => { setBusy(true); setError(''); try { const saved = await props.onClearSecret(profile); setProfile(saved); setSecret('') } catch (cause) { setError(String(cause)) } finally { setBusy(false) } }}>清除已保存的 Key</button>}</label>}</>}
+      {error && <div className="drawer-error"><WarningCircle size={16} />{error}</div>}
+      <div className="drawer-actions">{props.onRemove && <button type="button" className="secondary-button danger-button" disabled={busy} onClick={async () => { setBusy(true); setError(''); try { await props.onRemove?.() } catch (cause) { setError(String(cause)); setBusy(false) } }}><Trash size={16} />删除</button>}<span /><button type="button" className="secondary-button" disabled={busy} onClick={props.onClose}>取消</button><button type="button" className="primary-button" disabled={busy || !profile.name.trim() || !profile.model.trim() || (direct && !profile.baseUrl?.trim())} onClick={async () => { setBusy(true); setError(''); try { await props.onSave(profile, secret) } catch (cause) { setError(String(cause)); setBusy(false) } }}>{busy ? '正在保存' : '保存'}</button></div>
     </div>
   )
 }

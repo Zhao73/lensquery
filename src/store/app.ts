@@ -40,6 +40,7 @@ interface AppStore {
   setProviders: (providers: ProviderProfile[]) => void
   setSettings: (settings: AppSettings) => void
   upsertProvider: (profile: ProviderProfile) => void
+  removeProvider: (id: string) => void
   addFiles: (files: FileEvidence[]) => void
   addCapture: (capture: CaptureEvidence) => void
   removeCapture: (id: string) => void
@@ -79,6 +80,7 @@ export const useAppStore = create<AppStore>((set) => ({
         ? state.providers.map((item) => (item.id === profile.id ? profile : item))
         : [...state.providers, profile],
     })),
+  removeProvider: (id) => set((state) => ({ providers: state.providers.filter((profile) => profile.id !== id) })),
   addFiles: (files) => set((state) => ({ files: [...state.files, ...files] })),
   addCapture: (capture) => set((state) => ({ captures: [...state.captures, capture] })),
   removeCapture: (id) => set((state) => ({ captures: state.captures.filter((capture) => capture.id !== id) })),

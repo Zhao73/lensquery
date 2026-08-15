@@ -39,16 +39,20 @@ export function createExtensionManager(userDataPath, options = {}) {
       .sort((left, right) => left.kind.localeCompare(right.kind) || left.name.localeCompare(right.name))
   }
 
-  async function install({ kind, source }) {
+  async function install({ kind, source, enabled = true }) {
     if (kind !== 'plugin' && kind !== 'skill') throw new Error('只支持安装 plugin 或 skill。')
     if (!source || typeof source !== 'string') throw new Error('安装来源为空。')
     await ensureRoots()
     const temporaryRoot = path.join(userDataPath, 'install-staging', randomUUID())
     await fs.mkdir(temporaryRoot, { recursive: true })
     try {
-      const unpackedSource = isGitSource(source)
-        ? await cloneRepository(source, path.join(temporaryRoot, 'repository'))
-        : path.resolve(source)
+      const parsedSource = parseExtensionSource(source)
+      const clonedRoot = parsedSource.kind === 'git'
+        ? await cloneRepository(parsedSource.repositoryUrl, path.join(temporaryRoot, 'repository'), parsedSource.ref)
+        : null
+      const unpackedSource = parsedSource.kind === 'git'
+        ? resolveRepositorySubdirectory(clonedRoot, parsedSource.subdirectory)
+        : path.resolve(parsedSource.localPath)
       const packageRoot = await findPackageRoot(unpackedSource, kind)
       const metadata = await inspectPackage(packageRoot, kind, 'installed', true)
       if (!metadata) throw new Error(kind === 'skill' ? '所选目录中没有 SKILL.md。' : '所选目录中没有 lensquery.plugin.json。')
@@ -68,8 +72,8 @@ export function createExtensionManager(userDataPath, options = {}) {
       if (destinationExists) await fs.rm(backup, { recursive: true, force: true })
       const installed = await inspectPackage(destination, kind, kind === 'plugin' ? 'lensquery' : 'codex', true)
       if (!installed) throw new Error('安装后的扩展包校验失败。')
-      await updateEnabled(installed.key, true)
-      return { ...installed, enabled: true }
+      await updateEnabled(installed.key, Boolean(enabled))
+      return { ...installed, enabled: Boolean(enabled) }
     } finally {
       await fs.rm(temporaryRoot, { recursive: true, force: true })
     }
@@ -136,6 +140,8 @@ async function inspectPackage(directory, kind, origin, managed) {
     const content = await fs.readFile(instructionPath, 'utf8')
     const frontmatter = parseFrontmatter(content)
     const id = safeId(frontmatter.name || path.basename(directory))
+    const hasScripts = await exists(path.join(directory, 'scripts'))
+    const hasReferences = await exists(path.join(directory, 'references'))
     return {
       key: extensionKey(kind, origin, id, directory),
       id,
@@ -148,8 +154,8 @@ async function inspectPackage(directory, kind, origin, managed) {
       managed,
       installPath: directory,
       instructionPath,
-      permissions: ['prompt-context'],
-      compatibility: ['LensQuery', 'Codex CLI'],
+      permissions: ['prompt-context', ...(hasScripts ? ['bundled-scripts-disabled'] : [])],
+      compatibility: ['LensQuery', 'Codex CLI', ...(hasReferences ? ['progressive-disclosure'] : [])],
     }
   }
 
@@ -220,9 +226,12 @@ async function secureCopyDirectory(source, destination) {
   await copyDirectory(source, destination)
 }
 
-async function cloneRepository(url, destination) {
+async function cloneRepository(url, destination, ref) {
   await new Promise((resolve, reject) => {
-    const child = spawn('git', ['clone', '--depth', '1', '--filter=blob:none', '--', url, destination], {
+    const args = ['clone', '--depth', '1', '--filter=blob:none']
+    if (ref) args.push('--branch', ref)
+    args.push('--', url, destination)
+    const child = spawn('git', args, {
       stdio: ['ignore', 'ignore', 'pipe'],
       timeout: 60_000,
     })
@@ -234,16 +243,79 @@ async function cloneRepository(url, destination) {
   return destination
 }
 
+export function parseExtensionSource(value) {
+  const source = String(value || '').trim()
+  if (!source) throw new Error('安装来源为空。')
+  let url
+  try { url = new URL(source) } catch { url = null }
+  if (url?.hostname === 'github.com') {
+    const parts = url.pathname.split('/').filter(Boolean)
+    if (parts.length >= 2) {
+      const owner = parts[0]
+      const repository = parts[1].replace(/\.git$/i, '')
+      if (parts[2] === 'tree' && parts[3]) {
+        return {
+          kind: 'git',
+          repositoryUrl: `https://github.com/${owner}/${repository}.git`,
+          ref: decodeURIComponent(parts[3]),
+          subdirectory: safeRelativePath(parts.slice(4).map(decodeURIComponent).join('/')),
+        }
+      }
+      if (parts.length === 2) {
+        return {
+          kind: 'git',
+          repositoryUrl: `https://github.com/${owner}/${repository}.git`,
+          subdirectory: safeRelativePath(decodeURIComponent(url.hash.replace(/^#/, ''))),
+        }
+      }
+    }
+  }
+  if (isGitSource(source)) {
+    const hashIndex = source.indexOf('#')
+    const repositoryUrl = hashIndex >= 0 ? source.slice(0, hashIndex) : source
+    const subdirectory = hashIndex >= 0 ? source.slice(hashIndex + 1) : ''
+    return { kind: 'git', repositoryUrl, subdirectory: safeRelativePath(decodeURIComponent(subdirectory)) }
+  }
+  return { kind: 'local', localPath: source }
+}
+
+function resolveRepositorySubdirectory(repositoryRoot, subdirectory) {
+  if (!subdirectory) return repositoryRoot
+  const target = path.resolve(repositoryRoot, subdirectory)
+  const relative = path.relative(repositoryRoot, target)
+  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) throw new Error('Git 子目录越过了仓库边界。')
+  return target
+}
+
+function safeRelativePath(value) {
+  const normalized = String(value || '').trim().replace(/^\/+|\/+$/g, '')
+  if (!normalized) return ''
+  if (normalized.split(/[\\/]/).some((part) => !part || part === '.' || part === '..')) throw new Error('Git 子目录路径无效。')
+  return normalized
+}
+
 function parseFrontmatter(content) {
   const match = content.match(/^---\s*\n([\s\S]*?)\n---/)
   if (!match) return {}
   const result = {}
+  let foldedKey
   for (const line of match[1].split(/\r?\n/)) {
+    if (foldedKey && /^\s+\S/.test(line)) {
+      result[foldedKey] = `${result[foldedKey] || ''} ${line.trim()}`.trim()
+      continue
+    }
+    foldedKey = undefined
     const separator = line.indexOf(':')
     if (separator <= 0) continue
     const key = line.slice(0, separator).trim()
     const value = line.slice(separator + 1).trim().replace(/^['"]|['"]$/g, '')
-    if (['name', 'description', 'version', 'author'].includes(key)) result[key] = value
+    if (!['name', 'description', 'version', 'author'].includes(key)) continue
+    if (value === '>' || value === '|') {
+      result[key] = ''
+      foldedKey = key
+    } else {
+      result[key] = value
+    }
   }
   return result
 }

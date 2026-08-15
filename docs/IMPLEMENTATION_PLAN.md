@@ -51,8 +51,17 @@ Remaining: replace transcript replay with native thread IDs when Codex App Serve
 - Enable/disable, rescan, open-location, recoverable Trash removal, package metadata, and compatibility/permission display.
 - Secure copy boundaries: no symbolic links, dependency/VCS skips, 800-file / 32-MB package limit.
 - Enabled Markdown instruction injection bounded per item and per request; no arbitrary extension code execution.
+- GitHub monorepo subdirectory installation plus a reviewed catalog that records source/license and leaves script-bearing workflows disabled.
 
 Remaining: signed catalog metadata, dependency/version resolution, per-session capability selection, and audited executable extension APIs if later required.
+
+### M4.5 — Direct provider catalog: implemented Electron baseline
+
+- Searchable categories for local agents, cloud APIs, local models, and custom endpoints.
+- Built-in profiles for OpenAI, Anthropic, Gemini, xAI, DeepSeek, OpenRouter, Groq Cloud, Mistral, Together, Fireworks, SiliconFlow, Ollama, and LM Studio.
+- Working Anthropic Messages and OpenAI-compatible Chat Completions transports with real connection tests, safeStorage secrets, HTTPS enforcement for remote hosts, bounded text/images, and removable custom profiles.
+
+Remaining: OpenAI Responses/file-upload/audio endpoints, streaming and cancellation, provider-specific capability probes, and opt-in live integration fixtures.
 
 ### M5 — Agent runtime adapters: next
 
@@ -109,4 +118,4 @@ Remaining: OCR/page rendering for scanned PDFs, audio transcription routing, Exp
 
 ## Honest current boundary
 
-The repository now has the Electron client shell, Rust native sidecar, declarative plugin/Skill manager, native capture baseline, browser host code, file extraction, background upper-right results, and local system speech. Source/build success is separate from packaged runtime permission parity: the stable Tauri app remains installed independently until Electron capture, accessibility, notification, and shortcut behavior are proven on physical macOS and Windows. The project does not yet claim production-ready Windows packaging, installed browser Native Messaging manifests, exact macOS arbitrary-app text ranges, OCR, direct API transport, or a completed Codex App Server/OpenCode session adapter. Codex Realtime audio is represented as an explicitly disabled experimental route until streaming playback is implemented.
+The repository now has the Electron client shell, Rust native sidecar, declarative plugin/Skill manager, direct API transports, native capture baseline, browser host code, file extraction, background upper-right results, and local system speech. Source/build success is separate from packaged runtime permission parity: the stable Tauri app remains installed independently until Electron capture, accessibility, notification, and shortcut behavior are proven on physical macOS and Windows. The project does not yet claim production-ready Windows packaging, installed browser Native Messaging manifests, exact macOS arbitrary-app text ranges, OCR, provider-specific file/audio uploads, or a completed Codex App Server/OpenCode session adapter. Codex Realtime audio is represented as an explicitly disabled experimental route until streaming playback is implemented.

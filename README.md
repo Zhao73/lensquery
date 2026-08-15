@@ -4,7 +4,7 @@ Press one shortcut, point at anything on screen, and ask an AI agent about it.
 
 LensQuery is an open-source resident utility for Windows and macOS. Press a global shortcut, click once to highlight an interface element/file and again to confirm it, or hold-drag a region; LensQuery then starts analysis in the background through Codex, Claude Code, OpenCode, Grok, or a configured API. Its normal window is a quiet local conversation timeline for evidence, previous queries, and follow-ups.
 
-> Current status: the repository now has an Electron workbench modeled on quiet coding-agent clients, while the existing Rust implementation runs as a bounded native sidecar for capture, accessibility, PDF/text/video preparation, CLI discovery, and model calls. The Electron process owns the window, tray, shortcut, notifications, encrypted settings, and plugin/Skill manager. The previously installed Tauri application remains a side-by-side fallback until packaged Electron capture permissions pass the full physical macOS/Windows matrix. Physical Windows mixed-DPI testing, richer arbitrary-app macOS text ranges, automatic browser-host packaging, Codex App Server/OpenCode session adapters, Realtime audio playback, OCR, and direct API transport remain implementation gates.
+> Current status: the repository now has an Electron workbench modeled on quiet coding-agent clients, while the existing Rust implementation runs as a bounded native sidecar for capture, accessibility, PDF/text/video preparation, CLI discovery, and local-agent calls. Electron owns the window, tray, shortcut, notifications, encrypted settings, direct API transports, and plugin/Skill manager. The previously installed Tauri application remains a side-by-side fallback until packaged Electron capture permissions pass the full physical macOS/Windows matrix. Physical Windows mixed-DPI testing, richer arbitrary-app macOS text ranges, automatic browser-host packaging, Codex App Server/OpenCode session adapters, Realtime audio playback, and OCR remain implementation gates.
 
 ## Intended workflow
 
@@ -117,7 +117,9 @@ Open **Extensions** in the Electron sidebar. Install a local folder or a Git rep
 
 - A LensQuery plugin contains `lensquery.plugin.json` plus a Markdown instruction entry such as `PLUGIN.md`.
 - A compatible Skill contains `SKILL.md`; managed Skills are installed in `~/.codex/skills`, and existing `~/.agents/skills` packages are discovered read-only.
-- Enabled Markdown instructions are added to the bounded analysis context. LensQuery does not execute plugin JavaScript, shell scripts, or self-declared permissions.
+- The reviewed GitHub catalog currently exposes the Apache-2.0 PDF and transcription workflows from `openai/skills`; script-bearing workflows install disabled and require an explicit user opt-in.
+- GitHub `/tree/<ref>/<subdirectory>` URLs and `repository.git#subdirectory` sources install a single package from a monorepo without copying unrelated packages.
+- Enabled Markdown instructions are added to the bounded analysis context. LensQuery does not execute plugin JavaScript, shell scripts, or self-declared permissions; current MCP/connector-heavy packages from `openai/plugins` are therefore not presented as working prompt-only extensions.
 - Install validation rejects symbolic links and limits each package to 800 files / 32 MB. Prompt additions are separately bounded to 40,000 characters total.
 
 See [the extension format and security model](docs/EXTENSIONS.md) and [`examples/extensions`](examples/extensions).
@@ -149,7 +151,8 @@ Source checks and builds are separate from Windows runtime verification. Capture
 
 ## Provider safety
 
-- Direct API requests are intentionally gated until the outbound preview and provider transports are wired end to end; credentials already use the operating-system vault.
+- Electron supports OpenAI Chat Completions, Anthropic Messages, and OpenAI-compatible endpoints. Built-in profiles cover OpenAI, Anthropic, Gemini, xAI, DeepSeek, OpenRouter, Groq Cloud, Mistral, Together, Fireworks, SiliconFlow, Ollama, and LM Studio; users can add/remove arbitrary compatible profiles.
+- Direct transports send the bounded question, extracted text, browser context, and at most eight individually bounded images after the existing confirmation path. Remote plaintext HTTP endpoints and URLs containing embedded credentials are rejected; HTTP is limited to loopback local-model servers.
 - The UI never stores a raw API key in JSON or browser local storage.
 - Codex, Claude Code, OpenCode, and Grok adapters use non-interactive, bounded invocations and do not grant command/file-write tools for ordinary analysis.
 - Screenshot retention is off by default in the product contract.

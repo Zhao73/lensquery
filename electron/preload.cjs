@@ -17,6 +17,7 @@ const invokeChannels = new Set([
   'stopSpeaking',
   'saveSettings',
   'saveProvider',
+  'removeProvider',
   'setProviderSecret',
   'testProvider',
   'analyze',

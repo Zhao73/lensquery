@@ -125,6 +125,9 @@ export interface ProviderProfile {
   kind: ProviderKind
   model: string
   baseUrl?: string
+  category?: 'agent' | 'cloud' | 'local' | 'custom'
+  builtIn?: boolean
+  apiKeyRequired?: boolean
   ready: boolean
   secretConfigured: boolean
   capabilities?: {
@@ -142,6 +145,11 @@ export interface ProviderProfile {
     status: 'missing' | 'ready' | 'version-timeout'
     autoDetected: boolean
   }
+}
+
+export interface ProviderRemovalResult {
+  providers: ProviderProfile[]
+  settings: AppSettings
 }
 
 export interface AnalysisRequest {

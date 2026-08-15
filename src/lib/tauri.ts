@@ -7,6 +7,7 @@ import type {
   CaptureMode,
   CaptureResponse,
   ProviderProfile,
+  ProviderRemovalResult,
   FileEvidence,
   VideoMetadata,
   VideoPreparation,
@@ -394,6 +395,14 @@ export async function saveProvider(profile: ProviderProfile): Promise<ProviderPr
   }
   localStorage.setItem('lensquery.providers', JSON.stringify(mergeProviders(readBrowserProviders(), [profile])))
   return profile
+}
+
+export async function removeProvider(providerId: string): Promise<ProviderRemovalResult> {
+  if (isElectronRuntime()) return invokeElectron<ProviderRemovalResult>('removeProvider', { providerId })
+  if (isTauriRuntime()) throw new Error('Tauri 回滚版不支持删除自定义提供商。')
+  const providers = readBrowserProviders().filter((profile) => profile.id !== providerId)
+  localStorage.setItem('lensquery.providers', JSON.stringify(providers))
+  return { providers: mergeProviders(demoProviders, providers), settings: { ...defaultSettings, ...readBrowserSettings() } }
 }
 
 export async function setProviderSecret(providerId: string, secret: string): Promise<boolean> {

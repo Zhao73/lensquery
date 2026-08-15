@@ -20,9 +20,10 @@
 ## 0.3 Model connections
 
 - [x] Credential vault
-- [ ] OpenAI Responses
-- [ ] Anthropic Messages
-- [ ] OpenAI-compatible endpoints
+- [x] OpenAI-compatible Chat Completions transport
+- [x] Anthropic Messages transport
+- [x] Searchable built-in provider catalog, local model endpoints, and removable custom profiles
+- [ ] OpenAI Responses transport and provider-specific file/audio endpoints
 - [x] Bounded Codex CLI, Claude Code, OpenCode, and Grok compatibility adapters
 - [ ] App Server/SDK streaming, cancel, native session retry, and normalized errors
 
@@ -51,6 +52,6 @@
 - Browser Native Messaging installer manifests and optional DevTools/CDP source inspection
 - macOS Accessibility permission UX and richer character-range geometry
 - Codex App Server threads; Realtime Voice only after an eligible realtime thread route is available
-- Offline OCR and local-model adapters
+- Offline OCR and richer local-model capability probing
 - Scene-change-aware video sampling and bundled verified FFmpeg sidecar
 - Organization-managed policies
