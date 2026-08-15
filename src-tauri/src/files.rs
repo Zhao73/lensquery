@@ -134,9 +134,10 @@ fn directory_listing(root: &Path) -> Result<(String, bool), String> {
             }
             Err(error) => {
                 let relative = directory.strip_prefix(root).unwrap_or(&directory);
+                let relative_display = relative.to_string_lossy().replace('\\', "/");
                 lines.push(format!(
                     "- [unreadable folder] {} ({error})",
-                    relative.display()
+                    relative_display
                 ));
                 continue;
             }
@@ -150,9 +151,10 @@ fn directory_listing(root: &Path) -> Result<(String, bool), String> {
             }
             let entry_path = entry.path();
             let relative = entry_path.strip_prefix(root).unwrap_or(&entry_path);
+            let relative_display = relative.to_string_lossy().replace('\\', "/");
             let metadata = entry.metadata().ok();
             if metadata.as_ref().is_some_and(fs::Metadata::is_dir) {
-                lines.push(format!("- [folder] {}", relative.display()));
+                lines.push(format!("- [folder] {relative_display}"));
                 if depth < MAX_DIRECTORY_DEPTH
                     && !entry.file_type().is_ok_and(|kind| kind.is_symlink())
                 {
@@ -160,7 +162,7 @@ fn directory_listing(root: &Path) -> Result<(String, bool), String> {
                 }
             } else {
                 let size = metadata.as_ref().map(fs::Metadata::len).unwrap_or_default();
-                lines.push(format!("- [file] {} ({size} bytes)", relative.display()));
+                lines.push(format!("- [file] {relative_display} ({size} bytes)"));
             }
             count += 1;
         }
