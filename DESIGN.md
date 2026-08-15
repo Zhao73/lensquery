@@ -33,6 +33,7 @@ Canonical tokens live in `src/index.css`.
 - Sidebar: wordmark, new conversation, direct recognition action, search, recent local sessions, and bottom navigation for conversations, models, extensions, and settings.
 - Top bar: 52px with the current surface name, resident status, current provider, and a direct recognition action.
 - Conversation: source/title bar, centered message stream, persistent follow-up dock.
+- Video sessions place an expanded local/web player at the top of the message stream, before evidence and the report, so playback is immediately available without displacing the conversation context.
 - New-conversation state uses one centered, spacious composer with optional instruction, intent, output contract, attachment, and send controls. It is not a homepage or upload landing page.
 - Settings use ruled groups rather than decorative cards.
 - Extensions use two quiet tabs (Plugins and Skills), a compact reviewed-source block, one install source row, a list with enable/audit/remove actions, and an explicit capability boundary. It is not an app-store gallery; the reviewed block is evidence-first rather than promotional.
@@ -48,6 +49,8 @@ Canonical tokens live in `src/index.css`.
 - Assistant prose uses semantic Markdown: restrained heading steps, real ordered lists, readable tables, dark code blocks, quotes, and links. User prose stays plain.
 - Evidence details use quiet ruled rows for C2PA trust, AI source type, watermark declaration, EXIF fields, subtitle coverage, and detector boundaries. Direct evidence is never visually merged with model inference.
 - Brand mark: a lens/speech ring with three annotation strokes and one cobalt focus point. The colored mark is used for the app and extension; the menu-bar/tray template uses the same geometry without a background tile.
+- Session video player: retain native media controls in the 16:9 stage. Its titled header stays sticky inside the player, with discoverable named system-player and collapse/expand controls; collapsing pauses local playback and expanding returns the player to view. A local source also offers the system player as the fallback when embedded playback fails.
+- Video keyframes are uniformly sampled, timestamped jump targets. Keep them in a horizontally scrolling strip for narrow windows; each named target seeks (and resumes where supported), while a clear playback-error message keeps the recovery action available.
 
 ## Capture overlay
 

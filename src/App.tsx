@@ -33,6 +33,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import './App.css'
+import { SessionVideoPlayer } from './components/SessionVideoPlayer'
 import { evidenceAccept, formatBytes, formatDuration, normalizeBrowserFiles } from './lib/files'
 import {
   analyze,
@@ -756,16 +757,24 @@ function ConversationView(props: {
   onDelete: () => void
   onRetry: () => void
 }) {
+  const streamRef = useRef<HTMLDivElement>(null)
   const tailRef = useRef<HTMLDivElement>(null)
   const latestMessageRef = useRef<HTMLElement>(null)
+  const displayedSessionRef = useRef<string | null>(null)
   const [speakingId, setSpeakingId] = useState<string | null>(null)
   const hasVideo = props.session.files.some(({ kind }) => kind === 'video') || props.session.browserContext?.media?.kind === 'video'
   const hasLongVideo = isLongVideoInput(props.session.files, props.session.browserContext)
   const latestMessage = props.session.messages.at(-1)
   useEffect(() => {
+    if (displayedSessionRef.current !== props.session.id) {
+      displayedSessionRef.current = props.session.id
+      if (latestMessage?.status === 'pending') tailRef.current?.scrollIntoView({ block: 'end' })
+      else streamRef.current?.scrollTo({ top: 0, behavior: 'auto' })
+      return
+    }
     const target = latestMessage?.status === 'pending' ? tailRef.current : latestMessageRef.current
     target?.scrollIntoView({ behavior: 'smooth', block: latestMessage?.status === 'pending' ? 'end' : 'start' })
-  }, [latestMessage?.id, latestMessage?.status])
+  }, [latestMessage?.id, latestMessage?.status, props.session.id])
   return (
     <section className="conversation-view">
       <header className="conversation-titlebar">
@@ -775,7 +784,8 @@ function ConversationView(props: {
         </div>
         <button type="button" className="icon-button" onClick={props.onDelete} aria-label="删除会话"><Trash size={18} /></button>
       </header>
-      <div className="message-stream">
+      <div className="message-stream" ref={streamRef}>
+        {hasVideo && <SessionVideoPlayer key={props.session.id} session={props.session} />}
         <EvidenceStrip session={props.session} />
         {hasVideo && <div className="media-quick-actions" aria-label="视频快速分析"><span>{hasLongVideo ? '长视频继续分析' : '继续分析视频'}</span><button type="button" onClick={() => props.onQuickAsk('快速总结这个视频：一段话概括大意，再列不超过 5 个关键点。')}>快速总结</button>{hasLongVideo && <button type="button" onClick={() => props.onQuickAsk('完整梳理这个长视频：按时间顺序覆盖所有已提供章节，列出每章主题、关键事实、数据、论点、例子和结论，最后说明证据覆盖与缺口。')}>完整内容</button>}<button type="button" onClick={() => props.onQuickAsk('列出这个视频中最有趣或最有用的片段，有时间信息时请标注时间。')}>关键片段</button><button type="button" onClick={() => props.onQuickAsk('把页面已提供的字幕或转写整理成连贯文本；没有完整转写时明确说明覆盖范围。')}>整理字幕</button><button type="button" onClick={() => props.onQuickAsk('把这个视频整理成便于学习和理解的重点、概念和行动清单。')}>学习要点</button></div>}
         {props.session.messages.map((message) => (

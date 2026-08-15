@@ -273,6 +273,34 @@ kbd {
 .thinking span { margin-left: 5px; }
 @keyframes thinking { to { transform: translateY(-3px); opacity: 0.35; } }
 
+.session-video-player { width: min(100%, 760px); margin: 0 auto 18px; overflow: clip; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-subtle); }
+.video-player-header { position: sticky; z-index: 2; top: -1px; display: flex; min-height: 48px; align-items: center; justify-content: space-between; gap: 14px; padding: 7px 8px 7px 12px; border-bottom: 1px solid var(--line); background: var(--surface-subtle); }
+.video-player-title { display: flex; min-width: 0; align-items: center; gap: 9px; }
+.video-player-title > svg { flex: 0 0 auto; color: var(--accent); }
+.video-player-title > span { display: grid; min-width: 0; gap: 2px; }
+.video-player-title strong { overflow: hidden; color: var(--text); font-size: 11px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.video-player-title small { color: var(--text-tertiary); font-size: 9px; }
+.video-player-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 3px; }
+.video-player-actions time { margin-right: 4px; color: var(--text-tertiary); font-family: "Cascadia Mono", "SFMono-Regular", Consolas, monospace; font-size: 9px; font-variant-numeric: tabular-nums; }
+.video-player-actions button { display: inline-flex; min-height: 30px; align-items: center; gap: 5px; padding: 0 7px; border: 0; border-radius: 6px; color: var(--text-secondary); background: transparent; font-size: 10px; }
+.video-player-actions button:hover { color: var(--text); background: var(--surface-hover); }
+.video-player-body { border-top: 0; }
+.video-stage { position: relative; display: grid; width: 100%; aspect-ratio: 16 / 9; place-items: center; overflow: hidden; color: #e8eaed; background: #08090a; }
+.video-stage video,
+.video-stage iframe { display: block; width: 100%; height: 100%; border: 0; background: #08090a; object-fit: contain; }
+.video-playback-error { display: grid; width: min(520px, calc(100% - 32px)); grid-template-columns: 28px minmax(0, 1fr) auto; align-items: center; gap: 10px; color: #e8eaed; }
+.video-playback-error > svg { color: #fdd663; }
+.video-playback-error > span { display: grid; gap: 3px; }
+.video-playback-error strong { font-size: 12px; }
+.video-playback-error small { color: #aeb1b7; font-size: 10px; line-height: 1.5; }
+.video-playback-error button { min-height: 30px; padding: 0 9px; border: 1px solid #555a62; border-radius: 6px; color: #e8eaed; background: #202226; font-size: 10px; }
+.video-timeline { display: flex; gap: 6px; overflow-x: auto; padding: 8px; border-top: 1px solid var(--line); background: var(--surface); scrollbar-width: thin; }
+.video-timeline button { position: relative; flex: 1 0 86px; min-width: 0; max-width: 110px; overflow: hidden; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: #08090a; }
+.video-timeline button:hover { border-color: var(--line-strong); }
+.video-timeline button.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.video-timeline img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; }
+.video-timeline time { position: absolute; right: 3px; bottom: 3px; padding: 2px 4px; border-radius: 3px; color: #fff; background: rgb(0 0 0 / 0.76); font-family: "Cascadia Mono", "SFMono-Regular", Consolas, monospace; font-size: 8px; font-variant-numeric: tabular-nums; }
+
 .evidence-strip { width: min(100%, 760px); margin: 0 auto 30px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-subtle); }
 .evidence-strip summary { display: grid; min-height: 68px; grid-template-columns: 72px minmax(0, 1fr) auto 18px; align-items: center; gap: 10px; padding: 8px 12px 8px 8px; cursor: pointer; list-style: none; font-size: 12px; }
 .evidence-strip summary::-webkit-details-marker { display: none; }
@@ -683,6 +711,15 @@ html[data-lensquery-window="result-toast"] #root {
   .evidence-source-icon { width: 58px; height: 44px; }
   .evidence-expand { display: none; }
   .evidence-frame-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .video-player-actions time { display: none; }
+  .video-timeline button { flex-basis: 94px; }
+}
+
+@media (max-width: 520px) {
+  .video-player-actions button span { display: none; }
+  .video-player-actions button { width: 30px; justify-content: center; padding: 0; }
+  .video-playback-error { grid-template-columns: 24px minmax(0, 1fr); }
+  .video-playback-error button { grid-column: 2; justify-self: start; }
 }
 
 @media (forced-colors: active) {

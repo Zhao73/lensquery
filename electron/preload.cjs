@@ -1,5 +1,15 @@
 const { contextBridge, ipcRenderer, webUtils } = require('electron')
 
+function localFileUrl(filePath) {
+  const normalized = filePath.replace(/\\/g, '/')
+  const encodeSegments = (value) => value
+    .split('/')
+    .map((segment, index) => (index === 0 && /^[A-Za-z]:$/.test(segment) ? segment : encodeURIComponent(segment)))
+    .join('/')
+  if (normalized.startsWith('//')) return `file://${encodeSegments(normalized.slice(2))}`
+  return `file://${normalized.startsWith('/') ? '' : '/'}${encodeSegments(normalized)}`
+}
+
 const invokeChannels = new Set([
   'bootstrap',
   'discoverCliProviders',
@@ -24,6 +34,7 @@ const invokeChannels = new Set([
   'probeVideo',
   'prepareVideo',
   'prepareYouTubeVideo',
+  'openLocalPath',
   'inspectFiles',
   'pickEvidenceFiles',
   'extensions:list',
@@ -59,5 +70,9 @@ contextBridge.exposeInMainWorld('lensQueryDesktop', {
   },
   getPathForFile(file) {
     return webUtils.getPathForFile(file)
+  },
+  toFileUrl(filePath) {
+    if (typeof filePath !== 'string' || !filePath.trim()) return ''
+    return localFileUrl(filePath)
   },
 })

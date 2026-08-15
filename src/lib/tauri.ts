@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core'
+import { convertFileSrc, invoke } from '@tauri-apps/api/core'
 import type {
   AnalysisRequest,
   AnalysisResult,
@@ -23,6 +23,7 @@ interface LensQueryDesktopBridge {
   invoke<T>(channel: string, payload?: Record<string, unknown>): Promise<T>
   on<T>(channel: string, handler: (payload: T) => void): () => void
   getPathForFile(file: globalThis.File): string
+  toFileUrl(filePath: string): string
 }
 
 declare global {
@@ -34,6 +35,20 @@ declare global {
 export const isElectronRuntime = () => Boolean(window.lensQueryDesktop)
 export const isTauriRuntime = () => '__TAURI_INTERNALS__' in window
 export const isDesktopRuntime = () => isTauriRuntime() || isElectronRuntime()
+
+export function localFileUrl(filePath?: string): string {
+  if (!filePath) return ''
+  if (/^(?:blob:|data:|https?:|file:)/i.test(filePath)) return filePath
+  if (isElectronRuntime()) {
+    try {
+      return window.lensQueryDesktop?.toFileUrl(filePath) ?? ''
+    } catch {
+      return ''
+    }
+  }
+  if (isTauriRuntime()) return convertFileSrc(filePath)
+  return ''
+}
 
 export async function invokeElectron<T>(channel: string, payload: Record<string, unknown> = {}): Promise<T> {
   const bridge = window.lensQueryDesktop
@@ -465,6 +480,17 @@ export async function pickEvidenceFiles(): Promise<FileEvidence[] | null> {
   })
   if (!selected) return []
   return inspectEvidencePaths(Array.isArray(selected) ? selected : [selected])
+}
+
+export async function openLocalPath(filePath: string): Promise<void> {
+  if (isElectronRuntime()) {
+    await invokeElectron('openLocalPath', { path: filePath })
+    return
+  }
+  if (isTauriRuntime()) {
+    const { openPath } = await import('@tauri-apps/plugin-opener')
+    await openPath(filePath)
+  }
 }
 
 export async function listenForEvidenceDrops(

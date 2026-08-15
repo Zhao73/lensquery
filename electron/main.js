@@ -496,6 +496,14 @@ function registerIpc() {
   handle('probeVideo', ({ path: sourcePath }) => invokeSidecar('probeVideo', { path: sourcePath }))
   handle('prepareVideo', ({ path: sourcePath, maxFrames }) => invokeSidecar('prepareVideo', { path: sourcePath, maxFrames }))
   handle('prepareYouTubeVideo', ({ url, maxFrames }) => invokeSidecar('prepareYouTubeVideo', { url, maxFrames }))
+  handle('openLocalPath', async ({ path: sourcePath }) => {
+    if (typeof sourcePath !== 'string' || !path.isAbsolute(sourcePath) || !existsSync(sourcePath)) {
+      throw new Error('视频文件已被移动或删除。')
+    }
+    const message = await shell.openPath(sourcePath)
+    if (message) throw new Error(message)
+    return true
+  })
   handle('inspectFiles', ({ paths }) => invokeSidecar('inspectFiles', { paths }))
   handle('pickEvidenceFiles', pickEvidenceFiles)
   handle('extensions:list', () => extensionManager.list())
