@@ -178,7 +178,7 @@ fn validate_context(context: &BrowserContext) -> Result<(), String> {
         || context
             .transcript
             .as_ref()
-            .is_some_and(|value| value.len() > 160_000)
+            .is_some_and(|value| value.chars().count() > 240_000)
         || context
             .snapshot_data_url
             .as_ref()
@@ -283,6 +283,8 @@ mod tests {
             captions: None,
             transcript: None,
             transcript_language: None,
+            transcript_cue_count: None,
+            transcript_truncated: false,
             context_menu_kind: None,
             snapshot_data_url: None,
             snapshot_path: None,

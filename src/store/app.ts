@@ -12,6 +12,7 @@ export type View = 'timeline' | 'providers' | 'extensions' | 'settings'
 
 const SESSION_STORAGE_KEY = 'lensquery.sessions.v1'
 let historyEnabled = true
+let retainImagesEnabled = false
 
 function readSessions(): QuerySession[] {
   try {
@@ -21,9 +22,51 @@ function readSessions(): QuerySession[] {
   }
 }
 
+function sessionsForStorage(sessions: QuerySession[]): QuerySession[] {
+  return sessions.map((session) => ({
+    ...session,
+    captures: session.captures.map((capture) => ({
+      ...capture,
+      previewUrl: retainImagesEnabled ? capture.previewUrl : '',
+    })),
+    files: session.files.map((file) => ({
+      ...file,
+      videoPreparation: file.videoPreparation
+        ? {
+            ...file.videoPreparation,
+            // Frame paths remain available to the installed client. Even when
+            // image retention is enabled, keeping at most four previews avoids
+            // serializing 24 large base64 frames for every long video.
+            frames: file.videoPreparation.frames.map((frame, index) => ({
+              path: frame.path,
+              timestampSeconds: frame.timestampSeconds,
+              previewUrl: retainImagesEnabled && index < 4 ? frame.previewUrl : undefined,
+            })),
+          }
+        : undefined,
+    })),
+    browserContext: session.browserContext
+      ? {
+          ...session.browserContext,
+          snapshotPreviewUrl: retainImagesEnabled
+            ? session.browserContext.snapshotPreviewUrl
+            : undefined,
+        }
+      : undefined,
+  }))
+}
+
 function persistSessions(sessions: QuerySession[]) {
-  if (historyEnabled) localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(sessions))
-  else localStorage.removeItem(SESSION_STORAGE_KEY)
+  try {
+    if (historyEnabled) {
+      localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(sessionsForStorage(sessions)))
+    } else {
+      localStorage.removeItem(SESSION_STORAGE_KEY)
+    }
+  } catch {
+    // Persistence is secondary to the live conversation. A storage quota or
+    // disk error must never suppress a completed model response in memory.
+  }
 }
 
 interface AppStore {
@@ -65,14 +108,20 @@ export const useAppStore = create<AppStore>((set) => ({
   setView: (view) => set({ view }),
   hydrate: (state) => {
     historyEnabled = state.settings.saveHistory
-    if (!historyEnabled) localStorage.removeItem(SESSION_STORAGE_KEY)
-    set({ ready: true, providers: state.providers, settings: state.settings, sessions: historyEnabled ? readSessions() : [], activeSessionId: historyEnabled ? readSessions()[0]?.id ?? null : null })
+    retainImagesEnabled = state.settings.retainImages
+    const sessions = historyEnabled ? sessionsForStorage(readSessions()) : []
+    persistSessions(sessions)
+    set({ ready: true, providers: state.providers, settings: state.settings, sessions, activeSessionId: sessions[0]?.id ?? null })
   },
   setProviders: (providers) => set({ providers }),
   setSettings: (settings) => {
     historyEnabled = settings.saveHistory
-    if (!historyEnabled) localStorage.removeItem(SESSION_STORAGE_KEY)
-    set((state) => ({ settings, sessions: historyEnabled ? state.sessions : [], activeSessionId: historyEnabled ? state.activeSessionId : null }))
+    retainImagesEnabled = settings.retainImages
+    set((state) => {
+      const sessions = historyEnabled ? state.sessions : []
+      persistSessions(sessions)
+      return { settings, sessions, activeSessionId: historyEnabled ? state.activeSessionId : null }
+    })
   },
   upsertProvider: (profile) =>
     set((state) => ({

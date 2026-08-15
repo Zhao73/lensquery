@@ -1,4 +1,6 @@
 (() => {
+  const MAX_TRANSCRIPT_CHARS = 240_000
+
   if (window.__lensQueryPageContext) return
 
   function clean(value) {
@@ -184,9 +186,21 @@
         if (value && !transcriptLines.includes(value)) transcriptLines.push(value)
       })
 
+    const transcript = boundedTranscript(transcriptLines)
     return {
       captions: cueLines.join(' ').slice(0, 16_000) || undefined,
-      transcript: transcriptLines.join('\n').slice(0, 120_000) || undefined,
+      transcript: transcript.text,
+      transcriptCueCount: transcript.cueCount || undefined,
+      transcriptTruncated: transcript.truncated || undefined,
+    }
+  }
+
+  function boundedTranscript(lines) {
+    const joined = lines.join('\n')
+    return {
+      text: joined.slice(0, MAX_TRANSCRIPT_CHARS) || undefined,
+      cueCount: lines.length,
+      truncated: joined.length > MAX_TRANSCRIPT_CHARS,
     }
   }
 
@@ -270,7 +284,7 @@
       const value = `[${formatTranscriptTime(event.tStartMs)}] ${text}`
       if (lines.at(-1) !== value) lines.push(value)
     }
-    return lines.join('\n').slice(0, 120_000) || undefined
+    return boundedTranscript(lines)
   }
 
   async function fetchYouTubeTranscript() {
@@ -282,9 +296,11 @@
       const response = await fetch(url.href, { credentials: 'include' })
       if (!response.ok) return undefined
       const transcript = transcriptFromJson3(await response.json())
-      if (!transcript) return undefined
+      if (!transcript.text) return undefined
       return {
-        transcript,
+        transcript: transcript.text,
+        transcriptCueCount: transcript.cueCount,
+        transcriptTruncated: transcript.truncated,
         captionLanguage: clean(track.languageCode || track.name?.simpleText || '') || undefined,
       }
     } catch {
@@ -299,6 +315,8 @@
     return {
       ...context,
       transcript: youtube.transcript,
+      transcriptCueCount: youtube.transcriptCueCount,
+      transcriptTruncated: youtube.transcriptTruncated,
       transcriptLanguage: youtube.captionLanguage,
     }
   }
@@ -349,6 +367,8 @@
       selectedText: selectedText || undefined,
       captions: mediaText.captions,
       transcript: mediaText.transcript,
+      transcriptCueCount: mediaText.transcriptCueCount,
+      transcriptTruncated: mediaText.transcriptTruncated,
       contextMenuKind: options.contextMenuKind,
       analysisMode: options.analysisMode,
       outputFormat: media ? 'summary' : 'adaptive',

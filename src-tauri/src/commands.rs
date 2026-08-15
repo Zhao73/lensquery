@@ -455,6 +455,14 @@ pub async fn prepare_video(
 }
 
 #[tauri::command]
+pub async fn prepare_youtube_video(
+    url: String,
+    max_frames: Option<u32>,
+) -> Result<crate::models::FileEvidence, String> {
+    video::prepare_youtube(&url, max_frames).await
+}
+
+#[tauri::command]
 pub async fn inspect_files(paths: Vec<String>) -> Result<Vec<crate::models::FileEvidence>, String> {
     files::inspect(paths).await
 }

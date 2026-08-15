@@ -68,6 +68,46 @@ describe('Electron direct provider adapter', () => {
     expect(result.answer).toBe('已解析。')
   })
 
+  it('sends every long-video transcript chapter to direct providers', async () => {
+    const transcript = Array.from({ length: 25 }, (_, minute) => `[${String(minute).padStart(2, '0')}:00] chapter topic ${minute}`).join('\n')
+    let prompt = ''
+    await runDirectProvider({
+      profile: { id: 'custom', name: 'Custom', kind: 'compatible', model: 'MODEL', baseUrl: 'https://HOST/v1', apiKeyRequired: true, secretConfigured: true },
+      secret: 'TOKEN',
+      request: {
+        ...request,
+        question: '完整总结',
+        promptId: 'video',
+        outputFormat: 'summary',
+        files: [{
+          name: 'long.mp4',
+          kind: 'video',
+          path: '/tmp/long.mp4',
+          mediaType: 'video/mp4',
+          size: 1,
+          videoPreparation: {
+            originalDurationSeconds: 25 * 60,
+            frames: [],
+            transcript,
+            transcriptKind: 'local-whisper',
+            transcriptLanguage: 'zh',
+            transcriptSource: '/tmp/audio.vtt',
+          },
+        }],
+      },
+      settings,
+      readFile: async () => null,
+      fetchImpl: async (_url, options) => {
+        prompt = JSON.parse(options.body).messages.at(-1).content[0].text
+        return new Response(JSON.stringify({ model: 'MODEL', choices: [{ message: { content: '完成。' } }] }), { status: 200 })
+      },
+    })
+    expect(prompt).toContain('这是长视频证据')
+    expect(prompt).toContain('长视频章节 01')
+    expect(prompt).toContain('chapter topic 0')
+    expect(prompt).toContain('chapter topic 24')
+  })
+
   it('tests a local provider without requiring an API key', async () => {
     const message = await testDirectProvider(
       { id: 'ollama', name: 'Ollama', kind: 'compatible', model: 'qwen3-vl:8b', baseUrl: 'http://localhost:11434/v1', apiKeyRequired: false, secretConfigured: false },

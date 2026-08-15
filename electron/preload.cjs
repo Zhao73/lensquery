@@ -23,6 +23,7 @@ const invokeChannels = new Set([
   'analyze',
   'probeVideo',
   'prepareVideo',
+  'prepareYouTubeVideo',
   'inspectFiles',
   'pickEvidenceFiles',
   'extensions:list',

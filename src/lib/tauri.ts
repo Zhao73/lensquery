@@ -435,6 +435,15 @@ export async function prepareVideo(
   throw new Error('浏览器预览不会处理视频；桌面版将在本地抽取关键帧与音轨。')
 }
 
+export async function prepareYouTubeVideo(
+  url: string,
+  maxFrames = 24,
+): Promise<FileEvidence> {
+  if (isElectronRuntime()) return invokeElectron<FileEvidence>('prepareYouTubeVideo', { url, maxFrames })
+  if (isTauriRuntime()) return invoke<FileEvidence>('prepare_youtube_video', { url, maxFrames })
+  throw new Error('浏览器预览不会下载或转写 YouTube 视频；请使用桌面版。')
+}
+
 export async function inspectEvidencePaths(paths: string[]): Promise<FileEvidence[]> {
   if (!isDesktopRuntime()) return []
   if (isElectronRuntime()) return invokeElectron<FileEvidence[]>('inspectFiles', { paths })

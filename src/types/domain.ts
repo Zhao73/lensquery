@@ -60,6 +60,8 @@ export interface BrowserContext {
   captions?: string
   transcript?: string
   transcriptLanguage?: string
+  transcriptCueCount?: number
+  transcriptTruncated?: boolean
   contextMenuKind?: 'selection' | 'image' | 'video' | 'page'
   snapshotPath?: string
   snapshotPreviewUrl?: string
@@ -151,6 +153,8 @@ export interface VideoPreparation {
   transcript?: string
   transcriptSource?: string
   transcriptLanguage?: string
+  transcriptKind?: 'sidecar-subtitle' | 'local-whisper'
+  transcriptionStatus?: string
 }
 
 export interface ProviderProfile {

@@ -347,10 +347,15 @@ async function invokeSidecar(method, payload = {}) {
     })
     let stdout = ''
     let stderr = ''
+    const timeoutMs = method === 'analyze'
+      ? 300_000
+      : method === 'prepareVideo' || method === 'prepareYouTubeVideo'
+        ? 7_300_000
+        : 45_000
     const timeout = setTimeout(() => {
       killChildTree(child)
       reject(new Error(`LensQuery sidecar ${method} 超时。`))
-    }, method === 'analyze' ? 100_000 : 45_000)
+    }, timeoutMs)
     child.stdout.on('data', (chunk) => {
       stdout += String(chunk)
       if (stdout.length > 64 * 1024 * 1024) killChildTree(child)
@@ -490,6 +495,7 @@ function registerIpc() {
   })
   handle('probeVideo', ({ path: sourcePath }) => invokeSidecar('probeVideo', { path: sourcePath }))
   handle('prepareVideo', ({ path: sourcePath, maxFrames }) => invokeSidecar('prepareVideo', { path: sourcePath, maxFrames }))
+  handle('prepareYouTubeVideo', ({ url, maxFrames }) => invokeSidecar('prepareYouTubeVideo', { url, maxFrames }))
   handle('inspectFiles', ({ paths }) => invokeSidecar('inspectFiles', { paths }))
   handle('pickEvidenceFiles', pickEvidenceFiles)
   handle('extensions:list', () => extensionManager.list())

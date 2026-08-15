@@ -67,6 +67,7 @@ import {
   startCapture,
   testProvider,
   prepareVideo,
+  prepareYouTubeVideo,
 } from './lib/tauri'
 import {
   installExtensionFolder,
@@ -95,10 +96,39 @@ import type {
   ProviderProfile,
   QuerySession,
   TextScope,
+  VideoFrame,
 } from './types/domain'
 
 const DEFAULT_QUESTION = '请分析所选内容，并结合周围上下文说明它是什么、有什么作用以及下一步该怎么做。'
 const VIDEO_DEFAULT_QUESTION = '请快速总结这个视频：先用一段话说明大概内容，再列出带时间点的关键或有趣片段和学习要点，并明确字幕与音频覆盖范围。'
+const LONG_VIDEO_DEFAULT_QUESTION = '请完整梳理这个长视频：先概括整体主题和结论，再按时间顺序覆盖每个章节，提取关键事实、数据、人物或公司、论点与例子，区分事实和作者观点，最后列出重要时间点，并说明字幕、音频和画面覆盖范围。'
+const LONG_VIDEO_SECONDS = 20 * 60
+
+function isLongVideoInput(files: FileEvidence[], browserContext?: BrowserContext) {
+  const file = files.find(({ kind }) => kind === 'video')
+  const duration = file?.videoPreparation?.originalDurationSeconds
+    ?? file?.video?.durationSeconds
+    ?? browserContext?.media?.duration
+    ?? 0
+  const transcriptLength = file?.videoPreparation?.transcript?.length
+    ?? browserContext?.transcript?.length
+    ?? 0
+  return duration >= LONG_VIDEO_SECONDS || transcriptLength >= 24_000
+}
+
+function longVideoChapterEstimate(durationSeconds: number) {
+  return Math.min(12, Math.max(1, Math.ceil(durationSeconds / 600)))
+}
+
+function isYouTubeVideoContext(context?: BrowserContext) {
+  if (context?.media?.kind !== 'video') return false
+  try {
+    const hostname = new URL(context.url).hostname.toLowerCase()
+    return hostname === 'youtu.be' || hostname === 'youtube.com' || hostname.endsWith('.youtube.com')
+  } catch {
+    return false
+  }
+}
 
 const analysisModes: Array<{ id: AnalysisMode; label: string; hint: string }> = [
   { id: 'identify', label: '快速介绍', hint: '是什么、有什么用' },
@@ -316,15 +346,32 @@ function ConversationApp() {
     }
     const hasVideoInput = input.files.some(({ kind }) => kind === 'video') || input.browserContext?.media?.kind === 'video'
     const usesDefaultQuestion = !input.question?.trim()
-    const question = input.question?.trim() || (hasVideoInput ? VIDEO_DEFAULT_QUESTION : DEFAULT_QUESTION)
     let preparedFiles = input.files
+    const youtubeVideoUrl = isYouTubeVideoContext(input.browserContext) && !input.browserContext?.transcript
+      ? input.browserContext?.url
+      : undefined
+    if (isDesktopRuntime() && youtubeVideoUrl) {
+      setCaptureStatus('该 YouTube 视频没有页面字幕；正在读取视频并用本机 Whisper 生成完整时间轴，长视频可能需要几分钟…')
+      try {
+        const youtubeEvidence = await prepareYouTubeVideo(youtubeVideoUrl, 24)
+        preparedFiles = [...preparedFiles, youtubeEvidence]
+      } catch (cause) {
+        const message = `YouTube 长视频准备失败：${String(cause)}`
+        setError(message)
+        void showSystemNotification('LensQuery 无法读取此 YouTube 视频', message.slice(0, 240)).catch(() => undefined)
+        return
+      } finally {
+        setCaptureStatus('')
+      }
+    }
     if (isDesktopRuntime() && input.files.some(({ kind, videoPreparation }) => kind === 'video' && !videoPreparation)) {
-      setCaptureStatus('正在本地提取视频关键帧、音频和同名字幕…')
+      setCaptureStatus('正在本地提取视频关键帧、音频和字幕；没有字幕时会调用本机 Whisper，长视频可能需要几分钟…')
       try {
         preparedFiles = await Promise.all(input.files.map(async (file) => {
           if (file.kind !== 'video' || file.videoPreparation) return file
           try {
-            return { ...file, videoPreparation: await prepareVideo(file.path, 12), processingError: undefined }
+            const maxFrames = (file.video?.durationSeconds ?? 0) >= LONG_VIDEO_SECONDS ? 24 : 12
+            return { ...file, videoPreparation: await prepareVideo(file.path, maxFrames), processingError: undefined }
           } catch (cause) {
             return { ...file, processingError: String(cause) }
           }
@@ -339,11 +386,14 @@ function ConversationApp() {
         return
       }
     }
+    const longVideoInput = isLongVideoInput(preparedFiles, input.browserContext)
+    const question = input.question?.trim()
+      || (longVideoInput ? LONG_VIDEO_DEFAULT_QUESTION : hasVideoInput ? VIDEO_DEFAULT_QUESTION : DEFAULT_QUESTION)
     const requestedMode = input.analysisMode ?? input.browserContext?.analysisMode ?? input.captures[0]?.analysisMode ?? analysisMode
     const requestedFormat = input.outputFormat
       ?? input.browserContext?.outputFormat
       ?? input.captures[0]?.outputFormat
-      ?? (hasVideoInput && usesDefaultQuestion ? 'summary' : outputFormat)
+      ?? (longVideoInput && usesDefaultQuestion ? 'report' : hasVideoInput && usesDefaultQuestion ? 'summary' : outputFormat)
     const requestAnnotation = (input.annotation ?? input.browserContext?.annotation ?? input.captures[0]?.annotation ?? annotation.trim()) || undefined
     const source = sourceFromEvidence(input.captures, preparedFiles, input.browserContext)
     const createdAt = now()
@@ -707,13 +757,15 @@ function ConversationView(props: {
   onRetry: () => void
 }) {
   const tailRef = useRef<HTMLDivElement>(null)
+  const latestMessageRef = useRef<HTMLElement>(null)
   const [speakingId, setSpeakingId] = useState<string | null>(null)
   const hasVideo = props.session.files.some(({ kind }) => kind === 'video') || props.session.browserContext?.media?.kind === 'video'
+  const hasLongVideo = isLongVideoInput(props.session.files, props.session.browserContext)
+  const latestMessage = props.session.messages.at(-1)
   useEffect(() => {
-    if (props.session.messages.length > 2) {
-      tailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
-    }
-  }, [props.session.messages.length])
+    const target = latestMessage?.status === 'pending' ? tailRef.current : latestMessageRef.current
+    target?.scrollIntoView({ behavior: 'smooth', block: latestMessage?.status === 'pending' ? 'end' : 'start' })
+  }, [latestMessage?.id, latestMessage?.status])
   return (
     <section className="conversation-view">
       <header className="conversation-titlebar">
@@ -725,12 +777,12 @@ function ConversationView(props: {
       </header>
       <div className="message-stream">
         <EvidenceStrip session={props.session} />
-        {hasVideo && <div className="media-quick-actions" aria-label="视频快速分析"><span>继续分析视频</span><button type="button" onClick={() => props.onQuickAsk('快速总结这个视频：一段话概括大意，再列不超过 5 个关键点。')}>快速总结</button><button type="button" onClick={() => props.onQuickAsk('列出这个视频中最有趣或最有用的片段，有时间信息时请标注时间。')}>有趣片段</button><button type="button" onClick={() => props.onQuickAsk('把页面已提供的字幕或转写整理成连贯文本；没有完整转写时明确说明覆盖范围。')}>整理字幕</button><button type="button" onClick={() => props.onQuickAsk('把这个视频整理成便于学习和理解的重点、概念和行动清单。')}>学习要点</button></div>}
+        {hasVideo && <div className="media-quick-actions" aria-label="视频快速分析"><span>{hasLongVideo ? '长视频继续分析' : '继续分析视频'}</span><button type="button" onClick={() => props.onQuickAsk('快速总结这个视频：一段话概括大意，再列不超过 5 个关键点。')}>快速总结</button>{hasLongVideo && <button type="button" onClick={() => props.onQuickAsk('完整梳理这个长视频：按时间顺序覆盖所有已提供章节，列出每章主题、关键事实、数据、论点、例子和结论，最后说明证据覆盖与缺口。')}>完整内容</button>}<button type="button" onClick={() => props.onQuickAsk('列出这个视频中最有趣或最有用的片段，有时间信息时请标注时间。')}>关键片段</button><button type="button" onClick={() => props.onQuickAsk('把页面已提供的字幕或转写整理成连贯文本；没有完整转写时明确说明覆盖范围。')}>整理字幕</button><button type="button" onClick={() => props.onQuickAsk('把这个视频整理成便于学习和理解的重点、概念和行动清单。')}>学习要点</button></div>}
         {props.session.messages.map((message) => (
-          <article key={message.id} className={`message ${message.role} ${message.status}`}>
+          <article ref={message.id === latestMessage?.id ? latestMessageRef : undefined} key={message.id} className={`message ${message.role} ${message.status}`}>
             <div className="message-author">{message.role === 'user' ? '你' : props.provider?.name ?? 'LensQuery'}</div>
             {message.status === 'pending' ? (
-              <div className="thinking"><i /><i /><i /><span>正在分析选择内容</span></div>
+              <div className="thinking"><i /><i /><i /><span>{hasLongVideo ? '正在按章节阅读长视频并汇总完整内容' : '正在分析选择内容'}</span></div>
             ) : (
               message.role === 'assistant' ? (
                 <div className="message-content markdown-answer">
@@ -787,18 +839,24 @@ function EvidenceStrip({ session }: { session: QuerySession }) {
   const capture = session.captures[0]
   const file = session.files[0]
   const browser = session.browserContext
-  const videoFrames = file?.videoPreparation?.frames.filter(({ previewUrl }) => previewUrl).slice(0, 4) ?? []
+  const videoFrames = file?.videoPreparation?.frames.slice(0, 4) ?? []
+  const framePreview = (frame?: VideoFrame) => frame?.previewUrl ?? (frame?.path ? encodeURI(`file://${frame.path}`) : undefined)
   const previewUrl = capture?.previewUrl
     ?? (file?.kind === 'image' ? encodeURI(`file://${file.path}`) : undefined)
-    ?? videoFrames[0]?.previewUrl
+    ?? framePreview(videoFrames[0])
   const c2pa = file?.provenance?.c2pa
+  const videoDuration = file?.videoPreparation?.originalDurationSeconds ?? file?.video?.durationSeconds ?? browser?.media?.duration ?? 0
+  const longVideo = videoDuration >= LONG_VIDEO_SECONDS || (file?.videoPreparation?.transcript?.length ?? browser?.transcript?.length ?? 0) >= 24_000
+  const transcriptLabel = file?.videoPreparation?.transcriptKind === 'local-whisper' ? 'Whisper 转写' : '字幕'
   const fileSummary = file
     ? [
         file.kind.toUpperCase(),
         formatBytes(file.size),
         c2pa?.aiGeneratedDeclared
           ? c2pa.signerTrusted ? 'AI 来源凭证已验证' : 'AI 来源凭证已读取'
-          : file.videoPreparation?.transcript ? '已读取字幕' : undefined,
+          : file.videoPreparation?.transcript
+            ? longVideo ? `长视频 · 已读取${transcriptLabel}` : `已读取${transcriptLabel}`
+            : undefined,
       ].filter(Boolean).join(' · ')
     : undefined
   if (!capture && !file && !browser) return null
@@ -827,8 +885,9 @@ function EvidenceStrip({ session }: { session: QuerySession }) {
           <div><dt>大小</dt><dd>{formatBytes(file.size)}</dd></div>
           {file.pageCount && <div><dt>页数</dt><dd>{file.pageCount}</dd></div>}
           {file.extractionStatus && <div><dt>本地解析</dt><dd>{file.extractionStatus === 'ready' ? '文字已提取' : file.extractionStatus}</dd></div>}
-          {file.videoPreparation && <div><dt>视频证据</dt><dd>{file.videoPreparation.frames.length} 个带时间点关键帧 · {file.videoPreparation.audioPath ? '已提取音频' : '无音频'}</dd></div>}
-          {file.videoPreparation?.transcript && <div><dt>字幕覆盖</dt><dd>已读取{file.videoPreparation.transcriptLanguage ? ` ${file.videoPreparation.transcriptLanguage}` : ''} 侧车字幕 · {file.videoPreparation.transcript.split('\n').length} 个时间段</dd></div>}
+          {file.videoPreparation && <div><dt>视频证据</dt><dd>{file.videoPreparation.frames.length} 个带时间点关键帧 · {file.videoPreparation.audioPath ? '已提取音频' : '无音频'}{longVideo ? ` · 约 ${longVideoChapterEstimate(videoDuration)} 个分析章节` : ''}</dd></div>}
+          {file.videoPreparation?.transcript && <div><dt>{transcriptLabel}覆盖</dt><dd>已读取{file.videoPreparation.transcriptLanguage && file.videoPreparation.transcriptLanguage !== 'auto' ? ` ${file.videoPreparation.transcriptLanguage}` : ''} {file.videoPreparation.transcriptKind === 'local-whisper' ? '本地 Whisper 时间轴' : '侧车字幕'} · {file.videoPreparation.transcript.split('\n').length} 个时间段</dd></div>}
+          {!file.videoPreparation?.transcript && file.videoPreparation?.transcriptionStatus && <div><dt>语音转写</dt><dd>{file.videoPreparation.transcriptionStatus}</dd></div>}
           {c2pa && <div><dt>内容凭证</dt><dd><strong>{c2pa.signerTrusted ? '可信签名已验证' : c2pa.validationState === 'valid' ? '文件绑定有效' : '验证未通过'}</strong>{c2pa.issuer ? ` · ${c2pa.issuer}` : ''}{c2pa.claimGenerator ? ` · ${c2pa.claimGenerator}` : ''}</dd></div>}
           {c2pa?.aiGeneratedDeclared && <div><dt>AI 来源</dt><dd>机器可读声明：{c2pa.digitalSourceTypes.join(', ') || '训练型算法媒体'}{c2pa.softwareAgents.length ? ` · ${c2pa.softwareAgents.join(', ')}` : ''}</dd></div>}
           {c2pa?.embeddedWatermarkDeclared && <div><dt>隐形水印</dt><dd>C2PA 流程声明已加入水印；像素级 SynthID 由对应发行方验证器独立确认</dd></div>}
@@ -836,7 +895,7 @@ function EvidenceStrip({ session }: { session: QuerySession }) {
           {file.provenance?.detectorCoverage && <div className="evidence-coverage"><dt>检测范围</dt><dd>{file.provenance.detectorCoverage}</dd></div>}
         </dl>}
         {browser && <dl><div><dt>网页</dt><dd>{browser.title}</dd></div>{browser.contextMenuKind && <div><dt>触发方式</dt><dd>网页右键 · {{ selection: '所选文字', image: '图片', video: '视频', page: '当前页面' }[browser.contextMenuKind]}</dd></div>}<div><dt>文字范围</dt><dd>{browser.selectionMode ?? '当前对象'}</dd></div>{browser.selectedText && <div><dt>所选文字</dt><dd>{browser.selectedText}</dd></div>}{browser.captions && <div><dt>当前字幕</dt><dd>{browser.captions}</dd></div>}{browser.transcript && <div><dt>视频转写</dt><dd>{browser.transcriptLanguage ? `${browser.transcriptLanguage} · ` : ''}{browser.transcript.slice(0, 1200)}{browser.transcript.length > 1200 ? '…' : ''}</dd></div>}<div><dt>元素</dt><dd>{browser.tagName.toLowerCase()}{browser.role ? ` · ${browser.role}` : ''}</dd></div><div><dt>地址</dt><dd>{browser.url}</dd></div>{browser.selector && <div><dt>选择器</dt><dd><code>{browser.selector}</code></dd></div>}</dl>}
-        {videoFrames.length > 1 && <div className="evidence-frame-grid">{videoFrames.map((frame) => <figure key={frame.path}><img src={frame.previewUrl} alt={`视频 ${formatDuration(frame.timestampSeconds)} 画面`} /><figcaption>{formatDuration(frame.timestampSeconds)}</figcaption></figure>)}</div>}
+        {videoFrames.length > 1 && <div className="evidence-frame-grid">{videoFrames.map((frame) => <figure key={frame.path}><img src={framePreview(frame)} alt={`视频 ${formatDuration(frame.timestampSeconds)} 画面`} /><figcaption>{formatDuration(frame.timestampSeconds)}</figcaption></figure>)}</div>}
         {session.annotation && <div className="evidence-annotation"><NotePencil size={16} /><span><strong>你的注释</strong>{session.annotation}</span></div>}
       </div>
     </details>

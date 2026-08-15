@@ -5,7 +5,7 @@ Chrome / Edge Manifest V3 companion extension. It adds exact page context that d
 - native browser right-click actions for selected text, an image, a video, or the current page;
 - a bounded target screenshot for visual grounding and display in the LensQuery conversation;
 - clicked text, buttons, links, images, form controls, and video/audio state;
-- visible player captions, caption tracks already published by the active YouTube page, and already-open generic transcript segments;
+- visible player captions, caption tracks already published by the active YouTube page, already-open generic transcript segments, cue counts, and an explicit truncation marker;
 - selected text, one word, the surrounding paragraph, the whole page, or the current object;
 - bounded nearby text, an element selector, accessible name, and sanitized `outerHTML`;
 - an optional short annotation plus identify/explain/how-to/deep/customer/code intent;
@@ -37,7 +37,7 @@ Chrome / Edge Manifest V3 companion extension. It adds exact page context that d
 
 The extension requests `activeTab` and `contextMenus`; page access starts only after an explicit toolbar, shortcut, or right-click action. It has no persistent all-sites content script. `nativeMessaging` passes the bounded DOM context and an optional compressed target crop to the resident desktop process. The browser blocks injection on internal pages such as `chrome://`.
 
-The system overlay can always capture browser pixels with the same global shortcut. Exact DOM text, video state, selectors, visible captions, and page-published transcript data require this companion extension. For YouTube, LensQuery chooses a page-published caption track, fetches that caption payload from YouTube, and builds bounded time-coded text; it neither downloads the video nor claims a full audio transcription when captions are absent. Chrome/Edge may reserve or remap an extension shortcut; verify it in `chrome://extensions/shortcuts` or invoke the toolbar icon when the operating-system shortcut wins the conflict.
+The system overlay can always capture browser pixels with the same global shortcut. Exact DOM text, video state, selectors, visible captions, and page-published transcript data require this companion extension. For YouTube, LensQuery first chooses a page-published caption track, fetches that caption payload from YouTube, and builds bounded time-coded text. If the explicitly selected video has no page transcript, the desktop runtime can use local `yt-dlp` and local Whisper to prepare the video; non-YouTube URLs, playlists, videos longer than four hours, and files above the configured bound are rejected. Chrome/Edge may reserve or remap an extension shortcut; verify it in `chrome://extensions/shortcuts` or invoke the toolbar icon when the operating-system shortcut wins the conflict.
 
 ## Native host contract
 

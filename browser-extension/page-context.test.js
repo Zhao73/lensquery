@@ -96,6 +96,8 @@ describe('LensQuery browser page context', () => {
     expect(enriched.transcript).toContain('[00:00] We have one of the most challenging assignments.')
     expect(enriched.transcript).toContain('[00:27] One small step for man.')
     expect(enriched.transcriptLanguage).toBe('en')
+    expect(enriched.transcriptCueCount).toBe(2)
+    expect(enriched.transcriptTruncated).toBe(false)
     expect(globalThis.fetch).toHaveBeenCalledWith(
       expect.stringContaining('fmt=json3'),
       { credentials: 'include' },

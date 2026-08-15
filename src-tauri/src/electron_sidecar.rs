@@ -60,6 +60,14 @@ struct PathPayload {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct UrlPayload {
+    url: String,
+    #[serde(default)]
+    max_frames: Option<u32>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct InspectTargetPayload {
     point: Bounds,
     #[serde(default)]
@@ -135,6 +143,10 @@ async fn dispatch(request: SidecarRequest) -> Result<Value, String> {
         "prepareVideo" => {
             let payload: PathPayload = decode(request.payload)?;
             encode(video::prepare(&payload.path, payload.max_frames).await?)
+        }
+        "prepareYouTubeVideo" => {
+            let payload: UrlPayload = decode(request.payload)?;
+            encode(video::prepare_youtube(&payload.url, payload.max_frames).await?)
         }
         "inspectCaptureTarget" => {
             let payload: InspectTargetPayload = decode(request.payload)?;

@@ -286,6 +286,10 @@ pub struct BrowserContext {
     #[serde(default)]
     pub transcript_language: Option<String>,
     #[serde(default)]
+    pub transcript_cue_count: Option<u32>,
+    #[serde(default)]
+    pub transcript_truncated: bool,
+    #[serde(default)]
     pub context_menu_kind: Option<String>,
     #[serde(default)]
     pub snapshot_data_url: Option<String>,
@@ -425,6 +429,10 @@ pub struct VideoPreparation {
     pub transcript_source: Option<String>,
     #[serde(default)]
     pub transcript_language: Option<String>,
+    #[serde(default)]
+    pub transcript_kind: Option<String>,
+    #[serde(default)]
+    pub transcription_status: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

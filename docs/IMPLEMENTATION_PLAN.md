@@ -65,7 +65,7 @@ Remaining: OpenAI Responses/file-upload/audio endpoints, streaming and cancellat
 
 ### M5 — Agent runtime adapters: next
 
-The bounded Codex CLI fallback is packaged and runtime-verified: it prefers the native binary, uses low reasoning effort for fast identify/summary requests, isolates LensQuery state from the user's Codex history database, preserves existing config/auth references, captures useful timeout diagnostics, and kills the full process tree. Installed macOS acceptance produced client-visible ordinary-photo, trusted-C2PA AI-image, and timestamped video-summary results.
+The bounded Codex CLI fallback is packaged and runtime-verified: it prefers the native binary, uses low reasoning effort for fast identify/summary requests, isolates LensQuery state from the user's Codex history database, preserves existing config/auth references, captures useful timeout diagnostics, and kills the full process tree. Installed macOS acceptance produced client-visible ordinary-photo, trusted-C2PA AI-image, timestamped short-video results, and a whole-ledger long-video path. Long videos use local sidecar/Whisper transcripts, at most 12 chronological chapters, and extended but bounded analysis timeouts; captionless YouTube imports use an explicit bounded local yt-dlp path.
 
 1. Implement a long-lived `codex app-server --stdio` JSON-RPC client.
 2. Generate schemas from the installed Codex version at build/test time.

@@ -79,7 +79,7 @@ The extension collects only after the user explicitly invokes it:
 - selection/word/paragraph/page/object scope, clicked tag, role, text, accessible name, and selector;
 - optional user annotation plus requested analysis mode and output format;
 - sanitized bounded `outerHTML` and nearby section text;
-- for `video` / `audio`: current time, duration, source URL when exposed, paused state, visible captions, page-published YouTube caption tracks, and already-open generic transcript segments;
+- for `video` / `audio`: current time, duration, source URL when exposed, paused state, visible captions, page-published YouTube caption tracks, already-open generic transcript segments, cue count, and an explicit transcript-truncation marker;
 - a bounded compressed target crop when visible-tab capture is permitted. The native host rejects incoming local paths and writes only validated JPEG/PNG/WebP bytes to LensQuery's temporary capture directory.
 
 The default extension uses `activeTab`, `contextMenus`, `scripting`, and `nativeMessaging`, with no persistent all-sites content script. Source/network inspection through `chrome.debugger` is deliberately a separate opt-in capability because it carries a stronger permission warning. It should be enabled only for an explicit “深入分析页面” action, never for every click.
@@ -88,7 +88,9 @@ The default extension uses `activeTab`, `contextMenus`, `scripting`, and `native
 
 - File selection/drop enters the same timeline without a separate upload homepage.
 - Images go to vision-capable adapters after local common-EXIF extraction and C2PA Content Credentials validation. C2PA structure, asset binding, signature, and signer trust use a release-pinned official trust-list snapshot; visible watermark reading and visual AI-style inference remain separate evidence classes.
-- Video is locally probed and automatically prepared into time-coded frames plus an optional compact audio derivative before the model request. Same-name `.vtt`/`.srt` files are discovered, bounded, normalized, and attached as a time-coded transcript.
+- Video is locally probed and automatically prepared into time-coded frames plus a compact mono audio derivative before the model request. Same-name `.vtt`/`.srt` files are preferred; when absent, an available local Whisper CLI produces bounded time-coded text. Whisper model/device/language are locally configurable through environment variables and the default multilingual model is `base`.
+- Transcript-bearing videos at least 20 minutes long are divided into at most 12 chronological evidence chapters. The prompt contract requires whole-ledger coverage, named entities, facts/data/examples, facts-versus-opinion separation, important timestamps, and explicit gaps. Short videos keep the low-latency compact path.
+- For an explicitly selected HTTPS YouTube video, page-published captions remain the fastest path. If absent, the desktop sidecar may call local `yt-dlp` with no-playlist, four-hour, 1.5-GB, and HTTPS/hostname bounds, then reuse the same local frame/audio/Whisper pipeline. The selected public URL is the only network input; model CLIs remain tool- and network-disabled.
 - Machine-readable PDFs and text/code files use bounded local extraction. Image-only PDFs remain an OCR milestone.
 - Explorer integration can forward a selected path through a protocol activation or shell verb; it remains a packaging milestone.
 
