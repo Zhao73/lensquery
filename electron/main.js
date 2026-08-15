@@ -28,9 +28,9 @@ import { createExtensionManager } from './extension-manager.js'
 import { isLensQueryDeepLink, pathsFromDeepLink } from './deep-link.js'
 import {
   isDirectProvider,
+  listDirectProviderModels,
   normalizeProviderBaseUrl,
   runDirectProvider,
-  testDirectProvider as testDirectApiProvider,
 } from './direct-provider.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -112,9 +112,31 @@ function provider(id, name, kind, model, cli, vision, options = {}) {
     apiKeyRequired: options.apiKeyRequired !== false,
     ready: false,
     secretConfigured: false,
+    models: [{ id: model, name: model, source: 'configured' }],
+    modelDiscovery: {
+      status: 'unavailable',
+      source: cli ? '本机 CLI' : '提供商配置',
+      message: cli ? '安装并重新扫描后读取模型。' : '连接并测试后读取模型目录。',
+    },
     capabilities: { vision, pdf: vision, files: vision, video: vision, audioTranscription: false, streaming: false },
     cli: cli ? { command: kind.replace('-cli', ''), status: 'missing', autoDetected: true } : undefined,
   }
+}
+
+function normalizeProviderModels(values, currentModel) {
+  const output = []
+  const seen = new Set()
+  for (const value of Array.isArray(values) ? values : []) {
+    const id = String(value?.id || '').trim().slice(0, 240)
+    if (!id || /[\0\r\n]/.test(id) || seen.has(id)) continue
+    seen.add(id)
+    const source = ['cli', 'cache', 'api', 'configured', 'alias'].includes(value?.source) ? value.source : 'configured'
+    output.push({ id, name: String(value?.name || id).trim().slice(0, 160) || id, source })
+    if (output.length >= 600) break
+  }
+  const current = String(currentModel || '').trim()
+  if (current && !seen.has(current)) output.unshift({ id: current, name: current, source: 'configured' })
+  return output
 }
 
 function statePath() {
@@ -125,14 +147,15 @@ async function loadState() {
   const persisted = await readJson(statePath(), {})
   const secrets = persisted.secrets || {}
   const providers = mergeProviders(defaultProviders, persisted.providers || []).map((profile) => {
-    if (!isDirectProvider(profile)) return profile
+    const normalized = { ...profile, models: normalizeProviderModels(profile.models, profile.model) }
+    if (!isDirectProvider(normalized)) return normalized
     const secretConfigured = Boolean(secrets[profile.id])
     return {
-      ...profile,
-      category: profile.category || 'cloud',
-      apiKeyRequired: profile.apiKeyRequired !== false,
+      ...normalized,
+      category: normalized.category || 'cloud',
+      apiKeyRequired: normalized.apiKeyRequired !== false,
       secretConfigured,
-      ready: profile.apiKeyRequired === false || secretConfigured,
+      ready: normalized.apiKeyRequired === false || secretConfigured,
     }
   })
   return {
@@ -554,6 +577,31 @@ async function discoverProviders() {
   // Rust only understands provider transport fields. Preserve Electron-only
   // catalog metadata such as category, builtIn, and apiKeyRequired.
   state.providers = mergeProviders(state.providers, providers)
+  const localProviders = state.providers.filter((profile) => profile.category === 'local' && isDirectProvider(profile))
+  await Promise.all(localProviders.map(async (profile) => {
+    try {
+      const models = await listDirectProviderModels(profile, decryptProviderSecret(profile.id), { timeoutMs: 3_500 })
+      const current = models.some(({ id }) => id === profile.model)
+        ? models
+        : [{ id: profile.model, name: profile.model, source: 'configured' }, ...models]
+      Object.assign(profile, {
+        models: current,
+        modelDiscovery: {
+          status: models.length ? 'ready' : 'unavailable',
+          source: `${profile.name} /models`,
+          message: models.length ? `已读取 ${models.length} 个本地模型。` : '端点已连接，但没有返回模型。',
+          checkedAt: new Date().toISOString(),
+        },
+      })
+    } catch (error) {
+      profile.modelDiscovery = {
+        status: 'unavailable',
+        source: `${profile.name} /models`,
+        message: String(error?.message || error),
+        checkedAt: new Date().toISOString(),
+      }
+    }
+  }))
   await saveState()
   return state.providers
 }
@@ -634,6 +682,7 @@ function registerIpc() {
     return true
   })
   handle('testProvider', ({ profile }) => testProvider(profile))
+  handle('discoverProviderModels', ({ providerId }) => discoverProviderModels(providerId))
   handle('analyze', async ({ request }) => {
     const profile = state.providers.find((item) => item.id === request.providerId)
     if (!profile) throw new Error('没有找到所选模型通道。')
@@ -724,12 +773,36 @@ async function pickEvidenceFiles() {
 async function testProvider(profile) {
   if (isDirectProvider(profile)) {
     const configured = state.providers.find((item) => item.id === profile.id) || sanitizeProvider(profile)
-    return testDirectApiProvider(configured, decryptProviderSecret(profile.id))
+    const refreshed = await discoverProviderModels(configured.id)
+    return `${refreshed.name} 连接正常 · 可见 ${refreshed.models?.filter(({ source }) => source !== 'configured').length || 0} 个模型`
   }
   const refreshed = await discoverProviders()
   const found = refreshed.find((item) => item.id === profile.id)
   if (!found?.ready) throw new Error(`没有找到 ${profile.name} 可执行文件。`)
   return `${found.name} 已就绪${found.cli?.version ? ` · ${found.cli.version}` : ''}`
+}
+
+async function discoverProviderModels(providerId) {
+  const profile = state.providers.find((item) => item.id === providerId)
+  if (!profile) throw new Error('没有找到该提供商。')
+  if (!isDirectProvider(profile)) {
+    const refreshed = await discoverProviders()
+    const found = refreshed.find((item) => item.id === providerId)
+    if (!found) throw new Error('重新扫描后没有找到该提供商。')
+    return found
+  }
+  const models = await listDirectProviderModels(profile, decryptProviderSecret(providerId))
+  profile.models = models.some(({ id }) => id === profile.model)
+    ? models
+    : [{ id: profile.model, name: profile.model, source: 'configured' }, ...models]
+  profile.modelDiscovery = {
+    status: models.length ? 'ready' : 'unavailable',
+    source: `${profile.name} /models`,
+    message: models.length ? `已读取 ${models.length} 个模型。` : '端点没有返回模型。',
+    checkedAt: new Date().toISOString(),
+  }
+  await saveState()
+  return profile
 }
 
 function decryptProviderSecret(providerId) {
@@ -766,6 +839,7 @@ function sanitizeProvider(input) {
     name,
     kind,
     model,
+    models: normalizeProviderModels(input.models, model),
     baseUrl: direct ? normalizeProviderBaseUrl(input.baseUrl) : undefined,
     category: direct ? (input.category === 'local' ? 'local' : input.category === 'custom' ? 'custom' : 'cloud') : 'agent',
     builtIn,

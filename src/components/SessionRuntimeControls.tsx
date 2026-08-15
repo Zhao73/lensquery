@@ -12,6 +12,7 @@ import type {
   QuerySession,
   ReasoningEffort,
 } from '../types/domain'
+import { ProviderLogo } from './ProviderLogo'
 
 export type SessionRuntimeUpdate = Pick<QuerySession, 'providerId' | 'model' | 'reasoningEffort' | 'contextMode'>
 
@@ -82,7 +83,7 @@ export function SessionRuntimeControls(props: {
         aria-haspopup="dialog"
         onClick={() => setOpen((value) => !value)}
       >
-        <TerminalWindow size={14} />
+        <ProviderLogo provider={provider} size={14} />
         <span>{provider?.name ?? '模型不可用'}</span>
         <small>{model}</small>
         <CaretDown size={12} />
@@ -110,6 +111,7 @@ export function SessionRuntimeControls(props: {
             <span><TerminalWindow size={15} /><i>模型</i></span>
             <input
               aria-label="模型 ID"
+              list={`session-models-${provider?.id ?? 'unknown'}`}
               value={model}
               maxLength={160}
               spellCheck={false}
@@ -118,6 +120,9 @@ export function SessionRuntimeControls(props: {
                 if (!event.target.value.trim()) update({ model: provider?.model ?? 'default' })
               }}
             />
+            <datalist id={`session-models-${provider?.id ?? 'unknown'}`}>
+              {(provider?.models ?? []).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+            </datalist>
           </label>
           <label>
             <span><Brain size={15} /><i>思考强度</i></span>

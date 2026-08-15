@@ -14,6 +14,19 @@ export type ProviderKind =
   | 'opencode-cli'
   | 'grok-cli'
 
+export interface ProviderModel {
+  id: string
+  name: string
+  source: 'cli' | 'cache' | 'api' | 'configured' | 'alias'
+}
+
+export interface ProviderModelDiscovery {
+  status: 'ready' | 'partial' | 'unavailable' | 'unsupported'
+  source?: string
+  message?: string
+  checkedAt?: string
+}
+
 export interface Bounds {
   x: number
   y: number
@@ -168,6 +181,8 @@ export interface ProviderProfile {
   apiKeyRequired?: boolean
   ready: boolean
   secretConfigured: boolean
+  models?: ProviderModel[]
+  modelDiscovery?: ProviderModelDiscovery
   capabilities?: {
     vision: boolean
     pdf: boolean

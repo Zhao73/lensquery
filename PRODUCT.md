@@ -41,6 +41,7 @@ The product treats the desktop itself as the input surface. One capture action p
 - Windows 10/11 is the first full native-accessibility target; macOS shares the background, region-capture, file, result-card, speech, and conversation baseline while its arbitrary-app text-range adapter remains a platform milestone.
 - Direct providers: OpenAI Responses API, Anthropic Messages API, and OpenAI-compatible endpoints.
 - Local-agent adapters: Codex CLI, Claude Code, OpenCode, and Grok headless modes, with explicit executable detection, bounded probes, and no implicit command-execution permission.
+- Installed agents expose only model evidence their local runtime can support: Codex cached visible models, Claude's configured model and CLI-declared aliases, OpenCode/Grok model commands, and loopback Ollama/LM Studio model endpoints. Users can persist a provider default while retaining manual model-ID entry.
 - Customer-response language can follow the detected language in the customer's text/evidence or use a configured fallback; reply style and custom guidance remain user-controlled.
 - API secrets must use the operating-system credential vault; configuration files store only non-secret metadata.
 - Screen and file content stays local until the explicit shortcut plus second confirming click or drag release. Manual imports can use an optional second confirmation. History is local and can be disabled or cleared.

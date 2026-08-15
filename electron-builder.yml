@@ -6,6 +6,8 @@ directories:
 files:
   - dist/**
   - electron/**
+  - LICENSE
+  - THIRD_PARTY_NOTICES.md
   - package.json
 protocols:
   - name: LensQuery Recognition

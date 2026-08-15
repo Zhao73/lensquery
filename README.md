@@ -22,7 +22,8 @@ There is no upload-style homepage. Point at a Desktop/Finder/Explorer file and c
 
 - On startup, the desktop runtime scans `PATH` and common per-user install directories for `codex`, `claude`, `opencode`/`opencode2`, and `grok`.
 - Version probes run in parallel with a two-second timeout. A slow version command is reported separately and never blocks the whole app indefinitely; authentication is verified only by the first real request.
-- The model page shows the resolved executable path and version, supports a manual rescan, and lets the user choose any discovered CLI as the default route.
+- Model discovery is evidence-based rather than a static catalog: Codex reads its local visible-model cache and configured model, OpenCode runs `opencode models --pure`, Grok runs `grok models`, and Claude Code shows its configured model plus aliases declared by the installed CLI because Claude does not expose a complete `models` command. Ollama and LM Studio use their loopback `/models` endpoints. Each row distinguishes a complete, partial, unavailable, or configured-only result.
+- The model page shows the resolved executable path, real vendor/product mark, selected model, discovered model count, and discovery status. Users can choose and persist a model per provider, refresh one catalog, rescan all local agents, or keep entering an explicit model ID in provider/session settings.
 - CLI calls are built from fixed argument arrays rather than shell strings. Codex uses a read-only sandbox; Claude Code receives no built-in or MCP tools; Grok receives an empty tool allowlist; OpenCode receives only explicitly selected attachments with every tool permission denied. Grok's current adapter is text-only until its structured local-media input is verified end to end.
 - Codex analysis runs in a private LensQuery state/SQLite directory so the resident client neither scans nor writes the user's Codex conversation history. Existing Codex configuration and authentication are linked by reference into that state, parent thread/session variables are removed, and timeout cleanup terminates the full CLI process tree.
 - Settings can automatically infer the customer's language from the question and visible evidence, or force a fallback reply language. Reply style and a bounded custom instruction are included in every local CLI request.
@@ -161,6 +162,7 @@ Source checks and builds are separate from Windows runtime verification. Capture
 ## Provider safety
 
 - Electron supports OpenAI Chat Completions, Anthropic Messages, and OpenAI-compatible endpoints. Built-in profiles cover OpenAI, Anthropic, Gemini, xAI, DeepSeek, OpenRouter, Groq Cloud, Mistral, Together, Fireworks, SiliconFlow, Ollama, and LM Studio; users can add/remove arbitrary compatible profiles.
+- Provider marks come from the MIT-licensed LobeHub icon collection and remain trademarks of their respective owners; attribution ships in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 - Direct transports send the bounded question, extracted text, browser context, and at most eight individually bounded images after the existing confirmation path. Remote plaintext HTTP endpoints and URLs containing embedded credentials are rejected; HTTP is limited to loopback local-model servers.
 - The UI never stores a raw API key in JSON or browser local storage.
 - Codex, Claude Code, OpenCode, and Grok adapters use non-interactive, bounded invocations and do not grant command/file-write tools for ordinary analysis.

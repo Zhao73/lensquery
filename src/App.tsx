@@ -23,7 +23,6 @@ import {
   Question,
   Scan,
   SidebarSimple,
-  Sparkle,
   TerminalWindow,
   Trash,
   WarningCircle,
@@ -33,6 +32,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import './App.css'
+import { ProviderLogo } from './components/ProviderLogo'
 import { SessionVideoPlayer } from './components/SessionVideoPlayer'
 import { SessionRuntimeControls, type SessionRuntimeUpdate } from './components/SessionRuntimeControls'
 import { evidenceAccept, formatBytes, formatDuration, normalizeBrowserFiles } from './lib/files'
@@ -42,6 +42,7 @@ import {
   cancelCapture,
   completeCapture,
   discoverCliProviders,
+  discoverProviderModels,
   getPermissionStatus,
   hideResultToast,
   inspectCaptureTarget,
@@ -681,7 +682,7 @@ function ConversationApp() {
             <span className="resident-state"><i />后台待命</span>
           </div>
           <div className="app-bar-actions">
-            {selectedProvider && <button type="button" className="runtime-chip" onClick={() => setView('providers')}><TerminalWindow size={15} /><span>{selectedProvider.name}</span><small>{selectedProvider.model}</small></button>}
+            {selectedProvider && <button type="button" className="runtime-chip" onClick={() => setView('providers')}><ProviderLogo provider={selectedProvider} size={15} /><span>{selectedProvider.name}</span><small>{selectedProvider.model}</small></button>}
             <button type="button" className="toolbar-capture" onClick={beginCapture}><CursorClick size={16} />识别屏幕</button>
           </div>
         </header>
@@ -729,6 +730,7 @@ function ConversationApp() {
               void saveSettings(next)
             }}
             onSave={async (profile) => { const saved = await saveProvider(profile); upsertProvider(saved); return saved }}
+            onRefreshModels={async (providerId) => { const saved = await discoverProviderModels(providerId); upsertProvider(saved); return saved }}
             onRemove={async (providerId) => {
               const removed = await removeProviderProfile(providerId)
               removeProviderFromStore(providerId)
@@ -987,11 +989,14 @@ function ProvidersPanel(props: {
   selectedId: string
   onSelect: (id: string) => void
   onSave: (profile: ProviderProfile) => Promise<ProviderProfile>
+  onRefreshModels: (id: string) => Promise<ProviderProfile>
   onRemove: (id: string) => Promise<void>
   onRescan: () => Promise<ProviderProfile[]>
 }) {
   const [scanning, setScanning] = useState(false)
   const [testingId, setTestingId] = useState('')
+  const [refreshingId, setRefreshingId] = useState('')
+  const [savingModelId, setSavingModelId] = useState('')
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [editing, setEditing] = useState<ProviderProfile | null>(null)
@@ -1006,9 +1011,25 @@ function ProvidersPanel(props: {
   ]
   const visible = props.providers.filter((provider) => {
     const matchesCategory = category === 'all' || (provider.category ?? (provider.kind.endsWith('cli') ? 'agent' : 'cloud')) === category
-    const haystack = `${provider.name} ${provider.model} ${provider.baseUrl ?? ''} ${provider.kind}`.toLowerCase()
+    const modelCatalog = provider.models?.map(({ id, name }) => `${id} ${name}`).join(' ') ?? ''
+    const haystack = `${provider.name} ${provider.model} ${modelCatalog} ${provider.baseUrl ?? ''} ${provider.kind}`.toLowerCase()
     return matchesCategory && haystack.includes(query.trim().toLowerCase())
   })
+
+  function modelOptions(provider: ProviderProfile) {
+    const options = new Map<string, { id: string; name: string; source: string }>()
+    options.set(provider.model, { id: provider.model, name: provider.model, source: 'configured' })
+    for (const model of provider.models ?? []) options.set(model.id, model)
+    return [...options.values()]
+  }
+
+  function modelStatus(provider: ProviderProfile) {
+    const count = (provider.models ?? []).filter(({ source }) => source !== 'configured').length
+    if (provider.modelDiscovery?.status === 'ready') return count ? `发现 ${count} 个模型` : '目录已读取'
+    if (provider.modelDiscovery?.status === 'partial') return count ? `发现 ${count} 个 · 部分目录` : '仅当前配置'
+    if (!provider.ready) return '通道尚未就绪'
+    return '点击刷新读取模型'
+  }
 
   function createCustomProvider() {
     setEditing({
@@ -1036,21 +1057,72 @@ function ProvidersPanel(props: {
         <div className="provider-filters" role="tablist" aria-label="提供商类型">{categories.map((item) => <button type="button" role="tab" aria-selected={category === item.id} className={category === item.id ? 'active' : ''} key={item.id} onClick={() => setCategory(item.id)}>{item.label}<small>{item.id === 'all' ? props.providers.length : props.providers.filter((provider) => (provider.category ?? (provider.kind.endsWith('cli') ? 'agent' : 'cloud')) === item.id).length}</small></button>)}</div>
       </div>
       <div className="provider-list">
-        {visible.map((provider) => (
-          <div className={provider.id === props.selectedId ? 'provider-row selected' : 'provider-row'} key={provider.id}>
-            <button type="button" className="provider-main" onClick={() => props.onSelect(provider.id)}>
-              <span className={provider.ready ? 'provider-icon ready' : 'provider-icon'}>{provider.kind.endsWith('cli') ? <TerminalWindow size={20} /> : provider.category === 'local' ? <PlugsConnected size={20} /> : <Sparkle size={20} />}</span>
-              <span><strong>{provider.name}</strong><small>{provider.cli?.executablePath || provider.baseUrl || provider.kind}</small></span>
-              <span className="provider-model-name">{provider.model}</span>
+        {visible.map((provider) => {
+          const options = modelOptions(provider)
+          const refreshing = refreshingId === provider.id
+          return (
+            <div className={provider.id === props.selectedId ? 'provider-row selected' : 'provider-row'} key={provider.id}>
+              <button type="button" className="provider-main" onClick={() => props.onSelect(provider.id)} aria-label={`设为默认提供商：${provider.name}`}>
+                <span className="provider-icon"><ProviderLogo provider={provider} size={21} /></span>
+                <span><strong>{provider.name}</strong><small>{provider.cli?.executablePath || provider.baseUrl || provider.kind}</small></span>
+              </button>
+              <div className="provider-model-control" title={provider.modelDiscovery?.message}>
+                <label className="sr-only" htmlFor={`provider-model-${provider.id}`}>{provider.name} 模型</label>
+                <span className="provider-model-picker">
+                  <select
+                    id={`provider-model-${provider.id}`}
+                    aria-label={`${provider.name} 模型`}
+                    disabled={!provider.ready || savingModelId === provider.id}
+                    value={provider.model}
+                    onChange={async (event) => {
+                      const model = event.target.value
+                      setSavingModelId(provider.id)
+                      setError('')
+                      try {
+                        await props.onSave({ ...provider, model })
+                        setMessage(`${provider.name} 已选择 ${model}`)
+                      } catch (cause) {
+                        setMessage('')
+                        setError(String(cause))
+                      } finally {
+                        setSavingModelId('')
+                      }
+                    }}
+                  >
+                    {options.map((model) => <option key={model.id} value={model.id}>{model.name === model.id ? model.id : `${model.name} · ${model.id}`}</option>)}
+                  </select>
+                  <button
+                    type="button"
+                    className="provider-model-refresh"
+                    disabled={!provider.ready || refreshing}
+                    aria-label={`刷新 ${provider.name} 模型`}
+                    onClick={async () => {
+                      setRefreshingId(provider.id)
+                      setError('')
+                      try {
+                        const refreshed = await props.onRefreshModels(provider.id)
+                        const count = (refreshed.models ?? []).filter(({ source }) => source !== 'configured').length
+                        setMessage(`${provider.name} 模型已刷新${count ? ` · ${count} 个可选` : ''}`)
+                      } catch (cause) {
+                        setMessage('')
+                        setError(String(cause))
+                      } finally {
+                        setRefreshingId('')
+                      }
+                    }}
+                  ><ArrowCounterClockwise className={refreshing ? 'spin' : ''} size={14} /></button>
+                </span>
+                <small>{modelStatus(provider)}</small>
+              </div>
               <span className={provider.ready ? 'availability ready' : 'availability'}>{provider.kind.endsWith('cli') ? (provider.ready ? '已发现' : '未发现') : provider.ready ? '已配置' : '未配置'}</span>
-            </button>
-            <div className="provider-actions">
-              {provider.id === props.selectedId && <span className="default-mark"><Check size={13} />默认</span>}
-              <button type="button" onClick={async () => { setTestingId(provider.id); setError(''); try { setMessage(await testProvider(provider)) } catch (cause) { setMessage(''); setError(String(cause)) } finally { setTestingId('') } }}>{testingId === provider.id ? '测试中' : '测试'}</button>
-              <button type="button" onClick={() => setEditing(provider)}>配置</button>
+              <div className="provider-actions">
+                {provider.id === props.selectedId && <span className="default-mark"><Check size={13} />默认</span>}
+                <button type="button" onClick={async () => { setTestingId(provider.id); setError(''); try { setMessage(await testProvider(provider)) } catch (cause) { setMessage(''); setError(String(cause)) } finally { setTestingId('') } }}>{testingId === provider.id ? '测试中' : '测试'}</button>
+                <button type="button" onClick={() => setEditing(provider)}>配置</button>
+              </div>
             </div>
-          </div>
-        ))}
+          )
+        })}
         {!visible.length && <div className="provider-empty"><MagnifyingGlass size={21} /><strong>没有匹配的提供商</strong><p>调整搜索或类型筛选，也可添加自定义兼容端点。</p></div>}
       </div>
       <div className="runtime-note"><strong>运行边界</strong><p>本机 CLI 在只读沙盒中运行；直接 API 只发送已确认的问题、文字与有上限的图像证据。API Key 由 Electron safeStorage 加密，不写入会话记录。</p></div>
@@ -1203,7 +1275,7 @@ function ProviderEditor(props: { profile: ProviderProfile; onClose: () => void; 
       <header><div><h2>{props.profile.builtIn === false ? '自定义提供商' : profile.name}</h2><p>配置协议、模型和连接信息</p></div><button type="button" className="icon-button" onClick={props.onClose} aria-label="关闭配置"><X size={18} /></button></header>
       {props.profile.builtIn === false && <label>协议<select value={profile.kind} onChange={(event) => setProfile({ ...profile, kind: event.target.value as ProviderProfile['kind'] })}><option value="compatible">OpenAI 兼容</option><option value="openai">OpenAI</option><option value="anthropic">Anthropic Messages</option></select><small>大多数中转、云平台和本地模型选“OpenAI 兼容”。</small></label>}
       <label>显示名称<input value={profile.name} onChange={(event) => setProfile({ ...profile, name: event.target.value })} /></label>
-      <label>模型 ID<input value={profile.model} onChange={(event) => setProfile({ ...profile, model: event.target.value })} /></label>
+      <label>模型 ID<input list={`provider-editor-models-${profile.id}`} value={profile.model} onChange={(event) => setProfile({ ...profile, model: event.target.value })} /><datalist id={`provider-editor-models-${profile.id}`}>{(profile.models ?? []).map((model) => <option key={model.id} value={model.id}>{model.name}</option>)}</datalist><small>可从已发现目录选择，也可填写该 CLI 或 API 接受的模型 ID。</small></label>
       {direct && <><label>API 根地址<input value={profile.baseUrl ?? ''} onChange={(event) => setProfile({ ...profile, baseUrl: event.target.value })} placeholder="https://HOST/v1" /><small>LensQuery 会自动追加 /chat/completions 或 /v1/messages。</small></label>{props.profile.builtIn === false && <label className="drawer-check"><input type="checkbox" checked={profile.apiKeyRequired !== false} onChange={(event) => setProfile({ ...profile, apiKeyRequired: event.target.checked, category: event.target.checked ? 'custom' : 'local' })} /><span><strong>需要 API Key</strong><small>Ollama、LM Studio 等本机端点可取消勾选。</small></span></label>}{profile.apiKeyRequired !== false && <label>API Key<input type="password" autoComplete="off" value={secret} placeholder={profile.secretConfigured ? '已加密保存；留空表示保留' : '输入 API Key'} onChange={(event) => setSecret(event.target.value)} /><small>密钥只交给 Electron 主进程的系统安全存储。</small>{profile.secretConfigured && <button type="button" className="clear-secret" disabled={busy} onClick={async () => { setBusy(true); setError(''); try { const saved = await props.onClearSecret(profile); setProfile(saved); setSecret('') } catch (cause) { setError(String(cause)) } finally { setBusy(false) } }}>清除已保存的 Key</button>}</label>}</>}
       {error && <div className="drawer-error"><WarningCircle size={16} />{error}</div>}
       <div className="drawer-actions">{props.onRemove && <button type="button" className="secondary-button danger-button" disabled={busy} onClick={async () => { setBusy(true); setError(''); try { await props.onRemove?.() } catch (cause) { setError(String(cause)); setBusy(false) } }}><Trash size={16} />删除</button>}<span /><button type="button" className="secondary-button" disabled={busy} onClick={props.onClose}>取消</button><button type="button" className="primary-button" disabled={busy || !profile.name.trim() || !profile.model.trim() || (direct && !profile.baseUrl?.trim())} onClick={async () => { setBusy(true); setError(''); try { await props.onSave(profile, secret) } catch (cause) { setError(String(cause)); setBusy(false) } }}>{busy ? '正在保存' : '保存'}</button></div>

@@ -14,6 +14,7 @@ const invokeChannels = new Set([
   'bootstrap',
   'rendererReady',
   'discoverCliProviders',
+  'discoverProviderModels',
   'startCapture',
   'completeCapture',
   'inspectCaptureTarget',

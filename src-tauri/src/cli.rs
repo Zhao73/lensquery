@@ -5,9 +5,14 @@ use std::{
 
 use tokio::{process::Command, task::JoinSet, time::timeout};
 
-use crate::{models::ProviderProfile, subprocess};
+use crate::{
+    models::{ProviderModel, ProviderModelDiscovery, ProviderProfile},
+    subprocess,
+};
 
 const VERSION_TIMEOUT_SECONDS: u64 = 2;
+const MODEL_TIMEOUT_SECONDS: u64 = 8;
+const MAX_DISCOVERED_MODELS: usize = 600;
 
 pub async fn discover_profiles() -> Vec<ProviderProfile> {
     let mut profiles = ProviderProfile::defaults();
@@ -24,13 +29,15 @@ pub async fn discover_profiles() -> Vec<ProviderProfile> {
         else {
             continue;
         };
+        let kind = profile.kind.clone();
         probes.spawn(async move {
-            let version = probe_version(&path).await;
-            (index, command, path, version)
+            let (version, catalog) =
+                tokio::join!(probe_version(&path), discover_cli_models(&kind, &path));
+            (index, command, path, version, catalog)
         });
     }
     while let Some(result) = probes.join_next().await {
-        let Ok((index, command, path, version)) = result else {
+        let Ok((index, command, path, version, catalog)) = result else {
             continue;
         };
         let Some(profile) = profiles.get_mut(index) else {
@@ -49,8 +56,424 @@ pub async fn discover_profiles() -> Vec<ProviderProfile> {
         cli.version = version;
         profile.ready = true;
         profile.secret_configured = true;
+        if let Some(preferred_model) = catalog.preferred_model {
+            profile.model = preferred_model;
+        }
+        profile.models = catalog.models;
+        profile.model_discovery = Some(catalog.discovery);
+    }
+    for profile in &mut profiles {
+        if profile.cli.is_some() && !profile.ready {
+            profile.model_discovery = Some(discovery(
+                "unavailable",
+                "本机 CLI",
+                Some("未找到可执行文件；安装后重新扫描。".into()),
+            ));
+        }
     }
     profiles
+}
+
+struct DiscoveredModelCatalog {
+    models: Vec<ProviderModel>,
+    preferred_model: Option<String>,
+    discovery: ProviderModelDiscovery,
+}
+
+async fn discover_cli_models(kind: &str, path: &Path) -> DiscoveredModelCatalog {
+    match kind {
+        "codex-cli" => discover_codex_models(),
+        "claude-cli" => discover_claude_models(path).await,
+        "opencode-cli" => discover_opencode_models(path).await,
+        "grok-cli" => discover_grok_models(path).await,
+        _ => unavailable_catalog("该 CLI 尚未提供模型目录探测。", "unsupported"),
+    }
+}
+
+fn discover_codex_models() -> DiscoveredModelCatalog {
+    let Some(home) = codex_config_directory() else {
+        return unavailable_catalog("没有找到 Codex 配置目录。", "unavailable");
+    };
+    let preferred_model = read_assignment(&home.join("config.toml"), "model");
+    let mut models = Vec::new();
+    let cache_path = home.join("models_cache.json");
+    if let Ok(contents) = std::fs::read_to_string(&cache_path) {
+        if let Ok(payload) = serde_json::from_str::<serde_json::Value>(&contents) {
+            if let Some(values) = payload.get("models").and_then(serde_json::Value::as_array) {
+                for value in values {
+                    if value.get("visibility").and_then(serde_json::Value::as_str) == Some("hide") {
+                        continue;
+                    }
+                    let Some(id) = value.get("slug").and_then(serde_json::Value::as_str) else {
+                        continue;
+                    };
+                    let name = value
+                        .get("display_name")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or(id);
+                    push_model(&mut models, id, name, "cache");
+                }
+            }
+        }
+    }
+    if let Some(model) = preferred_model.as_deref() {
+        push_model(&mut models, model, model, "configured");
+    }
+    if models.is_empty() {
+        return unavailable_catalog("Codex 已安装，但本地模型缓存尚未生成。", "unavailable");
+    }
+    let status = if cache_path.is_file() {
+        "ready"
+    } else {
+        "partial"
+    };
+    DiscoveredModelCatalog {
+        discovery: discovery(
+            status,
+            "Codex 本地模型缓存",
+            Some(format!(
+                "已读取 {} 个模型；重新扫描会刷新本地缓存结果。",
+                models.len()
+            )),
+        ),
+        models,
+        preferred_model,
+    }
+}
+
+async fn discover_opencode_models(path: &Path) -> DiscoveredModelCatalog {
+    let output = run_cli_output(path, &["models", "--pure"]).await;
+    let preferred_model = opencode_config_model();
+    let mut models = output
+        .as_ref()
+        .map(|value| parse_opencode_models(value))
+        .unwrap_or_default();
+    if let Some(model) = preferred_model.as_deref() {
+        push_model(&mut models, model, model, "configured");
+    }
+    if models.is_empty() {
+        return catalog_from_error(output, "OpenCode models 没有返回模型。", preferred_model);
+    }
+    DiscoveredModelCatalog {
+        discovery: discovery(
+            "ready",
+            "OpenCode models",
+            Some(format!("OpenCode 报告 {} 个可选模型。", models.len())),
+        ),
+        models,
+        preferred_model,
+    }
+}
+
+async fn discover_grok_models(path: &Path) -> DiscoveredModelCatalog {
+    let output = run_cli_output(path, &["models"]).await;
+    let (mut models, preferred_model) = output
+        .as_ref()
+        .map(|value| parse_grok_models(value))
+        .unwrap_or_default();
+    if let Some(model) = preferred_model.as_deref() {
+        push_model(&mut models, model, model, "configured");
+    }
+    if models.is_empty() {
+        return catalog_from_error(output, "Grok models 没有返回模型。", preferred_model);
+    }
+    DiscoveredModelCatalog {
+        discovery: discovery(
+            "ready",
+            "Grok models",
+            Some(format!("Grok 报告 {} 个可选模型。", models.len())),
+        ),
+        models,
+        preferred_model,
+    }
+}
+
+async fn discover_claude_models(path: &Path) -> DiscoveredModelCatalog {
+    let preferred_model = claude_config_model();
+    let output = run_cli_output(path, &["--help"]).await;
+    let mut models = Vec::new();
+    if let Some(model) = preferred_model.as_deref() {
+        push_model(&mut models, model, model, "configured");
+    }
+    if let Ok(output) = &output {
+        for alias in parse_claude_aliases(output) {
+            push_model(&mut models, &alias, &alias, "alias");
+        }
+    }
+    if models.is_empty() {
+        return catalog_from_error(
+            output,
+            "Claude Code 未公开完整模型列表；仍可在配置中手动填写模型 ID。",
+            preferred_model,
+        );
+    }
+    DiscoveredModelCatalog {
+        discovery: discovery(
+            "partial",
+            "Claude Code 配置与 CLI 别名",
+            Some(
+                "Claude Code 没有 models 命令；这里显示当前配置及本机 CLI 明确声明的别名。".into(),
+            ),
+        ),
+        models,
+        preferred_model,
+    }
+}
+
+fn catalog_from_error(
+    output: Result<String, String>,
+    fallback: &str,
+    preferred_model: Option<String>,
+) -> DiscoveredModelCatalog {
+    let message = output.err().unwrap_or_else(|| fallback.to_string());
+    let mut models = Vec::new();
+    if let Some(model) = preferred_model.as_deref() {
+        push_model(&mut models, model, model, "configured");
+    }
+    let status = if models.is_empty() {
+        "unavailable"
+    } else {
+        "partial"
+    };
+    DiscoveredModelCatalog {
+        models,
+        preferred_model,
+        discovery: discovery(status, "本机 CLI", Some(message)),
+    }
+}
+
+fn unavailable_catalog(message: &str, status: &str) -> DiscoveredModelCatalog {
+    DiscoveredModelCatalog {
+        models: Vec::new(),
+        preferred_model: None,
+        discovery: discovery(status, "本机 CLI", Some(message.into())),
+    }
+}
+
+fn discovery(status: &str, source: &str, message: Option<String>) -> ProviderModelDiscovery {
+    ProviderModelDiscovery {
+        status: status.into(),
+        source: Some(source.into()),
+        message,
+        checked_at: Some(chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)),
+    }
+}
+
+fn push_model(models: &mut Vec<ProviderModel>, id: &str, name: &str, source: &str) {
+    let id = id.trim();
+    if models.len() >= MAX_DISCOVERED_MODELS
+        || !valid_model_id(id)
+        || models.iter().any(|model| model.id == id)
+    {
+        return;
+    }
+    models.push(ProviderModel {
+        id: id.into(),
+        name: name.trim().chars().take(160).collect::<String>(),
+        source: source.into(),
+    });
+}
+
+fn valid_model_id(value: &str) -> bool {
+    !value.is_empty()
+        && value.chars().count() <= 240
+        && !value.chars().any(char::is_control)
+        && !value.contains('\n')
+        && !value.contains('\r')
+        && !value.contains('\0')
+}
+
+async fn run_cli_output(path: &Path, args: &[&str]) -> Result<String, String> {
+    let mut command = Command::new(path);
+    command
+        .args(args)
+        .env("NO_COLOR", "1")
+        .env("TERM", "dumb")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+    subprocess::isolate_process_tree(&mut command);
+    let child = command
+        .spawn()
+        .map_err(|error| format!("模型目录命令启动失败: {error}"))?;
+    let pid = child.id();
+    let output = match timeout(
+        std::time::Duration::from_secs(MODEL_TIMEOUT_SECONDS),
+        child.wait_with_output(),
+    )
+    .await
+    {
+        Ok(result) => result.map_err(|error| format!("模型目录命令失败: {error}"))?,
+        Err(_) => {
+            subprocess::kill_process_tree(pid);
+            return Err(format!(
+                "模型目录读取超过 {MODEL_TIMEOUT_SECONDS} 秒，已停止。"
+            ));
+        }
+    };
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if !output.status.success() {
+        let detail = if stderr.trim().is_empty() {
+            stdout.trim()
+        } else {
+            stderr.trim()
+        };
+        return Err(format!(
+            "模型目录命令返回错误: {}",
+            detail.chars().take(360).collect::<String>()
+        ));
+    }
+    let combined = if stderr.trim().is_empty() {
+        stdout.into_owned()
+    } else if stdout.trim().is_empty() {
+        stderr.into_owned()
+    } else {
+        format!("{stdout}\n{stderr}")
+    };
+    Ok(combined.chars().take(1_000_000).collect())
+}
+
+fn codex_config_directory() -> Option<PathBuf> {
+    std::env::var_os("CODEX_HOME")
+        .map(PathBuf::from)
+        .or_else(|| user_home_directory().map(|home| home.join(".codex")))
+        .filter(|path| path.is_dir())
+}
+
+fn claude_config_model() -> Option<String> {
+    let directory = std::env::var_os("CLAUDE_CONFIG_DIR")
+        .map(PathBuf::from)
+        .or_else(|| user_home_directory().map(|home| home.join(".claude")))?;
+    read_json_string_field(&directory.join("settings.json"), "model")
+}
+
+fn opencode_config_model() -> Option<String> {
+    let home = user_home_directory()?;
+    let candidates = [
+        std::env::var_os("XDG_CONFIG_HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| home.join(".config"))
+            .join("opencode/opencode.json"),
+        home.join(".config/opencode/opencode.jsonc"),
+        home.join(".opencode/opencode.json"),
+    ];
+    candidates
+        .iter()
+        .find_map(|path| read_json_string_field(path, "model"))
+}
+
+fn read_assignment(path: &Path, key: &str) -> Option<String> {
+    let contents = std::fs::read_to_string(path).ok()?;
+    for line in contents.lines() {
+        let line = line.split('#').next().unwrap_or_default().trim();
+        if line.starts_with('[') {
+            continue;
+        }
+        let Some((candidate, value)) = line.split_once('=') else {
+            continue;
+        };
+        if candidate.trim() == key {
+            let value = value.trim().trim_matches(['\'', '"']);
+            if valid_model_id(value) {
+                return Some(value.into());
+            }
+        }
+    }
+    None
+}
+
+fn read_json_string_field(path: &Path, key: &str) -> Option<String> {
+    let contents = std::fs::read_to_string(path).ok()?;
+    let payload = serde_json::from_str::<serde_json::Value>(&contents).ok()?;
+    let value = payload.get(key)?.as_str()?.trim();
+    valid_model_id(value).then(|| value.into())
+}
+
+fn extract_single_quoted(value: &str) -> Vec<String> {
+    let mut output = Vec::new();
+    let mut remaining = value;
+    while let Some(start) = remaining.find('\'') {
+        remaining = &remaining[start + 1..];
+        let Some(end) = remaining.find('\'') else {
+            break;
+        };
+        let candidate = &remaining[..end];
+        if valid_model_id(candidate) && !candidate.contains(char::is_whitespace) {
+            output.push(candidate.into());
+        }
+        remaining = &remaining[end + 1..];
+    }
+    output
+}
+
+fn parse_opencode_models(output: &str) -> Vec<ProviderModel> {
+    let mut models = Vec::new();
+    for line in strip_ansi(output).lines() {
+        let id = line.trim();
+        if id.contains('/') && !id.contains(char::is_whitespace) {
+            push_model(&mut models, id, id, "cli");
+        }
+    }
+    models
+}
+
+fn parse_grok_models(output: &str) -> (Vec<ProviderModel>, Option<String>) {
+    let clean = strip_ansi(output);
+    let mut models = Vec::new();
+    let mut preferred_model = None;
+    let mut in_models = false;
+    for line in clean.lines() {
+        let line = line.trim();
+        if let Some(value) = line.strip_prefix("Default model:") {
+            let value = value.trim();
+            if valid_model_id(value) {
+                preferred_model = Some(value.to_string());
+            }
+        }
+        if line == "Available models:" {
+            in_models = true;
+            continue;
+        }
+        if !in_models {
+            continue;
+        }
+        let value = line
+            .strip_prefix("- ")
+            .or_else(|| line.strip_prefix("* "))
+            .and_then(|value| value.split_whitespace().next());
+        if let Some(value) = value {
+            push_model(&mut models, value, value, "cli");
+        }
+    }
+    (models, preferred_model)
+}
+
+fn parse_claude_aliases(output: &str) -> Vec<String> {
+    let clean = strip_ansi(output);
+    let Some(index) = clean.find("--model <model>") else {
+        return Vec::new();
+    };
+    let end = (index + 900).min(clean.len());
+    extract_single_quoted(&clean[index..end])
+}
+
+fn strip_ansi(value: &str) -> String {
+    let mut output = String::with_capacity(value.len());
+    let mut characters = value.chars().peekable();
+    while let Some(character) = characters.next() {
+        if character == '\u{1b}' && characters.peek() == Some(&'[') {
+            characters.next();
+            for next in characters.by_ref() {
+                if next.is_ascii_alphabetic() {
+                    break;
+                }
+            }
+        } else {
+            output.push(character);
+        }
+    }
+    output
 }
 
 pub fn resolve_profile_executable(profile: &ProviderProfile) -> Result<PathBuf, String> {
@@ -420,10 +843,24 @@ pub fn merge_discovered(
             .entry(detected.id.clone())
             .and_modify(|profile| {
                 if detected.cli.is_some() {
+                    let configured_model = profile.model.clone();
+                    if matches!(configured_model.as_str(), "" | "default" | "grok-build")
+                        && !detected.model.trim().is_empty()
+                    {
+                        profile.model = detected.model.clone();
+                    }
                     profile.ready = detected.ready;
                     profile.secret_configured = detected.secret_configured;
                     profile.cli = detected.cli.clone();
                     profile.capabilities = detected.capabilities.clone();
+                    profile.models = detected.models.clone();
+                    push_model(
+                        &mut profile.models,
+                        &configured_model,
+                        &configured_model,
+                        "configured",
+                    );
+                    profile.model_discovery = detected.model_discovery.clone();
                 }
             })
             .or_insert(detected);
@@ -528,6 +965,36 @@ mod tests {
         assert!(destination.join("analyst.md").exists());
         assert!(!destination.join("outside.md").exists());
         std::fs::remove_dir_all(root).expect("remove isolated home fixture");
+    }
+
+    #[test]
+    fn parses_local_cli_model_catalogs_without_inventing_entries() {
+        let opencode = parse_opencode_models(
+            "opencode/big-pickle\ninvalid line with spaces\ngoogle/gemini-3.1-pro\n",
+        );
+        assert_eq!(
+            opencode
+                .iter()
+                .map(|model| model.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["opencode/big-pickle", "google/gemini-3.1-pro"]
+        );
+
+        let (grok, preferred) = parse_grok_models(
+            "Default model: grok-4.5\n\nAvailable models:\n  - grok-4.6\n  * grok-4.5 (default)\n",
+        );
+        assert_eq!(preferred.as_deref(), Some("grok-4.5"));
+        assert_eq!(
+            grok.iter()
+                .map(|model| model.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["grok-4.6", "grok-4.5"]
+        );
+
+        let aliases = parse_claude_aliases(
+            "--model <model> Model alias (e.g. 'fable', 'opus', or 'sonnet') or full name (e.g. 'claude-fable-5').",
+        );
+        assert_eq!(aliases, vec!["fable", "opus", "sonnet", "claude-fable-5"]);
     }
 
     #[tokio::test]

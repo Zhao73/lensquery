@@ -59,9 +59,30 @@ pub struct ProviderProfile {
     pub base_url: Option<String>,
     pub ready: bool,
     pub secret_configured: bool,
+    #[serde(default)]
+    pub models: Vec<ProviderModel>,
+    #[serde(default)]
+    pub model_discovery: Option<ProviderModelDiscovery>,
     pub capabilities: Option<ProviderCapabilities>,
     #[serde(default)]
     pub cli: Option<CliInstallation>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderModel {
+    pub id: String,
+    pub name: String,
+    pub source: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderModelDiscovery {
+    pub status: String,
+    pub source: Option<String>,
+    pub message: Option<String>,
+    pub checked_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -96,6 +117,8 @@ impl ProviderProfile {
                 base_url: Some("https://api.openai.com/v1".into()),
                 ready: false,
                 secret_configured: false,
+                models: Vec::new(),
+                model_discovery: None,
                 capabilities: Some(ProviderCapabilities {
                     vision: true,
                     pdf: true,
@@ -114,6 +137,8 @@ impl ProviderProfile {
                 base_url: Some("https://api.anthropic.com".into()),
                 ready: false,
                 secret_configured: false,
+                models: Vec::new(),
+                model_discovery: None,
                 capabilities: Some(ProviderCapabilities {
                     vision: true,
                     pdf: true,
@@ -132,6 +157,8 @@ impl ProviderProfile {
                 base_url: None,
                 ready: false,
                 secret_configured: false,
+                models: Vec::new(),
+                model_discovery: None,
                 capabilities: Some(ProviderCapabilities {
                     vision: true,
                     pdf: false,
@@ -150,6 +177,8 @@ impl ProviderProfile {
                 base_url: None,
                 ready: false,
                 secret_configured: false,
+                models: Vec::new(),
+                model_discovery: None,
                 capabilities: Some(ProviderCapabilities {
                     vision: false,
                     pdf: false,
@@ -168,6 +197,8 @@ impl ProviderProfile {
                 base_url: None,
                 ready: false,
                 secret_configured: false,
+                models: Vec::new(),
+                model_discovery: None,
                 capabilities: Some(ProviderCapabilities {
                     vision: true,
                     pdf: true,
@@ -186,6 +217,8 @@ impl ProviderProfile {
                 base_url: None,
                 ready: false,
                 secret_configured: false,
+                models: Vec::new(),
+                model_discovery: None,
                 capabilities: Some(ProviderCapabilities {
                     vision: false,
                     pdf: false,

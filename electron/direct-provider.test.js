@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  listDirectProviderModels,
   normalizeProviderBaseUrl,
   providerEndpoint,
   runDirectProvider,
@@ -115,6 +116,26 @@ describe('Electron direct provider adapter', () => {
       { fetchImpl: async () => new Response(JSON.stringify({ data: [{ id: 'qwen3-vl:8b' }] }), { status: 200 }) },
     )
     expect(message).toContain('可见 1 个模型')
+  })
+
+  it('normalizes and de-duplicates provider model catalogs', async () => {
+    const models = await listDirectProviderModels(
+      { id: 'local', name: 'Local', kind: 'compatible', model: 'MODEL', baseUrl: 'http://localhost:1234/v1', apiKeyRequired: false, secretConfigured: false },
+      '',
+      {
+        fetchImpl: async () => new Response(JSON.stringify({
+          data: [
+            { id: 'model-a', name: 'Model A' },
+            { id: 'model-a', name: 'Duplicate' },
+            { id: 'model-b', display_name: 'Model B' },
+          ],
+        }), { status: 200 }),
+      },
+    )
+    expect(models).toEqual([
+      { id: 'model-a', name: 'Model A', source: 'api' },
+      { id: 'model-b', name: 'Model B', source: 'api' },
+    ])
   })
 
   it('applies OpenAI reasoning effort and the selected conversation scope', async () => {

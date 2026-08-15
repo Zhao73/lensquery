@@ -55,6 +55,11 @@ export function validateDirectProfile(profile, secret = '') {
 }
 
 export async function testDirectProvider(profile, secret, options = {}) {
+  const models = await listDirectProviderModels(profile, secret, options)
+  return `${profile.name} 连接正常 · 可见 ${models.length} 个模型`
+}
+
+export async function listDirectProviderModels(profile, secret, options = {}) {
   validateDirectProfile(profile, secret)
   const fetchImpl = options.fetchImpl || globalThis.fetch
   const endpoint = providerEndpoint(profile, 'models')
@@ -64,8 +69,21 @@ export async function testDirectProvider(profile, secret, options = {}) {
   }, options.timeoutMs || TEST_TIMEOUT_MS)
   if (!response.ok) throw await responseError(response, profile.name)
   const payload = await response.json().catch(() => ({}))
-  const count = Array.isArray(payload?.data) ? payload.data.length : Array.isArray(payload?.models) ? payload.models.length : undefined
-  return `${profile.name} 连接正常${typeof count === 'number' ? ` · 可见 ${count} 个模型` : ''}`
+  const values = Array.isArray(payload?.data)
+    ? payload.data
+    : Array.isArray(payload?.models)
+      ? payload.models
+      : []
+  const models = []
+  const seen = new Set()
+  for (const value of values.slice(0, 600)) {
+    const id = String(typeof value === 'string' ? value : value?.id || value?.model || value?.name || '').trim()
+    if (!id || id.length > 240 || seen.has(id)) continue
+    seen.add(id)
+    const name = String(typeof value === 'string' ? value : value?.display_name || value?.displayName || value?.name || id).trim().slice(0, 160)
+    models.push({ id, name: name || id, source: 'api' })
+  }
+  return models
 }
 
 export async function runDirectProvider({ profile, secret, request, settings, fetchImpl = globalThis.fetch, readFile = fs.readFile }) {

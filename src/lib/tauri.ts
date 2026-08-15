@@ -195,6 +195,14 @@ export async function discoverCliProviders(): Promise<ProviderProfile[]> {
   return demoProviders
 }
 
+export async function discoverProviderModels(providerId: string): Promise<ProviderProfile> {
+  if (isElectronRuntime()) return invokeElectron<ProviderProfile>('discoverProviderModels', { providerId })
+  const providers = await discoverCliProviders()
+  const profile = providers.find(({ id }) => id === providerId)
+  if (!profile) throw new Error('没有找到该提供商。')
+  return profile
+}
+
 export async function startCapture(mode: CaptureMode): Promise<CaptureResponse> {
   if (isElectronRuntime()) return invokeElectron<CaptureResponse>('startCapture', { mode })
   if (isTauriRuntime()) return invoke<CaptureResponse>('start_capture', { mode })

@@ -8,7 +8,7 @@ import type { ProviderProfile, QuerySession } from '../types/domain'
 import { SessionRuntimeControls } from './SessionRuntimeControls'
 
 const providers: ProviderProfile[] = [
-  { id: 'codex-cli', name: 'Codex CLI', kind: 'codex-cli', model: 'default', ready: true, secretConfigured: false },
+  { id: 'codex-cli', name: 'Codex CLI', kind: 'codex-cli', model: 'default', ready: true, secretConfigured: false, models: [{ id: 'gpt-5.6-sol', name: 'GPT-5.6-Sol', source: 'cache' }] },
   { id: 'openai', name: 'OpenAI', kind: 'openai', model: 'gpt-5', ready: true, secretConfigured: true },
 ]
 
@@ -35,6 +35,7 @@ describe('SessionRuntimeControls', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Codex CLI/ }))
     expect(screen.getByRole('dialog', { name: '会话模型与上下文' })).toBeVisible()
+    expect(document.querySelector('datalist option[value="gpt-5.6-sol"]')).toHaveTextContent('GPT-5.6-Sol')
 
     fireEvent.change(screen.getByLabelText('提供商'), { target: { value: 'openai' } })
     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ providerId: 'openai', model: 'gpt-5' }))
