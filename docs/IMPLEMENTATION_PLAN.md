@@ -8,16 +8,16 @@ The release is successful when a Windows user can leave LensQuery in the tray, p
 
 ### M0 — Repository and contracts: complete
 
-- Tauri 2, Rust, React, TypeScript, Vite, tests, CI, MIT license.
+- Electron, Rust sidecar, React, TypeScript, Vite, tests, CI, MIT license; legacy Tauri shell retained as a capture fallback.
 - Provider-independent capture, browser context, file, video, request, result, and session contracts.
 - Local discovery for Codex, Claude Code, OpenCode, and Grok executables.
 
-### M1 — Resident shortcut shell: implemented, runtime verification pending
+### M1 — Electron resident shortcut shell: implemented, packaged permission verification pending
 
 - Hidden-at-login resident process with a template menu-bar/tray mark.
 - Left-click Quick Ask plus a distilled right-click menu: Start, Analyze Files, Timeline, Settings, and Quit.
 - Main-window close hides to tray.
-- Configurable global shortcut registration in Rust.
+- Configurable global shortcut registration in Electron, with rollback to the previous shortcut if a new accelerator is occupied.
 - Separate transparent all-monitor capture overlay.
 - Transparent desktop, small question-mark cursor, real-target first-click highlight, second-click confirmation, drag threshold, Escape cancellation, and configured analysis intent.
 - Permission-independent upper-right result card, card/window/both result presentation, autostart preference, and system speech.
@@ -40,10 +40,21 @@ Remaining: multi-monitor mixed-DPI test matrix, protected/elevated-surface error
 - Same-session follow-up with transcript context.
 - Six analysis modes, six output contracts, and optional annotations.
 - Plain Windows/macOS/Codex-like workbench styling with system typography and one action color.
+- Persistent coding-agent-style sidebar, centered new-conversation composer, provider chip, and dedicated Plugins/Skills capability view.
 
 Remaining: replace transcript replay with native thread IDs when Codex App Server/OpenCode adapters land; add token streaming and cancellation.
 
-### M4 — Agent runtime adapters: next
+### M4 — Plugins and Skills: implemented declarative baseline
+
+- Local-folder and Git installation for LensQuery plugins and Codex-compatible Skills.
+- Discovery of managed `~/.codex/skills` and read-only `~/.agents/skills`.
+- Enable/disable, rescan, open-location, recoverable Trash removal, package metadata, and compatibility/permission display.
+- Secure copy boundaries: no symbolic links, dependency/VCS skips, 800-file / 32-MB package limit.
+- Enabled Markdown instruction injection bounded per item and per request; no arbitrary extension code execution.
+
+Remaining: signed catalog metadata, dependency/version resolution, per-session capability selection, and audited executable extension APIs if later required.
+
+### M5 — Agent runtime adapters: next
 
 1. Implement a long-lived `codex app-server --stdio` JSON-RPC client.
 2. Generate schemas from the installed Codex version at build/test time.
@@ -54,7 +65,7 @@ Remaining: replace transcript replay with native thread IDs when Codex App Serve
 
 Acceptance: follow-ups append to the original agent session without replaying the entire transcript, partial output streams into the timeline, and approvals remain visible/user-controlled.
 
-### M5 — Browser connector: right-click actions, picker, and native host implemented
+### M6 — Browser connector: right-click actions, picker, and native host implemented
 
 - MV3 extension manifest.
 - Native context-menu actions for selected text, images, videos, and the current page.
@@ -67,7 +78,7 @@ Acceptance: follow-ups append to the original agent session without replaying th
 
 Remaining: wire the host automatically after a fixed store extension ID exists, resolve global-vs-extension shortcut precedence per browser, and add optional explicit DevTools/CDP deep-source mode.
 
-### M6 — Files, PDF, and video baseline implemented
+### M7 — Files, PDF, and video baseline implemented
 
 - Native file picker/drop already enters the conversation pipeline.
 - Text and machine-readable PDFs are extracted locally with bounded content and page metadata.
@@ -75,7 +86,7 @@ Remaining: wire the host automatically after a fixed store extension ID exists, 
 
 Remaining: OCR/page rendering for scanned PDFs, audio transcription routing, Explorer/Finder shell integration, outbound derivative preview, a bundled FFmpeg sidecar, and cleanup policies.
 
-### M7 — Distribution
+### M8 — Distribution
 
 - Windows 10/11 tests at 100/125/150/200% scaling and mixed monitors.
 - Installer creates tray/startup preferences, Native Messaging manifests, and optional Explorer action.
@@ -89,11 +100,13 @@ Remaining: OCR/page rendering for scanned PDFs, audio transcription routing, Exp
 | Frontend lint/types/tests/build | `npm run check` |
 | Rust format | `cargo fmt --manifest-path src-tauri/Cargo.toml --check` |
 | Rust compile/lints/tests | `cargo clippy --all-targets -- -D warnings`, `cargo test` |
-| Desktop smoke | `npm run tauri dev`; main, tray, overlay, click, drag, Escape |
+| Electron IPC/extensions | `node --check electron/main.js`; `npm test` |
+| Rust sidecar | `npm run build:sidecar`; JSON stdin/stdout discovery + capture/file smoke |
+| Desktop smoke | `npm run dev:electron`; main, tray, overlay, click, drag, Escape; compare Tauri fallback separately |
 | Windows native | GitHub Actions Windows plus physical mixed-DPI run |
 | Browser connector | load unpacked; click text/button/video; verify bounded payload and failure state |
 | Agent sessions | mocked JSON-RPC/SSE fixtures, then opt-in live provider smoke |
 
 ## Honest current boundary
 
-The repository now has the intended interaction shell, native capture baseline, browser host code, file extraction, background upper-right results, and local system speech. It does not yet claim production-ready Windows/macOS packaging, installed browser Native Messaging manifests, exact macOS arbitrary-app text ranges, OCR, direct API transport, or a completed Codex App Server/OpenCode session adapter. Codex Realtime audio is represented as an explicitly disabled experimental route until streaming playback is implemented. Those are implementation gates, not completed features.
+The repository now has the Electron client shell, Rust native sidecar, declarative plugin/Skill manager, native capture baseline, browser host code, file extraction, background upper-right results, and local system speech. Source/build success is separate from packaged runtime permission parity: the stable Tauri app remains installed independently until Electron capture, accessibility, notification, and shortcut behavior are proven on physical macOS and Windows. The project does not yet claim production-ready Windows packaging, installed browser Native Messaging manifests, exact macOS arbitrary-app text ranges, OCR, direct API transport, or a completed Codex App Server/OpenCode session adapter. Codex Realtime audio is represented as an explicitly disabled experimental route until streaming playback is implemented.

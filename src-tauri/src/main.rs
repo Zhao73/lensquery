@@ -2,6 +2,13 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
+    if std::env::args().any(|argument| argument == "--electron-sidecar") {
+        if let Err(error) = lensquery_lib::run_electron_sidecar() {
+            eprintln!("{error}");
+            std::process::exit(1);
+        }
+        return;
+    }
     if std::env::args().any(|argument| argument == "--native-messaging-host") {
         if let Err(error) = lensquery_lib::run_native_messaging_host() {
             eprintln!("{error}");

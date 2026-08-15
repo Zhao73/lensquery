@@ -66,19 +66,19 @@ summary:focus-visible {
 @media (prefers-color-scheme: dark) {
   :root {
     color: #e8eaed;
-    background: #17191c;
-    --canvas: #17191c;
-    --surface: #202226;
-    --surface-subtle: #292c31;
-    --surface-hover: #31353b;
-    --line: #363a40;
-    --line-strong: #4a4f57;
-    --text: #e8eaed;
-    --text-secondary: #bdc1c6;
-    --text-tertiary: #9aa0a6;
-    --accent: #8ab4f8;
-    --accent-hover: #a8c7fa;
-    --accent-soft: #253b5c;
+    background: #111213;
+    --canvas: #111213;
+    --surface: #171819;
+    --surface-subtle: #1e2022;
+    --surface-hover: #27292c;
+    --line: #2c2e31;
+    --line-strong: #45484d;
+    --text: #e7e8ea;
+    --text-secondary: #b6b8bc;
+    --text-tertiary: #85888e;
+    --accent: #7897df;
+    --accent-hover: #8ea9e9;
+    --accent-soft: #26344f;
     --success: #81c995;
     --success-soft: #183b27;
     --danger: #f28b82;

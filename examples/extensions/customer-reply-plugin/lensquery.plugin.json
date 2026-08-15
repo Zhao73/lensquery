@@ -1,0 +1,9 @@
+{
+  "id": "customer-reply",
+  "name": "Customer Reply",
+  "description": "Turns grounded analysis into a concise reply in the customer's language.",
+  "version": "1.0.0",
+  "author": "LensQuery contributors",
+  "entry": "PLUGIN.md",
+  "permissions": ["prompt-context"]
+}

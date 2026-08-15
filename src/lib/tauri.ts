@@ -17,7 +17,28 @@ import type {
   Bounds,
 } from '../types/domain'
 
-export const isDesktopRuntime = () => '__TAURI_INTERNALS__' in window
+interface LensQueryDesktopBridge {
+  platform: string
+  invoke<T>(channel: string, payload?: Record<string, unknown>): Promise<T>
+  on<T>(channel: string, handler: (payload: T) => void): () => void
+  getPathForFile(file: globalThis.File): string
+}
+
+declare global {
+  interface Window {
+    lensQueryDesktop?: LensQueryDesktopBridge
+  }
+}
+
+export const isElectronRuntime = () => Boolean(window.lensQueryDesktop)
+export const isTauriRuntime = () => '__TAURI_INTERNALS__' in window
+export const isDesktopRuntime = () => isTauriRuntime() || isElectronRuntime()
+
+export async function invokeElectron<T>(channel: string, payload: Record<string, unknown> = {}): Promise<T> {
+  const bridge = window.lensQueryDesktop
+  if (!bridge) throw new Error('Electron desktop bridge is not available.')
+  return bridge.invoke<T>(channel, payload)
+}
 
 const demoProviders: ProviderProfile[] = [
   {
@@ -102,7 +123,8 @@ export const defaultSettings: AppSettings = {
 }
 
 export async function bootstrap(): Promise<BootstrapState> {
-  if (isDesktopRuntime()) {
+  if (isElectronRuntime()) return invokeElectron<BootstrapState>('bootstrap')
+  if (isTauriRuntime()) {
     const state = await invoke<BootstrapState>('bootstrap')
     const { load } = await import('@tauri-apps/plugin-store')
     const store = await load('settings.json', { autoSave: false })
@@ -151,13 +173,15 @@ function mergeProviders(base: ProviderProfile[], configured: ProviderProfile[]) 
 }
 
 export async function discoverCliProviders(): Promise<ProviderProfile[]> {
-  if (isDesktopRuntime()) return invoke<ProviderProfile[]>('discover_cli_providers')
+  if (isElectronRuntime()) return invokeElectron<ProviderProfile[]>('discoverCliProviders')
+  if (isTauriRuntime()) return invoke<ProviderProfile[]>('discover_cli_providers')
   await new Promise((resolve) => window.setTimeout(resolve, 450))
   return demoProviders
 }
 
 export async function startCapture(mode: CaptureMode): Promise<CaptureResponse> {
-  if (isDesktopRuntime()) return invoke<CaptureResponse>('start_capture', { mode })
+  if (isElectronRuntime()) return invokeElectron<CaptureResponse>('startCapture', { mode })
+  if (isTauriRuntime()) return invoke<CaptureResponse>('start_capture', { mode })
   return {
     status: 'mocked',
     message:
@@ -168,7 +192,8 @@ export async function startCapture(mode: CaptureMode): Promise<CaptureResponse> 
 }
 
 export async function completeCapture(selection: CaptureSelection): Promise<CaptureResponse> {
-  if (isDesktopRuntime()) return invoke<CaptureResponse>('complete_capture', { selection })
+  if (isElectronRuntime()) return invokeElectron<CaptureResponse>('completeCapture', { selection })
+  if (isTauriRuntime()) return invoke<CaptureResponse>('complete_capture', { selection })
   throw new Error('桌面取景层只在 Tauri 应用中运行。')
 }
 
@@ -176,7 +201,8 @@ export async function inspectCaptureTarget(
   point: Bounds,
   textScope?: string,
 ): Promise<CaptureTarget> {
-  if (isDesktopRuntime()) return invoke<CaptureTarget>('inspect_capture_target', { point, textScope })
+  if (isElectronRuntime()) return invokeElectron<CaptureTarget>('inspectCaptureTarget', { point, textScope })
+  if (isTauriRuntime()) return invoke<CaptureTarget>('inspect_capture_target', { point, textScope })
   return {
     bounds: { x: point.x - 160, y: point.y - 100, width: 320, height: 200 },
     label: '屏幕上下文',
@@ -187,12 +213,14 @@ export async function inspectCaptureTarget(
 
 export async function cancelCapture(): Promise<void> {
   if (!isDesktopRuntime()) return
-  await invoke('cancel_capture')
+  if (isElectronRuntime()) await invokeElectron('cancelCapture')
+  else await invoke('cancel_capture')
 }
 
 export async function showMainWindow(): Promise<void> {
   if (!isDesktopRuntime()) return
-  await invoke('show_main')
+  if (isElectronRuntime()) await invokeElectron('showMainWindow')
+  else await invoke('show_main')
 }
 
 export interface DesktopPermissionStatus {
@@ -202,16 +230,19 @@ export interface DesktopPermissionStatus {
 
 export async function getPermissionStatus(): Promise<DesktopPermissionStatus> {
   if (!isDesktopRuntime()) return { screenCapture: true, accessibility: true }
+  if (isElectronRuntime()) return invokeElectron<DesktopPermissionStatus>('permissionStatus')
   return invoke<DesktopPermissionStatus>('permission_status')
 }
 
 export async function openPermissionSettings(permission: 'screen' | 'accessibility'): Promise<void> {
   if (!isDesktopRuntime()) return
-  await invoke('open_permission_settings', { permission })
+  if (isElectronRuntime()) await invokeElectron('openPermissionSettings', { permission })
+  else await invoke('open_permission_settings', { permission })
 }
 
 export async function showSystemNotification(title: string, body: string): Promise<boolean> {
   if (!isDesktopRuntime()) return false
+  if (isElectronRuntime()) return invokeElectron<boolean>('showNotification', { title, body })
   return invoke<boolean>('show_notification', { title, body })
 }
 
@@ -222,18 +253,21 @@ export interface ResultToastPayload {
 
 export async function hideResultToast(): Promise<void> {
   if (!isDesktopRuntime()) return
-  await invoke('hide_result_toast')
+  if (isElectronRuntime()) await invokeElectron('hideResultToast')
+  else await invoke('hide_result_toast')
 }
 
 export async function openResultFromToast(): Promise<void> {
   if (!isDesktopRuntime()) return
-  await invoke('open_result_from_toast')
+  if (isElectronRuntime()) await invokeElectron('openResultFromToast')
+  else await invoke('open_result_from_toast')
 }
 
 export async function listenForResultToast(
   handler: (payload: ResultToastPayload) => void,
 ): Promise<() => void> {
   if (!isDesktopRuntime()) return () => undefined
+  if (isElectronRuntime()) return window.lensQueryDesktop!.on<ResultToastPayload>('lensquery://result-toast', handler)
   const { listen } = await import('@tauri-apps/api/event')
   return listen<ResultToastPayload>('lensquery://result-toast', ({ payload }) => handler(payload))
 }
@@ -245,6 +279,7 @@ export async function speakText(text: string): Promise<string> {
     window.speechSynthesis.speak(utterance)
     return 'browser-system-voice'
   }
+  if (isElectronRuntime()) return invokeElectron<string>('speakText', { text })
   return invoke<string>('speak_text', { text })
 }
 
@@ -253,7 +288,8 @@ export async function stopSpeaking(): Promise<void> {
     window.speechSynthesis.cancel()
     return
   }
-  await invoke('stop_speaking')
+  if (isElectronRuntime()) await invokeElectron('stopSpeaking')
+  else await invoke('stop_speaking')
 }
 
 export interface QueryEvidenceEvent {
@@ -267,12 +303,14 @@ export interface QueryEvidenceEvent {
 
 export async function listenForCaptureRequests(handler: () => void): Promise<() => void> {
   if (!isDesktopRuntime()) return () => undefined
+  if (isElectronRuntime()) return window.lensQueryDesktop!.on('lensquery://capture-requested', handler)
   const { listen } = await import('@tauri-apps/api/event')
   return listen('lensquery://capture-requested', handler)
 }
 
 export async function listenForCaptureErrors(handler: (message: string) => void): Promise<() => void> {
   if (!isDesktopRuntime()) return () => undefined
+  if (isElectronRuntime()) return window.lensQueryDesktop!.on<string>('lensquery://capture-error', handler)
   const { listen } = await import('@tauri-apps/api/event')
   return listen<string>('lensquery://capture-error', ({ payload }) => handler(payload))
 }
@@ -281,6 +319,7 @@ export async function listenForQueryEvidence(
   handler: (payload: QueryEvidenceEvent) => void,
 ): Promise<() => void> {
   if (!isDesktopRuntime()) return () => undefined
+  if (isElectronRuntime()) return window.lensQueryDesktop!.on<QueryEvidenceEvent>('lensquery://evidence-ready', handler)
   const { listen } = await import('@tauri-apps/api/event')
   return listen<QueryEvidenceEvent>('lensquery://evidence-ready', ({ payload }) => handler(payload))
 }
@@ -294,24 +333,28 @@ export async function listenForCaptureIntent(
   }) => void,
 ): Promise<() => void> {
   if (!isDesktopRuntime()) return () => undefined
+  if (isElectronRuntime()) return window.lensQueryDesktop!.on('lensquery://capture-intent', handler)
   const { listen } = await import('@tauri-apps/api/event')
   return listen('lensquery://capture-intent', ({ payload }) => handler(payload as Parameters<typeof handler>[0]))
 }
 
-export async function listenForNavigation(handler: (view: 'timeline' | 'providers' | 'settings') => void): Promise<() => void> {
+export async function listenForNavigation(handler: (view: 'timeline' | 'providers' | 'extensions' | 'settings') => void): Promise<() => void> {
   if (!isDesktopRuntime()) return () => undefined
+  if (isElectronRuntime()) return window.lensQueryDesktop!.on('lensquery://navigate', handler)
   const { listen } = await import('@tauri-apps/api/event')
-  return listen<'timeline' | 'providers' | 'settings'>('lensquery://navigate', ({ payload }) => handler(payload))
+  return listen<'timeline' | 'providers' | 'extensions' | 'settings'>('lensquery://navigate', ({ payload }) => handler(payload))
 }
 
 export async function listenForFilePickRequest(handler: () => void): Promise<() => void> {
   if (!isDesktopRuntime()) return () => undefined
+  if (isElectronRuntime()) return window.lensQueryDesktop!.on('lensquery://pick-files', handler)
   const { listen } = await import('@tauri-apps/api/event')
   return listen('lensquery://pick-files', handler)
 }
 
 export async function analyze(request: AnalysisRequest): Promise<AnalysisResult> {
-  if (isDesktopRuntime()) return invoke<AnalysisResult>('analyze', { request })
+  if (isElectronRuntime()) return invokeElectron<AnalysisResult>('analyze', { request })
+  if (isTauriRuntime()) return invoke<AnalysisResult>('analyze', { request })
   await new Promise((resolve) => window.setTimeout(resolve, 900))
   const source = request.files[0]?.name ?? request.captures[0]?.windowTitle ?? '当前选择'
   return {
@@ -325,7 +368,8 @@ export async function analyze(request: AnalysisRequest): Promise<AnalysisResult>
 }
 
 export async function saveSettings(settings: AppSettings): Promise<AppSettings> {
-  if (isDesktopRuntime()) {
+  if (isElectronRuntime()) return invokeElectron<AppSettings>('saveSettings', { settings })
+  if (isTauriRuntime()) {
     const saved = await invoke<AppSettings>('save_settings', { settings })
     const { load } = await import('@tauri-apps/plugin-store')
     const store = await load('settings.json', { autoSave: false })
@@ -338,7 +382,8 @@ export async function saveSettings(settings: AppSettings): Promise<AppSettings> 
 }
 
 export async function saveProvider(profile: ProviderProfile): Promise<ProviderProfile> {
-  if (isDesktopRuntime()) {
+  if (isElectronRuntime()) return invokeElectron<ProviderProfile>('saveProvider', { profile })
+  if (isTauriRuntime()) {
     const saved = await invoke<ProviderProfile>('save_provider', { profile })
     const { load } = await import('@tauri-apps/plugin-store')
     const store = await load('settings.json', { autoSave: false })
@@ -352,12 +397,14 @@ export async function saveProvider(profile: ProviderProfile): Promise<ProviderPr
 }
 
 export async function setProviderSecret(providerId: string, secret: string): Promise<boolean> {
-  if (isDesktopRuntime()) return invoke<boolean>('set_provider_secret', { providerId, secret })
+  if (isElectronRuntime()) return invokeElectron<boolean>('setProviderSecret', { providerId, secret })
+  if (isTauriRuntime()) return invoke<boolean>('set_provider_secret', { providerId, secret })
   return secret.trim().length > 0
 }
 
 export async function testProvider(profile: ProviderProfile): Promise<string> {
-  if (isDesktopRuntime()) return invoke<string>('test_provider', { profile })
+  if (isElectronRuntime()) return invokeElectron<string>('testProvider', { profile })
+  if (isTauriRuntime()) return invoke<string>('test_provider', { profile })
   await new Promise((resolve) => window.setTimeout(resolve, 500))
   return profile.kind.endsWith('cli')
     ? '桌面构建会检查可执行文件路径。'
@@ -365,7 +412,8 @@ export async function testProvider(profile: ProviderProfile): Promise<string> {
 }
 
 export async function probeVideo(path: string): Promise<VideoMetadata> {
-  if (isDesktopRuntime()) return invoke<VideoMetadata>('probe_video', { path })
+  if (isElectronRuntime()) return invokeElectron<VideoMetadata>('probeVideo', { path })
+  if (isTauriRuntime()) return invoke<VideoMetadata>('probe_video', { path })
   throw new Error('浏览器预览不能读取视频路径；桌面版将使用本地 FFprobe 检测。')
 }
 
@@ -373,17 +421,20 @@ export async function prepareVideo(
   path: string,
   maxFrames = 12,
 ): Promise<VideoPreparation> {
-  if (isDesktopRuntime()) return invoke<VideoPreparation>('prepare_video', { path, maxFrames })
+  if (isElectronRuntime()) return invokeElectron<VideoPreparation>('prepareVideo', { path, maxFrames })
+  if (isTauriRuntime()) return invoke<VideoPreparation>('prepare_video', { path, maxFrames })
   throw new Error('浏览器预览不会处理视频；桌面版将在本地抽取关键帧与音轨。')
 }
 
 export async function inspectEvidencePaths(paths: string[]): Promise<FileEvidence[]> {
   if (!isDesktopRuntime()) return []
+  if (isElectronRuntime()) return invokeElectron<FileEvidence[]>('inspectFiles', { paths })
   return invoke<FileEvidence[]>('inspect_files', { paths })
 }
 
 export async function pickEvidenceFiles(): Promise<FileEvidence[] | null> {
   if (!isDesktopRuntime()) return null
+  if (isElectronRuntime()) return invokeElectron<FileEvidence[]>('pickEvidenceFiles')
   const { open } = await import('@tauri-apps/plugin-dialog')
   const selected = await open({
     multiple: true,
@@ -402,6 +453,22 @@ export async function listenForEvidenceDrops(
   onFiles: (files: FileEvidence[]) => void,
 ): Promise<() => void> {
   if (!isDesktopRuntime()) return () => undefined
+  if (isElectronRuntime()) {
+    const prevent = (event: DragEvent) => event.preventDefault()
+    const drop = async (event: DragEvent) => {
+      event.preventDefault()
+      const paths = [...(event.dataTransfer?.files ?? [])]
+        .map((file) => window.lensQueryDesktop?.getPathForFile(file))
+        .filter((value): value is string => Boolean(value))
+      if (paths.length) onFiles(await inspectEvidencePaths(paths))
+    }
+    window.addEventListener('dragover', prevent)
+    window.addEventListener('drop', drop)
+    return () => {
+      window.removeEventListener('dragover', prevent)
+      window.removeEventListener('drop', drop)
+    }
+  }
   const { getCurrentWebview } = await import('@tauri-apps/api/webview')
   return getCurrentWebview().onDragDropEvent(async ({ payload }) => {
     if (payload.type !== 'drop') return

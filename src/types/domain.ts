@@ -3,6 +3,7 @@ export type CaptureMode = 'region' | 'element'
 export type AnalysisMode = 'identify' | 'explain' | 'how-to' | 'deep-dive' | 'customer-reply' | 'code'
 export type OutputFormat = 'adaptive' | 'summary' | 'steps' | 'report' | 'customer-reply' | 'markdown'
 export type TextScope = 'object' | 'selection' | 'word' | 'paragraph' | 'page' | 'screen'
+export type ExtensionKind = 'plugin' | 'skill'
 
 export type ProviderKind =
   | 'openai'
@@ -154,6 +155,24 @@ export interface AnalysisRequest {
   analysisMode?: AnalysisMode
   outputFormat?: OutputFormat
   annotation?: string
+  extensionInstructions?: string
+}
+
+export interface ExtensionPackage {
+  key: string
+  id: string
+  kind: ExtensionKind
+  name: string
+  description: string
+  version: string
+  author?: string
+  origin: 'lensquery' | 'codex' | 'agents' | 'installed' | string
+  managed: boolean
+  enabled: boolean
+  installPath: string
+  instructionPath?: string
+  permissions: string[]
+  compatibility: string[]
 }
 
 export interface AnalysisResult {

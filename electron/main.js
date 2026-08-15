@@ -1,0 +1,581 @@
+import { spawn } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
+import { existsSync, promises as fs } from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import process from 'node:process'
+import { fileURLToPath, pathToFileURL } from 'node:url'
+
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  globalShortcut,
+  ipcMain,
+  Menu,
+  nativeImage,
+  nativeTheme,
+  Notification,
+  safeStorage,
+  screen,
+  shell,
+  systemPreferences,
+  Tray,
+} from 'electron'
+
+import { createExtensionManager } from './extension-manager.js'
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const devUrl = process.env.LENSQUERY_DEV_URL
+const isDevelopment = Boolean(devUrl)
+const stateFileName = 'desktop-state.json'
+const eventQueueDirectory = path.join(os.tmpdir(), 'lensquery-native-messaging')
+
+const defaultSettings = {
+  shortcut: 'CommandOrControl+Shift+Space',
+  language: 'zh-CN',
+  responseLanguage: 'zh-CN',
+  detectCustomerLanguage: true,
+  replyStyle: 'customer-ready',
+  customReplyInstruction: '',
+  saveHistory: true,
+  retainImages: false,
+  showPreview: false,
+  defaultProviderId: 'codex-cli',
+  defaultAnalysisMode: 'explain',
+  defaultOutputFormat: 'adaptive',
+  launchAtStartup: true,
+  notificationsEnabled: true,
+  notificationPreview: true,
+  resultPresentation: 'notification',
+  voiceMode: 'system',
+  autoPlayVoice: false,
+}
+
+const defaultProviders = [
+  provider('openai', 'OpenAI', 'openai', 'gpt-5', false, true),
+  provider('anthropic', 'Anthropic', 'anthropic', 'claude-sonnet-4-5', false, true),
+  provider('codex-cli', 'Codex CLI', 'codex-cli', 'default', true, true),
+  provider('claude-cli', 'Claude Code', 'claude-cli', 'default', true, false),
+  provider('opencode-cli', 'OpenCode', 'opencode-cli', 'default', true, true),
+  provider('grok-cli', 'Grok CLI', 'grok-cli', 'grok-build', true, false),
+]
+
+let mainWindow
+let captureWindow
+let tray
+let speakingProcess
+let state
+let extensionManager
+let queueTimer
+let saveStateQueue = Promise.resolve()
+
+function debugRuntime(event, details = {}) {
+  if (process.env.LENSQUERY_DEBUG !== '1') return
+  process.stdout.write(`[LensQuery] ${event} ${JSON.stringify(details)}\n`)
+}
+
+function provider(id, name, kind, model, cli, vision) {
+  return {
+    id,
+    name,
+    kind,
+    model,
+    ready: false,
+    secretConfigured: false,
+    capabilities: { vision, pdf: vision, files: vision, video: vision, audioTranscription: false, streaming: false },
+    cli: cli ? { command: kind.replace('-cli', ''), status: 'missing', autoDetected: true } : undefined,
+  }
+}
+
+function statePath() {
+  return path.join(app.getPath('userData'), stateFileName)
+}
+
+async function loadState() {
+  const persisted = await readJson(statePath(), {})
+  return {
+    settings: { ...defaultSettings, ...(persisted.settings || {}) },
+    providers: mergeProviders(defaultProviders, persisted.providers || []),
+    secrets: persisted.secrets || {},
+  }
+}
+
+async function saveState() {
+  const snapshot = structuredClone(state)
+  saveStateQueue = saveStateQueue.then(() => writeJsonAtomic(statePath(), snapshot))
+  await saveStateQueue
+}
+
+function mergeProviders(base, configured) {
+  const result = new Map(base.map((item) => [item.id, item]))
+  for (const item of configured) result.set(item.id, { ...(result.get(item.id) || {}), ...item })
+  return [...result.values()]
+}
+
+function rendererUrl(windowName = 'main') {
+  if (devUrl) return `${devUrl}${windowName === 'main' ? '' : `?window=${windowName}`}`
+  const file = path.join(__dirname, '..', 'dist', 'index.html')
+  const url = pathToFileURL(file)
+  if (windowName !== 'main') url.searchParams.set('window', windowName)
+  return url.href
+}
+
+async function createMainWindow() {
+  mainWindow = new BrowserWindow({
+    title: 'LensQuery',
+    width: 1240,
+    height: 820,
+    minWidth: 820,
+    minHeight: 620,
+    show: false,
+    backgroundColor: '#151617',
+    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'hidden',
+    trafficLightPosition: { x: 16, y: 16 },
+    titleBarOverlay: process.platform === 'win32' ? { color: '#151617', symbolColor: '#d6d7d9', height: 44 } : undefined,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  })
+  mainWindow.on('close', (event) => {
+    if (!app.isQuitting) {
+      event.preventDefault()
+      mainWindow.hide()
+      app.dock?.hide()
+    }
+  })
+  mainWindow.on('ready-to-show', () => {
+    if (process.argv.includes('--background')) app.dock?.hide()
+    else mainWindow.show()
+  })
+  await mainWindow.loadURL(rendererUrl())
+  if (isDevelopment && process.env.LENSQUERY_OPEN_DEVTOOLS === '1') mainWindow.webContents.openDevTools({ mode: 'detach' })
+}
+
+async function createCaptureWindow() {
+  const displays = screen.getAllDisplays()
+  const left = Math.min(...displays.map((display) => display.bounds.x))
+  const top = Math.min(...displays.map((display) => display.bounds.y))
+  const right = Math.max(...displays.map((display) => display.bounds.x + display.bounds.width))
+  const bottom = Math.max(...displays.map((display) => display.bounds.y + display.bounds.height))
+  captureWindow = new BrowserWindow({
+    x: left,
+    y: top,
+    width: Math.max(1, right - left),
+    height: Math.max(1, bottom - top),
+    show: false,
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    resizable: false,
+    movable: false,
+    hasShadow: false,
+    focusable: true,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  })
+  captureWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  captureWindow.on('closed', () => { captureWindow = undefined })
+  await captureWindow.loadURL(rendererUrl('capture'))
+}
+
+function createTray() {
+  const iconPath = isDevelopment
+    ? path.join(app.getAppPath(), 'src-tauri', 'icons', process.platform === 'darwin' ? 'tray-template-44.png' : 'icon.png')
+    : path.join(process.resourcesPath, 'icons', process.platform === 'darwin' ? 'tray-template-44.png' : 'icon.png')
+  const icon = nativeImage.createFromPath(iconPath).resize({ width: 20, height: 20 })
+  if (process.platform === 'darwin') icon.setTemplateImage(true)
+  tray = new Tray(icon)
+  tray.setToolTip('LensQuery')
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: '开始识别', click: () => void startCapture('element') },
+    { label: '分析文件…', click: () => sendEvent('lensquery://pick-files') },
+    { type: 'separator' },
+    { label: '会话时间线', click: () => navigate('timeline') },
+    { label: '插件与 Skills', click: () => navigate('extensions') },
+    { label: '设置', click: () => navigate('settings') },
+    { type: 'separator' },
+    { label: '退出 LensQuery', click: () => { app.isQuitting = true; app.quit() } },
+  ]))
+  tray.on('click', () => void startCapture('element'))
+}
+
+function showMain() {
+  if (!mainWindow) return
+  app.dock?.show()
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  mainWindow.show()
+  mainWindow.focus()
+}
+
+function navigate(view) {
+  showMain()
+  sendEvent('lensquery://navigate', view)
+}
+
+function sendEvent(channel, payload) {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload)
+  if (captureWindow && !captureWindow.isDestroyed()) captureWindow.webContents.send(channel, payload)
+}
+
+async function startCapture(mode = 'element') {
+  if (!captureWindow || captureWindow.isDestroyed()) await createCaptureWindow()
+  const displays = screen.getAllDisplays()
+  const left = Math.min(...displays.map((display) => display.bounds.x))
+  const top = Math.min(...displays.map((display) => display.bounds.y))
+  const right = Math.max(...displays.map((display) => display.bounds.x + display.bounds.width))
+  const bottom = Math.max(...displays.map((display) => display.bounds.y + display.bounds.height))
+  captureWindow.setBounds({ x: left, y: top, width: right - left, height: bottom - top })
+  sendEvent('lensquery://capture-intent', {
+    analysisMode: mode === 'region' ? 'explain' : state.settings.defaultAnalysisMode,
+    outputFormat: state.settings.defaultOutputFormat,
+    textScope: mode === 'region' ? 'screen' : 'object',
+    selectionMode: mode === 'region' ? 'region' : 'auto',
+  })
+  sendEvent('lensquery://capture-requested')
+  captureWindow.show()
+  captureWindow.focus()
+  debugRuntime('capture-started', { mode, bounds: captureWindow.getBounds() })
+  return {
+    status: 'started',
+    message: '询问模式已开启：第一次点击高亮对象，再点一次确认；拖动直接选择区域。',
+  }
+}
+
+async function completeCapture(selection) {
+  captureWindow?.hide()
+  await new Promise((resolve) => setTimeout(resolve, 130))
+  try {
+    const response = await invokeSidecar('completeCapture', { selection })
+    const sourcePath = response.evidence?.sourcePath
+    const files = sourcePath ? await invokeSidecar('inspectFiles', { paths: [sourcePath] }).catch(() => []) : []
+    sendEvent('lensquery://evidence-ready', {
+      capture: response.evidence,
+      files,
+      analysisMode: response.evidence?.analysisMode,
+      outputFormat: response.evidence?.outputFormat,
+      annotation: response.evidence?.annotation,
+    })
+    return response
+  } catch (error) {
+    sendEvent('lensquery://capture-error', String(error))
+    throw error
+  }
+}
+
+function registerShortcut(shortcut = state.settings.shortcut) {
+  globalShortcut.unregisterAll()
+  const registered = globalShortcut.register(shortcut, () => void startCapture('element'))
+  debugRuntime('shortcut-registration', { shortcut, registered })
+  if (!registered) return false
+  return true
+}
+
+function resolveSidecar() {
+  const names = process.platform === 'win32'
+    ? ['lensquery-core.exe', 'lensquery.exe']
+    : ['lensquery-core', 'lensquery']
+  const roots = isDevelopment
+    ? [path.join(app.getAppPath(), 'src-tauri', 'target', 'release')]
+    : [path.join(process.resourcesPath, 'sidecar')]
+  for (const root of roots) {
+    for (const name of names) {
+      const candidate = path.join(root, name)
+      try {
+        if (fsSyncExists(candidate)) return candidate
+      } catch {
+        // Continue to the next packaged candidate.
+      }
+    }
+  }
+  throw new Error('未找到 LensQuery Rust sidecar，请先运行 npm run build:sidecar。')
+}
+
+async function invokeSidecar(method, payload = {}) {
+  const executable = resolveSidecar()
+  const request = JSON.stringify({ method, payload })
+  return new Promise((resolve, reject) => {
+    const child = spawn(executable, ['--electron-sidecar'], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: process.env,
+    })
+    let stdout = ''
+    let stderr = ''
+    const timeout = setTimeout(() => {
+      child.kill('SIGKILL')
+      reject(new Error(`LensQuery sidecar ${method} 超时。`))
+    }, method === 'analyze' ? 100_000 : 45_000)
+    child.stdout.on('data', (chunk) => {
+      stdout += String(chunk)
+      if (stdout.length > 64 * 1024 * 1024) child.kill('SIGKILL')
+    })
+    child.stderr.on('data', (chunk) => { stderr += String(chunk).slice(0, 8_000) })
+    child.on('error', (error) => { clearTimeout(timeout); reject(error) })
+    child.on('exit', (code) => {
+      clearTimeout(timeout)
+      if (code !== 0 && !stdout) return reject(new Error(stderr.trim() || `LensQuery sidecar exit ${code}`))
+      try {
+        const response = JSON.parse(stdout)
+        if (!response.ok) reject(new Error(response.error || 'LensQuery sidecar 返回错误。'))
+        else resolve(response.result)
+      } catch (error) {
+        reject(new Error(`LensQuery sidecar 返回格式错误: ${error}; ${stderr.slice(0, 500)}`))
+      }
+    })
+    child.stdin.end(request)
+  })
+}
+
+async function discoverProviders() {
+  const providers = await invokeSidecar('discoverCliProviders', { providers: state.providers })
+  state.providers = providers
+  await saveState()
+  return providers
+}
+
+function registerIpc() {
+  handle('bootstrap', async () => ({
+    platform: `electron-${process.platform}`,
+    version: app.getVersion(),
+    providers: await discoverProviders(),
+    settings: state.settings,
+  }))
+  handle('discoverCliProviders', discoverProviders)
+  handle('startCapture', ({ mode }) => startCapture(mode))
+  handle('completeCapture', ({ selection }) => completeCapture(selection))
+  handle('inspectCaptureTarget', ({ point, textScope }) => invokeSidecar('inspectCaptureTarget', { point, textScope }))
+  handle('cancelCapture', async () => { captureWindow?.hide() })
+  handle('showMainWindow', async () => showMain())
+  handle('permissionStatus', async () => ({
+    screenCapture: process.platform !== 'darwin' || systemPreferences.getMediaAccessStatus('screen') === 'granted',
+    accessibility: process.platform !== 'darwin' || systemPreferences.isTrustedAccessibilityClient(false),
+  }))
+  handle('openPermissionSettings', ({ permission }) => openPermissionSettings(permission))
+  handle('showNotification', ({ title, body }) => showNotification(title, body))
+  handle('hideResultToast', async () => undefined)
+  handle('openResultFromToast', async () => showMain())
+  handle('speakText', ({ text }) => speakText(text))
+  handle('stopSpeaking', async () => stopSpeaking())
+  handle('saveSettings', async ({ settings }) => {
+    const previousSettings = state.settings
+    const nextSettings = { ...defaultSettings, ...settings }
+    if (!registerShortcut(nextSettings.shortcut)) {
+      registerShortcut(previousSettings.shortcut)
+      throw new Error(`全局快捷键 ${nextSettings.shortcut} 被其他应用占用。`)
+    }
+    state.settings = nextSettings
+    if (!isDevelopment) app.setLoginItemSettings({ openAtLogin: state.settings.launchAtStartup, args: ['--background'] })
+    await saveState()
+    return state.settings
+  })
+  handle('saveProvider', async ({ profile }) => {
+    state.providers = mergeProviders(state.providers, [profile])
+    await saveState()
+    return profile
+  })
+  handle('setProviderSecret', async ({ providerId, secret }) => {
+    if (!secret?.trim()) return false
+    if (!safeStorage.isEncryptionAvailable()) throw new Error('系统安全存储当前不可用。')
+    state.secrets[providerId] = safeStorage.encryptString(secret.trim()).toString('base64')
+    await saveState()
+    return true
+  })
+  handle('testProvider', ({ profile }) => testProvider(profile))
+  handle('analyze', async ({ request }) => {
+    const profile = state.providers.find((item) => item.id === request.providerId)
+    if (!profile) throw new Error('没有找到所选模型通道。')
+    const extensionInstructions = await extensionManager.collectInstructions()
+    return invokeSidecar('analyze', {
+      request: { ...request, extensionInstructions },
+      profile,
+      settings: state.settings,
+    })
+  })
+  handle('probeVideo', ({ path: sourcePath }) => invokeSidecar('probeVideo', { path: sourcePath }))
+  handle('prepareVideo', ({ path: sourcePath, maxFrames }) => invokeSidecar('prepareVideo', { path: sourcePath, maxFrames }))
+  handle('inspectFiles', ({ paths }) => invokeSidecar('inspectFiles', { paths }))
+  handle('pickEvidenceFiles', pickEvidenceFiles)
+  handle('extensions:list', () => extensionManager.list())
+  handle('extensions:installFolder', async ({ kind }) => {
+    const result = await dialog.showOpenDialog(mainWindow, { properties: ['openDirectory', 'createDirectory'] })
+    if (result.canceled || !result.filePaths[0]) return null
+    const installed = await extensionManager.install({ kind, source: result.filePaths[0] })
+    sendEvent('lensquery://extensions-changed')
+    return installed
+  })
+  handle('extensions:installSource', async ({ kind, source }) => {
+    const installed = await extensionManager.install({ kind, source })
+    sendEvent('lensquery://extensions-changed')
+    return installed
+  })
+  handle('extensions:setEnabled', async ({ key, enabled }) => {
+    const updated = await extensionManager.setEnabled(key, enabled)
+    sendEvent('lensquery://extensions-changed')
+    return updated
+  })
+  handle('extensions:remove', async ({ key }) => {
+    const target = await extensionManager.remove(key)
+    await shell.trashItem(target.installPath)
+    sendEvent('lensquery://extensions-changed')
+    return true
+  })
+  handle('extensions:openFolder', async ({ filePath }) => shell.openPath(filePath))
+}
+
+function handle(channel, handler) {
+  ipcMain.handle(`lensquery:${channel}`, (_event, payload = {}) => Promise.resolve(handler(payload)))
+}
+
+async function pickEvidenceFiles() {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openFile', 'multiSelections'],
+    filters: [
+      { name: '支持的证据', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'mp4', 'mov', 'm4v', 'webm', 'mkv', 'avi', 'wmv', 'mpeg', 'mpg', 'pdf', 'txt', 'md', 'json', 'csv', 'log', 'xml', 'html', 'css', 'js', 'ts', 'tsx'] },
+      { name: '所有文件', extensions: ['*'] },
+    ],
+  })
+  if (result.canceled) return []
+  return invokeSidecar('inspectFiles', { paths: result.filePaths })
+}
+
+async function testProvider(profile) {
+  if (!profile.kind.endsWith('-cli')) return '直接 API 连接测试将在凭据出站预览完成后开启。'
+  const refreshed = await discoverProviders()
+  const found = refreshed.find((item) => item.id === profile.id)
+  if (!found?.ready) throw new Error(`没有找到 ${profile.name} 可执行文件。`)
+  return `${found.name} 已就绪${found.cli?.version ? ` · ${found.cli.version}` : ''}`
+}
+
+async function openPermissionSettings(permission) {
+  if (process.platform === 'darwin') {
+    const pane = permission === 'accessibility' ? 'Privacy_Accessibility' : 'Privacy_ScreenCapture'
+    await shell.openExternal(`x-apple.systempreferences:com.apple.preference.security?${pane}`)
+    return
+  }
+  if (process.platform === 'win32') await shell.openExternal('ms-settings:privacy-screenshots')
+}
+
+function showNotification(title, body) {
+  if (!Notification.isSupported()) return false
+  const notification = new Notification({ title: String(title).slice(0, 120), body: String(body).slice(0, 1_000), silent: false })
+  notification.on('click', showMain)
+  notification.show()
+  return true
+}
+
+function speakText(text) {
+  stopSpeaking()
+  if (process.platform === 'darwin') {
+    speakingProcess = spawn('/usr/bin/say', ['--', String(text).slice(0, 20_000)], { stdio: 'ignore' })
+    return 'macos-say'
+  }
+  if (process.platform === 'win32') {
+    const escaped = String(text).slice(0, 20_000).replaceAll("'", "''")
+    speakingProcess = spawn('powershell.exe', ['-NoProfile', '-Command', `Add-Type -AssemblyName System.Speech; (New-Object System.Speech.Synthesis.SpeechSynthesizer).Speak('${escaped}')`], { stdio: 'ignore', windowsHide: true })
+    return 'windows-sapi'
+  }
+  return 'renderer-speech'
+}
+
+function stopSpeaking() {
+  speakingProcess?.kill('SIGTERM')
+  speakingProcess = undefined
+}
+
+async function pollBrowserQueue() {
+  await fs.mkdir(eventQueueDirectory, { recursive: true })
+  const entries = (await fs.readdir(eventQueueDirectory, { withFileTypes: true }).catch(() => []))
+    .filter((entry) => entry.isFile() && entry.name.endsWith('.json'))
+    .slice(0, 16)
+  for (const entry of entries) {
+    const file = path.join(eventQueueDirectory, entry.name)
+    const context = await readJson(file, null)
+    await fs.rm(file, { force: true })
+    if (!context) continue
+    const capture = context.snapshotPreviewUrl && context.snapshotPath
+      ? {
+          id: randomUUID(),
+          kind: 'element',
+          previewUrl: context.snapshotPreviewUrl,
+          bounds: context.snapshotBounds || { x: 0, y: 0, width: 1, height: 1 },
+          windowTitle: context.title,
+          processName: 'Browser',
+          accessibleText: `网页右键目标: ${context.contextMenuKind || '当前对象'}`,
+          textScope: context.contextMenuKind === 'selection' ? 'selection' : context.contextMenuKind === 'page' ? 'page' : 'object',
+        }
+      : undefined
+    sendEvent('lensquery://evidence-ready', {
+      capture,
+      files: [],
+      analysisMode: context.analysisMode,
+      outputFormat: context.outputFormat,
+      annotation: context.annotation,
+      browserContext: context,
+    })
+  }
+}
+
+function fsSyncExists(file) {
+  return existsSync(file)
+}
+
+async function readJson(file, fallback) {
+  try {
+    return JSON.parse(await fs.readFile(file, 'utf8'))
+  } catch {
+    return fallback
+  }
+}
+
+async function writeJsonAtomic(file, value) {
+  await fs.mkdir(path.dirname(file), { recursive: true })
+  const temporary = `${file}.${process.pid}.${randomUUID()}.tmp`
+  await fs.writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 })
+  await fs.rename(temporary, file)
+}
+
+if (!app.requestSingleInstanceLock()) {
+  app.quit()
+} else {
+  app.on('second-instance', showMain)
+  app.whenReady().then(async () => {
+    app.setName('LensQuery')
+    nativeTheme.themeSource = process.env.LENSQUERY_THEME === 'dark' ? 'dark' : process.env.LENSQUERY_THEME === 'light' ? 'light' : 'system'
+    state = await loadState()
+    extensionManager = createExtensionManager(app.getPath('userData'))
+    registerIpc()
+    await createMainWindow()
+    await createCaptureWindow()
+    createTray()
+    registerShortcut(state.settings.shortcut)
+    queueTimer = setInterval(() => void pollBrowserQueue(), 350)
+    if (process.env.LENSQUERY_CAPTURE_PATH) {
+      const targetView = process.env.LENSQUERY_CAPTURE_VIEW
+      setTimeout(async () => {
+        if (targetView) sendEvent('lensquery://navigate', targetView)
+        await new Promise((resolve) => setTimeout(resolve, 650))
+        const image = await mainWindow.webContents.capturePage()
+        await fs.writeFile(process.env.LENSQUERY_CAPTURE_PATH, image.toPNG())
+        process.stdout.write(`LensQuery screenshot: ${process.env.LENSQUERY_CAPTURE_PATH}\n`)
+      }, 1_200)
+    }
+  })
+}
+
+app.on('activate', showMain)
+app.on('window-all-closed', () => undefined)
+app.on('before-quit', () => {
+  app.isQuitting = true
+  clearInterval(queueTimer)
+  globalShortcut.unregisterAll()
+  stopSpeaking()
+})

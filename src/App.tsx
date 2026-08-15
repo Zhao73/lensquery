@@ -5,19 +5,21 @@ import {
   Check,
   ClockCounterClockwise,
   Copy,
-  FileCode,
   HighlighterCircle,
-  ListNumbers,
   NotePencil,
   SpeakerHigh,
   SpeakerSlash,
-  TextAlignLeft,
   CursorClick,
+  DownloadSimple,
   File,
+  FolderOpen,
   Gear,
   Globe,
   MagnifyingGlass,
   PaperPlaneTilt,
+  PlugsConnected,
+  Plus,
+  PuzzlePiece,
   Question,
   Scan,
   SidebarSimple,
@@ -42,6 +44,7 @@ import {
   hideResultToast,
   inspectCaptureTarget,
   isDesktopRuntime,
+  isElectronRuntime,
   listenForCaptureRequests,
   listenForCaptureErrors,
   listenForCaptureIntent,
@@ -64,6 +67,15 @@ import {
   testProvider,
   prepareVideo,
 } from './lib/tauri'
+import {
+  installExtensionFolder,
+  installExtensionSource,
+  listExtensions,
+  listenForExtensionChanges,
+  openExtensionFolder,
+  removeExtension,
+  setExtensionEnabled,
+} from './lib/extensions'
 import { useAppStore, type View } from './store/app'
 import type {
   AnalysisMode,
@@ -75,6 +87,8 @@ import type {
   CaptureTarget,
   ConversationMessage,
   FileEvidence,
+  ExtensionKind,
+  ExtensionPackage,
   OutputFormat,
   ProviderProfile,
   QuerySession,
@@ -146,6 +160,7 @@ function shortcutParts(shortcut: string) {
 function App() {
   const windowName = new URLSearchParams(window.location.search).get('window') ?? 'main'
   document.documentElement.dataset.lensqueryWindow = windowName
+  document.documentElement.dataset.runtime = isElectronRuntime() ? 'electron' : '__TAURI_INTERNALS__' in window ? 'tauri' : 'browser'
   document.body.dataset.lensqueryWindow = windowName
   if (windowName === 'capture') {
     return <CaptureOverlay />
@@ -501,12 +516,19 @@ function ConversationApp() {
   const navigation: Array<{ id: View; label: string; icon: typeof ClockCounterClockwise }> = [
     { id: 'timeline', label: '会话', icon: ClockCounterClockwise },
     { id: 'providers', label: '模型', icon: TerminalWindow },
+    { id: 'extensions', label: '扩展', icon: PuzzlePiece },
     { id: 'settings', label: '设置', icon: Gear },
   ]
+  const viewTitle = view === 'timeline'
+    ? activeSession?.title || '新会话'
+    : view === 'providers'
+      ? '模型与本机智能体'
+      : view === 'extensions'
+        ? '插件与 Skills'
+        : '设置'
   const shellClass = [
     'shell',
     !sidebarOpen && 'sidebar-collapsed',
-    view !== 'timeline' && 'single-surface',
   ].filter(Boolean).join(' ')
 
   return (
@@ -519,19 +541,25 @@ function ConversationApp() {
         FORM: desktop agent workbench, seed 0ec9ea5f.
         FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md
       */}
-      {view === 'timeline' && (
+      {sidebarOpen && (
         <aside className="conversation-sidebar" aria-label="查询时间线">
+          <div className="sidebar-brand">
+            <button type="button" className="wordmark" onClick={() => setView('timeline')}><img src="./brand/lensquery-mark.svg" alt="" />LensQuery</button>
+            <button type="button" className="icon-button" aria-label="搜索会话" onClick={() => document.querySelector<HTMLInputElement>('.search-box input')?.focus()}><MagnifyingGlass size={17} /></button>
+          </div>
           <div className="sidebar-head">
+            <button type="button" className="new-session-button" onClick={() => { setActiveSession(null); setView('timeline') }}>
+              <Plus size={17} />新建会话
+            </button>
             <button type="button" className="capture-button" onClick={beginCapture}>
-              <Question size={18} weight="bold" />
-              快速询问
-              <kbd>{shortcutParts(settings.shortcut).join(' ')}</kbd>
+              <Question size={17} weight="bold" />开始识别<kbd>{shortcutParts(settings.shortcut).join(' ')}</kbd>
             </button>
             <div className="search-box">
               <MagnifyingGlass size={16} />
               <input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="搜索会话" aria-label="搜索会话" />
             </div>
           </div>
+          <div className="sidebar-section-label"><span>最近会话</span><small>{visibleSessions.length}</small></div>
           <div className="session-list">
             {visibleSessions.length ? visibleSessions.map((session) => (
               <button
@@ -553,35 +581,30 @@ function ConversationApp() {
           {sessions.length > 0 && (
             <button type="button" className="clear-history" onClick={clearSessions}><Trash size={15} />清空本地记录</button>
           )}
+          <nav className="sidebar-navigation" aria-label="主导航">
+            {navigation.map((item) => {
+              const Icon = item.icon
+              return <button type="button" key={item.id} className={view === item.id ? 'sidebar-nav-item active' : 'sidebar-nav-item'} onClick={() => { setView(item.id); if (isNarrow) setSidebarOpen(false) }}><Icon size={17} /><span>{item.label}</span></button>
+            })}
+          </nav>
         </aside>
       )}
 
-      {view === 'timeline' && isNarrow && sidebarOpen && (
+      {isNarrow && sidebarOpen && (
         <button type="button" className="sidebar-backdrop" aria-label="关闭会话侧栏" onClick={() => setSidebarOpen(false)} />
       )}
 
       <main className="main-surface" inert={isNarrow && sidebarOpen ? true : undefined}>
         <header className="app-bar">
           <div className="app-bar-left">
-            {view === 'timeline' && (
-              <button type="button" className="icon-button" onClick={() => setSidebarOpen((value) => !value)} aria-label="切换侧栏"><SidebarSimple size={20} /></button>
-            )}
-            <button type="button" className="wordmark" onClick={() => setView('timeline')}><img src="/brand/lensquery-mark.svg" alt="" />LensQuery</button>
+            <button type="button" className="icon-button" onClick={() => setSidebarOpen((value) => !value)} aria-label="切换侧栏"><SidebarSimple size={19} /></button>
+            <strong className="surface-title">{viewTitle}</strong>
             <span className="resident-state"><i />后台待命</span>
           </div>
-          <nav aria-label="主导航">
-            {navigation.map((item) => {
-              const Icon = item.icon
-              return (
-                <button type="button" key={item.id} className={view === item.id ? 'top-nav active' : 'top-nav'} onClick={() => {
-                  setView(item.id)
-                  if (isNarrow) setSidebarOpen(false)
-                }}>
-                  <Icon size={17} />{item.label}
-                </button>
-              )
-            })}
-          </nav>
+          <div className="app-bar-actions">
+            {selectedProvider && <button type="button" className="runtime-chip" onClick={() => setView('providers')}><TerminalWindow size={15} /><span>{selectedProvider.name}</span><small>{selectedProvider.model}</small></button>}
+            <button type="button" className="toolbar-capture" onClick={beginCapture}><CursorClick size={16} />识别屏幕</button>
+          </div>
         </header>
 
         {captureStatus && (
@@ -626,6 +649,7 @@ function ConversationApp() {
             onRescan={async () => { const profiles = await discoverCliProviders(); setProviders(profiles); return profiles }}
           />
         )}
+        {view === 'extensions' && <ExtensionsPanel />}
         {view === 'settings' && <SettingsPanel settings={settings} onSave={async (next) => { const saved = await saveSettings(next); setSettings(saved) }} />}
       </main>
       {pendingSubmission && (
@@ -797,36 +821,26 @@ function EmptyTimeline(props: {
 }) {
   return (
     <section className="empty-timeline workbench-empty">
-      <div className="empty-instruction workbench-intro">
-        <div className="question-cursor"><HighlighterCircle size={23} weight="duotone" /></div>
-        <div>
-          <h1>在任何地方划出问题</h1>
-          <p>按一次快捷键，点对象或圈出区域；文字可以按所选内容、单词、段落或全文读取，并附上一句批注。</p>
-        </div>
+      <div className="empty-hero">
+        <div className="question-cursor"><HighlighterCircle size={25} weight="duotone" /></div>
+        <h1>询问屏幕上的任何内容</h1>
+        <p>选择文字、图片、PDF、视频、程序或一块区域，LensQuery 会带着周围上下文开始分析。</p>
       </div>
-      <button type="button" className="primary-button empty-primary" onClick={props.onCapture}>
-        <CursorClick size={18} />开启系统批注
-        <span className="shortcut-line">{shortcutParts(props.shortcut).map((part, index) => <span className="shortcut-part" key={`${part}-${index}`}>{index > 0 && <span>+</span>}<kbd>{part}</kbd></span>)}</span>
-      </button>
-      <div className="analysis-console">
-        <div className="analysis-modes" role="group" aria-label="分析方式">
-          {analysisModes.map((mode) => {
-            const Icon = mode.id === 'code' ? FileCode : mode.id === 'how-to' ? ListNumbers : mode.id === 'deep-dive' ? Sparkle : mode.id === 'customer-reply' ? NotePencil : TextAlignLeft
-            return <button type="button" key={mode.id} className={props.analysisMode === mode.id ? 'analysis-mode selected' : 'analysis-mode'} onClick={() => props.onAnalysisMode(mode.id)}><Icon size={17} /><span><strong>{mode.label}</strong><small>{mode.hint}</small></span></button>
-          })}
-        </div>
-        <div className="annotation-composer">
-          <textarea value={props.annotation} onChange={(event) => props.onAnnotation(event.target.value)} maxLength={1000} placeholder="简单注释（可选），例如：重点解释红色报错，并给出验证步骤" />
-          <div className="composer-footer">
-            <button type="button" className="file-entry" onClick={props.onOpenFiles}><File size={16} />图片、PDF、视频或代码</button>
-            <label>回复格式<select value={props.outputFormat} onChange={(event) => props.onOutputFormat(event.target.value as OutputFormat)}>{outputFormats.map((format) => <option value={format.id} key={format.id}>{format.label}</option>)}</select></label>
+      <div className="analysis-console launch-console">
+        <form className="launch-composer" onSubmit={(event) => { event.preventDefault(); props.onSubmit() }}>
+          <textarea value={props.query} onChange={(event) => props.onQuery(event.target.value)} placeholder="描述你想理解或分析的内容" aria-label="直接输入问题" />
+          <input value={props.annotation} onChange={(event) => props.onAnnotation(event.target.value)} maxLength={1000} placeholder="补充一句要求（可选）" aria-label="补充要求" />
+          <div className="launch-footer">
+            <div>
+              <button type="button" className="composer-icon-button" onClick={props.onOpenFiles} aria-label="选择图片、PDF、视频或代码"><Plus size={18} /></button>
+              <label><select value={props.analysisMode} onChange={(event) => props.onAnalysisMode(event.target.value as AnalysisMode)} aria-label="分析方式">{analysisModes.map((mode) => <option key={mode.id} value={mode.id}>{mode.label}</option>)}</select></label>
+              <label><select value={props.outputFormat} onChange={(event) => props.onOutputFormat(event.target.value as OutputFormat)} aria-label="回复格式">{outputFormats.map((format) => <option value={format.id} key={format.id}>{format.label}</option>)}</select></label>
+            </div>
+            <button type="submit" className="launch-send" disabled={!props.query.trim()} aria-label="发送文字问题"><PaperPlaneTilt size={18} weight="fill" /></button>
           </div>
-        </div>
-        <form className="text-question" onSubmit={(event) => { event.preventDefault(); props.onSubmit() }}>
-          <input value={props.query} onChange={(event) => props.onQuery(event.target.value)} placeholder="或者直接输入问题" aria-label="直接输入问题" />
-          <button type="submit" disabled={!props.query.trim()} aria-label="发送文字问题"><PaperPlaneTilt size={17} weight="fill" /></button>
         </form>
       </div>
+      <button type="button" className="screen-launch" onClick={props.onCapture}><CursorClick size={17} />从屏幕选择<span className="shortcut-line">{shortcutParts(props.shortcut).map((part, index) => <span className="shortcut-part" key={`${part}-${index}`}>{index > 0 && <span>+</span>}<kbd>{part}</kbd></span>)}</span></button>
     </section>
   )
 }
@@ -865,6 +879,112 @@ function ProvidersPanel(props: {
       </div>
       <div className="runtime-note"><strong>推荐底座</strong><p>Codex 使用 App Server 承载线程、回合、流式事件和追问；OpenCode 使用 Server / SDK；其他智能体通过 ACP 或受限 CLI 适配。界面不复制任何一个终端，只复用它们的会话运行时。</p></div>
       {editing && <ProviderEditor profile={editing} onClose={() => setEditing(null)} onSave={async (profile, secret) => { if (secret) await setProviderSecret(profile.id, secret); await props.onSave({ ...profile, ready: profile.kind.endsWith('cli') ? profile.ready : Boolean(secret) || profile.secretConfigured, secretConfigured: Boolean(secret) || profile.secretConfigured }); setEditing(null); setMessage('配置已保存') }} />}
+    </section>
+  )
+}
+
+function ExtensionsPanel() {
+  const [kind, setKind] = useState<ExtensionKind>('plugin')
+  const [packages, setPackages] = useState<ExtensionPackage[]>([])
+  const [source, setSource] = useState('')
+  const [busy, setBusy] = useState('')
+  const [message, setMessage] = useState('')
+  const [error, setError] = useState('')
+  const electronAvailable = isElectronRuntime()
+
+  async function refresh() {
+    if (!electronAvailable) return
+    setPackages(await listExtensions())
+  }
+
+  useEffect(() => {
+    void refresh().catch((cause) => setError(String(cause)))
+    let dispose: (() => void) | undefined
+    void listenForExtensionChanges(() => { void refresh() }).then((unlisten) => { dispose = unlisten })
+    return () => dispose?.()
+  // The bridge is fixed for the lifetime of this renderer.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [electronAvailable])
+
+  const visible = packages.filter((item) => item.kind === kind)
+
+  async function installFolder() {
+    setBusy('folder')
+    setError('')
+    try {
+      const installed = await installExtensionFolder(kind)
+      if (installed) {
+        setMessage(`${installed.name} 已安装并启用`)
+        await refresh()
+      }
+    } catch (cause) {
+      setError(String(cause))
+    } finally {
+      setBusy('')
+    }
+  }
+
+  async function installSource() {
+    if (!source.trim()) return
+    setBusy('source')
+    setError('')
+    try {
+      const installed = await installExtensionSource(kind, source.trim())
+      setSource('')
+      setMessage(`${installed.name} 已安装并启用`)
+      await refresh()
+    } catch (cause) {
+      setError(String(cause))
+    } finally {
+      setBusy('')
+    }
+  }
+
+  return (
+    <section className="settings-surface extension-surface">
+      <header className="section-heading extension-heading">
+        <div><h1>插件与 Skills</h1><p>安装本地能力包，选择哪些指令会加入分析上下文。默认不执行扩展中的代码。</p></div>
+        <button type="button" className="secondary-button" disabled={!electronAvailable || Boolean(busy)} onClick={() => void installFolder()}><FolderOpen size={16} />{busy === 'folder' ? '正在安装' : '从文件夹安装'}</button>
+      </header>
+
+      {!electronAvailable && <div className="extension-runtime-note"><PlugsConnected size={18} /><span><strong>Electron 扩展运行时</strong><small>该管理器在 Electron 客户端中启用；现有 Tauri 版仍保留作为回滚。</small></span></div>}
+      {message && <div className="inline-note"><Check size={16} />{message}</div>}
+      {error && <div className="extension-error" role="alert"><WarningCircle size={17} /><span>{error}</span><button type="button" className="icon-button" onClick={() => setError('')} aria-label="关闭错误"><X size={14} /></button></div>}
+
+      <div className="extension-toolbar">
+        <div className="extension-tabs" role="tablist" aria-label="扩展类型">
+          <button type="button" role="tab" aria-selected={kind === 'plugin'} className={kind === 'plugin' ? 'active' : ''} onClick={() => setKind('plugin')}><PlugsConnected size={16} />插件 <small>{packages.filter((item) => item.kind === 'plugin').length}</small></button>
+          <button type="button" role="tab" aria-selected={kind === 'skill'} className={kind === 'skill' ? 'active' : ''} onClick={() => setKind('skill')}><PuzzlePiece size={16} />Skills <small>{packages.filter((item) => item.kind === 'skill').length}</small></button>
+        </div>
+        <button type="button" className="quiet-action" disabled={!electronAvailable || Boolean(busy)} onClick={() => { setMessage(''); void refresh().catch((cause) => setError(String(cause))) }}><ArrowCounterClockwise size={15} />重新扫描</button>
+      </div>
+
+      <form className="extension-source" onSubmit={(event) => { event.preventDefault(); void installSource() }}>
+        <DownloadSimple size={17} />
+        <input value={source} onChange={(event) => setSource(event.target.value)} disabled={!electronAvailable || Boolean(busy)} placeholder="GitHub / Git 地址，或本地目录路径" aria-label="扩展安装来源" />
+        <button type="submit" className="primary-button" disabled={!electronAvailable || !source.trim() || Boolean(busy)}>{busy === 'source' ? '校验中' : '安装'}</button>
+      </form>
+
+      <div className="extension-list">
+        {visible.length ? visible.map((item) => (
+          <article className="extension-row" key={item.key}>
+            <div className="extension-mark">{item.kind === 'plugin' ? <PlugsConnected size={20} /> : <PuzzlePiece size={20} />}</div>
+            <div className="extension-copy">
+              <div><strong>{item.name}</strong><span>{item.version}</span>{item.origin !== 'lensquery' && <span>{item.origin}</span>}</div>
+              <p>{item.description}</p>
+              <div className="extension-meta">{item.permissions.map((permission) => <code key={permission}>{permission}</code>)}<small>{item.compatibility.join(' · ')}</small></div>
+            </div>
+            <div className="extension-actions">
+              <button type="button" className={item.enabled ? 'extension-switch enabled' : 'extension-switch'} aria-pressed={item.enabled} aria-label={`${item.enabled ? '停用' : '启用'} ${item.name}`} onClick={async () => { setBusy(item.key); try { await setExtensionEnabled(item.key, !item.enabled); await refresh() } catch (cause) { setError(String(cause)) } finally { setBusy('') } }}><i /></button>
+              <button type="button" className="quiet-action" onClick={() => void openExtensionFolder(item.installPath)}><FolderOpen size={15} />位置</button>
+              {item.managed && <button type="button" className="quiet-action danger" onClick={async () => { if (!window.confirm(`将 ${item.name} 移到废纸篓？`)) return; setBusy(item.key); try { await removeExtension(item.key); await refresh() } catch (cause) { setError(String(cause)) } finally { setBusy('') } }}><Trash size={15} />移除</button>}
+            </div>
+          </article>
+        )) : (
+          <div className="extension-empty"><div>{kind === 'plugin' ? <PlugsConnected size={25} /> : <PuzzlePiece size={25} />}</div><strong>{kind === 'plugin' ? '还没有安装插件' : '没有发现 Skill'}</strong><p>{kind === 'plugin' ? '插件包需要 lensquery.plugin.json 和一个 Markdown 指令入口。' : 'LensQuery 会扫描 ~/.codex/skills 和 ~/.agents/skills，也可直接安装包含 SKILL.md 的目录。'}</p></div>
+        )}
+      </div>
+      <div className="extension-safety"><strong>扩展边界</strong><p>当前只读取已启用包的 Markdown 指令并作为分析指导；不直接执行 JavaScript、Shell 或扩展声称的任何外部动作。安装时拒绝符号链接，限制为 800 个文件和 32 MB。</p></div>
     </section>
   )
 }

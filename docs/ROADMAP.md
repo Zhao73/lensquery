@@ -3,7 +3,7 @@
 ## 0.1 Foundation
 
 - [x] Product and implementation specification
-- [x] Tauri/React/Rust repository scaffold
+- [x] Electron/React client with a Rust native sidecar; Tauri retained as migration fallback
 - [x] Main application shell and provider-independent contracts
 - [x] Browser-safe mock bridge for interface development
 - [x] Core CI checks

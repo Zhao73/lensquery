@@ -22,10 +22,13 @@ flowchart LR
 
 ## Processes and windows
 
-- **Resident Tauri process:** owns tray, global shortcut, model processes, capture, credentials, and local storage.
-- **`main` window:** a plain conversation workbench. Closing hides it; it does not terminate the resident process.
-- **`capture` window:** transparent, borderless, always-on-top overlay spanning the virtual desktop. Its custom cursor is a question mark. It distinguishes a click from a drag by movement threshold.
+- **Resident Electron main process:** owns the tray, global shortcut, window lifecycle, OS notifications/speech, login item, encrypted secret storage, file dialogs, browser-queue handoff, and extension manager.
+- **Sandboxed renderer:** React/TypeScript workbench loaded with `contextIsolation`, `sandbox`, no Node integration, and a channel allowlist exposed by `preload.cjs`.
+- **Rust sidecar:** the existing `lensquery` binary starts with `--electron-sidecar`, accepts one bounded JSON request on stdin, returns one JSON envelope on stdout, then exits. It owns native capture/accessibility, local file/PDF/video preparation, CLI discovery, and CLI analysis. It does not expose a listening port.
+- **`main` window:** a coding-agent-style conversation workbench. Closing hides it and its Dock presence; it does not terminate the resident tray process.
+- **`capture` window:** transparent, borderless, always-on-top Electron overlay spanning the virtual desktop. Its custom cursor is a question mark. It distinguishes a click from a drag by movement threshold and delegates native inspection/capture to the Rust sidecar.
 - **Browser companion extension:** reads the explicitly clicked DOM element through `activeTab` and content-script APIs, sanitizes a bounded context package, and forwards it through a Native Messaging host.
+- **Tauri migration fallback:** remains buildable and installed separately while Electron permission attribution, mixed-DPI selection, and packaged sidecar behavior are verified. It is not the target client architecture.
 
 ## Agent runtime foundation
 
@@ -51,17 +54,17 @@ Agent Client Protocol is the portable adapter boundary for ACP-compatible agents
 
 ### Explicit non-choice
 
-The production application does not use Ink, Bubble Tea, Ratatui, or another TUI as its UI foundation. Those libraries are appropriate for terminal rendering; LensQuery is a native resident desktop surface. Tauri/Rust remains the shell, and agent servers remain the execution foundation.
+The production application does not use Ink, Bubble Tea, Ratatui, or another TUI as its UI foundation. Those libraries are appropriate for terminal rendering; LensQuery is a resident desktop surface. Electron is the client shell, Rust remains the native capability core, and agent servers remain the planned long-lived execution foundation.
 
 ## Capture pipeline
 
-1. The global shortcut calls `request_capture` from Rust.
+1. The Electron global shortcut opens the transparent capture renderer and sends it the persisted capture intent.
 2. The capture window covers all monitors using virtual-screen coordinates.
 3. A click temporarily hides the overlay, resolves the underlying accessibility/file target, then restores the overlay around the real bounds; a second click confirms it. A dragged rectangle bypasses this target-confirmation step.
 4. LensQuery hides its overlay before target inspection and final pixel acquisition.
 5. On Windows, UI Automation resolves the click to a role, name, class, AutomationId, true element rectangle, and word/paragraph/document range when exposed. On macOS, Accessibility reads bounded `AXSelectedText`, `AXValue`, or title context when the user grants permission.
 6. XCap captures the bounded region to a local temporary PNG.
-7. The main process receives `lensquery://evidence-ready` and immediately creates a pending conversation.
+7. The Rust sidecar returns evidence to Electron; the main process emits `lensquery://evidence-ready` and the renderer immediately creates a pending conversation.
 8. The selected agent adapter receives the evidence and streams/returns the answer.
 9. LensQuery follows the configured result presentation: permission-independent upper-right card, conversation window, or both. The local conversation keeps the selected image/file metadata, full answer, media quick actions, and follow-up context.
 
@@ -98,4 +101,9 @@ The default extension uses `activeTab`, `contextMenus`, `scripting`, and `native
 - Browser HTML is bounded and strips common secret-bearing attributes and scripts before transport.
 - Agent tool permissions stay disabled for ordinary visual explanation. A later source-code workspace mode must be a distinct, explicit user action.
 - Optional outbound preview pauses the request with a removable context summary; disabling it restores the one-shortcut direct path.
+- Preload exposes only named IPC methods/events. The renderer has no filesystem, process, or shell access.
+- Electron API secrets are encrypted with `safeStorage`; desktop JSON stores only ciphertext and non-secret state.
+- Plugin and Skill installation accepts a local directory or Git repository, rejects symbolic links, skips VCS/dependency trees, and limits copied content to 800 files / 32 MB.
+- Managed Skills install to `~/.codex/skills`; existing `~/.agents/skills` packages are discovered read-only. Removal uses the operating-system Trash.
+- Enabled packages contribute bounded Markdown instructions only (12,000 characters each, 40,000 total). JavaScript, shell files, and manifest-declared permissions are never executed by the extension manager.
 - Captured PNGs are deleted after the request unless retention is enabled. History and image retention are independent settings.

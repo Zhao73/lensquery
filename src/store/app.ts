@@ -8,7 +8,7 @@ import type {
   QuerySession,
 } from '../types/domain'
 
-export type View = 'timeline' | 'providers' | 'settings'
+export type View = 'timeline' | 'providers' | 'extensions' | 'settings'
 
 const SESSION_STORAGE_KEY = 'lensquery.sessions.v1'
 let historyEnabled = true

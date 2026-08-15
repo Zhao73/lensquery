@@ -85,7 +85,7 @@ pub async fn inspect(paths: Vec<String>) -> Result<Vec<FileEvidence>, String> {
 
 async fn extract_pdf(path: &str) -> Result<(String, u32), String> {
     let path = path.to_owned();
-    tauri::async_runtime::spawn_blocking(move || {
+    tokio::task::spawn_blocking(move || {
         let pages = pdf_extract::extract_text_by_pages(&path)
             .map_err(|error| format!("PDF 文本提取失败: {error}"))?;
         let count = u32::try_from(pages.len()).unwrap_or(u32::MAX);

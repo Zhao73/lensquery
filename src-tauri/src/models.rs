@@ -394,6 +394,8 @@ pub struct AnalysisRequest {
     pub output_format: String,
     #[serde(default)]
     pub annotation: Option<String>,
+    #[serde(default)]
+    pub extension_instructions: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

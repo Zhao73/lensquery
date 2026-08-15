@@ -4,7 +4,7 @@ Press one shortcut, point at anything on screen, and ask an AI agent about it.
 
 LensQuery is an open-source resident utility for Windows and macOS. Press a global shortcut, click once to highlight an interface element/file and again to confirm it, or hold-drag a region; LensQuery then starts analysis in the background through Codex, Claude Code, OpenCode, Grok, or a configured API. Its normal window is a quiet local conversation timeline for evidence, previous queries, and follow-ups.
 
-> Current status: the repository contains the background tray/shortcut shell, a transparent question-cursor capture overlay, XCap region capture, Windows UI Automation lookup, macOS Accessibility element bounds/text and Finder-file lookup, local timeline/follow-up UI, Markdown answers, a permission-independent top-right result card and speech, auto-start preference, automatic CLI discovery, bounded CLI adapters, local PDF/text extraction, automatic video preparation, and an MV3 browser picker with native right-click actions plus manual Native Messaging installers. Physical Windows mixed-DPI testing, richer arbitrary-app macOS text ranges, automatic browser-host packaging, Codex App Server/OpenCode session adapters, Realtime audio playback, OCR, and direct API transport remain implementation gates.
+> Current status: the repository now has an Electron workbench modeled on quiet coding-agent clients, while the existing Rust implementation runs as a bounded native sidecar for capture, accessibility, PDF/text/video preparation, CLI discovery, and model calls. The Electron process owns the window, tray, shortcut, notifications, encrypted settings, and plugin/Skill manager. The previously installed Tauri application remains a side-by-side fallback until packaged Electron capture permissions pass the full physical macOS/Windows matrix. Physical Windows mixed-DPI testing, richer arbitrary-app macOS text ranges, automatic browser-host packaging, Codex App Server/OpenCode session adapters, Realtime audio playback, OCR, and direct API transport remain implementation gates.
 
 ## Intended workflow
 
@@ -25,7 +25,7 @@ There is no upload-style homepage. Point at a Desktop/Finder/Explorer file and c
 - The model page shows the resolved executable path and version, supports a manual rescan, and lets the user choose any discovered CLI as the default route.
 - CLI calls are built from fixed argument arrays rather than shell strings. Codex uses a read-only sandbox; Claude Code receives no built-in or MCP tools; Grok receives an empty tool allowlist; OpenCode receives only explicitly selected attachments with every tool permission denied. Grok's current adapter is text-only until its structured local-media input is verified end to end.
 - Settings can automatically infer the customer's language from the question and visible evidence, or force a fallback reply language. Reply style and a bounded custom instruction are included in every local CLI request.
-- Simplified Chinese and English interface copy are included for the main navigation and complete settings screen. The setting is persisted locally through the Tauri store.
+- Simplified Chinese and English interface copy are included for the main navigation and complete settings screen. The setting is persisted locally by the desktop runtime.
 - Six analysis intents are available: identify, explain, how-to, deep-dive, customer reply, and code analysis. Output can be adaptive, summary, steps, full report, customer-ready, or explicit Markdown.
 
 ## What it is designed to analyze
@@ -39,10 +39,10 @@ There is no upload-style homepage. Point at a Desktop/Finder/Explorer file and c
 
 ## Architecture
 
-- [Tauri 2](https://v2.tauri.app/) desktop shell
-- Rust native core and narrow Tauri command boundary
-- React 19 + TypeScript + Zustand webview
-- Official Tauri global-shortcut, autostart, dialog, store, filesystem, clipboard, and opener plugins
+- Electron main/preload process for the coding-agent-style client, tray, global shortcut, secure settings, notifications, and extension management
+- React 19 + TypeScript + Zustand renderer with context isolation and a narrow IPC allowlist
+- Rust native core exposed as a one-request/one-response sidecar for capture, accessibility, files/media, CLI discovery, and analysis
+- Existing Tauri 2 shell retained temporarily as a migration fallback, using the same React UI and Rust modules
 - Provider-independent request/result contracts
 - XCap screen-region capture and Windows UI Automation behind platform modules
 - Codex App Server as the primary planned session runtime; OpenCode Server/SDK and ACP as additional protocol adapters
@@ -62,7 +62,31 @@ The browser preview exercises the timeline, settings, and local file workflow. I
 
 ## Run the desktop app
 
-Install the [Tauri 2 prerequisites](https://v2.tauri.app/start/prerequisites/) for your operating system and Rust stable.
+Requirements: Node.js 22+, Rust stable, and platform build tools.
+
+### Electron client on macOS
+
+Build, sign, install, and launch the Electron client beside the existing stable app:
+
+```bash
+npm run install:electron:macos
+```
+
+The preview is installed at `/Applications/LensQuery Electron Preview.app`; the installer does not replace `/Applications/LensQuery.app`. Electron includes a Chromium runtime, so its bundle is materially larger than the Tauri fallback. That is the intentional cost of using one Codex-like renderer and main-process API surface across macOS and Windows.
+
+For development:
+
+```bash
+npm ci
+npm run build:sidecar
+npm run dev:electron
+```
+
+Closing the client window returns it to the menu bar. A left click on the menu-bar item starts recognition; Timeline, Plugins & Skills, and Settings remain available from its short right-click menu.
+
+### Legacy Tauri fallback on macOS
+
+Install the [Tauri 2 prerequisites](https://v2.tauri.app/start/prerequisites/) and use the fallback installer only when comparing native-capture behavior:
 
 ### Install on macOS
 
@@ -78,7 +102,7 @@ The first actual capture on macOS requires **Privacy & Security → Screen & Sys
 
 `npm run tauri dev` is the development runner; it compiles and launches a debug build but does **not** install an application into `/Applications`.
 
-### Development
+### Tauri development
 
 ```bash
 npm ci
@@ -86,6 +110,17 @@ npm run tauri dev
 ```
 
 Windows 10/11 and macOS share the tray, shortcut, region capture, file, top-right result card, speech, and conversation baseline. Windows additionally reads element/word/paragraph/document ranges through UI Automation. macOS reads exposed Accessibility element bounds/text and promotes confirmed Finder/Desktop icons plus document surfaces in Preview/PDF readers to real local-file evidence; exact arbitrary-app character-range geometry remains follow-up work.
+
+## Plugins and Skills
+
+Open **Extensions** in the Electron sidebar. Install a local folder or a Git repository, enable/disable each package, open its location, or move a managed package to the system Trash.
+
+- A LensQuery plugin contains `lensquery.plugin.json` plus a Markdown instruction entry such as `PLUGIN.md`.
+- A compatible Skill contains `SKILL.md`; managed Skills are installed in `~/.codex/skills`, and existing `~/.agents/skills` packages are discovered read-only.
+- Enabled Markdown instructions are added to the bounded analysis context. LensQuery does not execute plugin JavaScript, shell scripts, or self-declared permissions.
+- Install validation rejects symbolic links and limits each package to 800 files / 32 MB. Prompt additions are separately bounded to 40,000 characters total.
+
+See [the extension format and security model](docs/EXTENSIONS.md) and [`examples/extensions`](examples/extensions).
 
 ## Browser connector
 

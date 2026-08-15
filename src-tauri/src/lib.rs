@@ -2,6 +2,7 @@ mod browser_bridge;
 mod capture;
 mod cli;
 mod commands;
+mod electron_sidecar;
 mod files;
 mod models;
 mod providers;
@@ -410,6 +411,10 @@ pub(crate) fn register_capture_shortcut(app: &AppHandle, shortcut: &str) -> Resu
 
 pub fn run_native_messaging_host() -> Result<(), String> {
     browser_bridge::run_native_host()
+}
+
+pub fn run_electron_sidecar() -> Result<(), String> {
+    electron_sidecar::run()
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

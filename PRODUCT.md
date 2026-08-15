@@ -8,7 +8,7 @@ adaptive
 
 ## Stack
 
-Delegated by the user: Tauri 2 with a Rust core and React/TypeScript UI. Windows 10/11 and macOS are distributable targets, with deeper per-platform accessibility adapters implemented independently.
+Delegated by the user: Electron with a React/TypeScript renderer and a Rust native sidecar. Windows 10/11 and macOS are distributable targets, with deeper per-platform accessibility adapters implemented independently. The previous Tauri shell stays available only as a migration fallback until packaged Electron capture parity is verified.
 
 ## Users
 
@@ -33,6 +33,7 @@ The product treats the desktop itself as the input surface. One capture action p
 - Accepts screenshots, images, videos, PDFs, and other local files via picker, drag-and-drop, or shell integration.
 - Creates a local conversation immediately, shows an optional upper-right result card, and preserves the selected evidence image, copy, read-aloud, retry, and follow-up actions in the timeline; the optional preview applies to manual imports rather than the shortcut path.
 - Routes requests to direct model APIs or installed local agent CLIs when available.
+- Installs, enables, disables, audits, and removes local LensQuery plugins and Codex-compatible Skills from a dedicated capability surface rather than a store-style homepage.
 
 ## Capabilities and Constraints
 
@@ -47,6 +48,7 @@ The product treats the desktop itself as the input surface. One capture action p
 - PDF analysis uses local bounded text extraction for machine-readable files, with native model file input where supported. OCR/page-image rendering for scanned PDFs remains a distinct fallback milestone.
 - Video analysis is provider-independent: LensQuery locally probes the file, samples bounded time-coded frames, and extracts a compact mono audio track when present. Current CLI routes label that audio as untranscribed instead of inventing speech; the browser connector uses only captions and transcript segments the page actually exposes.
 - No invented live model availability: users enter model IDs and endpoints, with tested presets supplied as editable defaults.
+- Extension packages are local-first and declarative: enabled Markdown instructions may shape analysis, while arbitrary JavaScript/Shell execution and self-declared external permissions are outside the first release boundary.
 
 ## Brand Commitments
 

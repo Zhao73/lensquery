@@ -23,11 +23,9 @@ pub async fn inspect_target(
     point: Bounds,
     text_scope: Option<String>,
 ) -> Result<CaptureTarget, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        inspect_target_native(point, text_scope.as_deref())
-    })
-    .await
-    .map_err(|error| format!("目标检测任务异常结束: {error}"))?
+    tokio::task::spawn_blocking(move || inspect_target_native(point, text_scope.as_deref()))
+        .await
+        .map_err(|error| format!("目标检测任务异常结束: {error}"))?
 }
 
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]
@@ -125,7 +123,7 @@ struct TargetInspection {
 
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 async fn complete_platform(selection: CaptureSelection) -> Result<CaptureResponse, String> {
-    tauri::async_runtime::spawn_blocking(move || capture_native(selection))
+    tokio::task::spawn_blocking(move || capture_native(selection))
         .await
         .map_err(|error| format!("取景任务异常结束: {error}"))?
 }

@@ -1,0 +1,42 @@
+appId: com.lensquery.desktop.electron-preview
+productName: LensQuery Electron Preview
+copyright: Copyright LensQuery contributors
+directories:
+  output: release-electron
+files:
+  - dist/**
+  - electron/**
+  - package.json
+extraResources:
+  - from: src-tauri/icons
+    to: icons
+asar: true
+compression: maximum
+mac:
+  category: public.app-category.productivity
+  icon: src-tauri/icons/icon.icns
+  target:
+    - dmg
+    - dir
+  extraResources:
+    - from: src-tauri/target/release/lensquery
+      to: sidecar/lensquery-core
+  hardenedRuntime: false
+  gatekeeperAssess: false
+  identity: null
+  extendInfo:
+    LSUIElement: false
+    NSMicrophoneUsageDescription: LensQuery uses audio only when the user explicitly analyzes media.
+    NSScreenCaptureUsageDescription: LensQuery captures only the region the user explicitly confirms.
+win:
+  icon: src-tauri/icons/icon.ico
+  target:
+    - nsis
+  extraResources:
+    - from: src-tauri/target/release/lensquery.exe
+      to: sidecar/lensquery-core.exe
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: false
+  createStartMenuShortcut: true
