@@ -1,8 +1,9 @@
 {
   "manifest_version": 3,
   "name": "LensQuery Web Connector",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Analyze selected text, images, videos, or page context with LensQuery.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAr19l3KfLFmwq3ykxA59fjRKdfrqNU9n6VJu7PcS/a4pUytrh0ETyUVUUn9KREW2vB8A+sQ62CEZbanux03nfNNG7rPs9/BpAh5q9/2G7I88D8X98YImeuHotpjxEkfAcDMkus5SlDEeKBgj6F7m3hWpmzTg2nlLSXuhdEpzuG/hWhj2it4jI1TzAxpMJDWA31CuBTkTqQi9TdnETWsmHwn3pYa8yK2HbPeACFo+8qvpciiHPrXkoWD2uJXFbfQ/1gGoGGgyqPK9RH5mLgET83ukJHIqzlDmFtgx14K115XWq7Su/eOYTibWck4BWDPlng94pPzrPXCnVB1TYo+gWjwIDAQAB",
   "permissions": ["activeTab", "contextMenus", "scripting", "storage", "nativeMessaging"],
   "action": {
     "default_title": "Ask LensQuery about this page"

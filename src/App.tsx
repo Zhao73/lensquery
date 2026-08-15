@@ -54,6 +54,7 @@ import {
   listenForNavigation,
   listenForFilePickRequest,
   listenForResultToast,
+  markDesktopReady,
   openResultFromToast,
   openPermissionSettings,
   pickEvidenceFiles,
@@ -480,7 +481,10 @@ function ConversationApp() {
       if (files.length) void submitNewQuery({ captures: [], files })
     }).then((dispose) => { disposeDrop = dispose })
     void listenForNavigation((nextView) => setView(nextView)).then((dispose) => { disposeNavigation = dispose })
-    void listenForFilePickRequest(() => { void openFiles() }).then((dispose) => { disposeFilePick = dispose })
+    void listenForFilePickRequest(() => { void openFiles() }).then((dispose) => {
+      disposeFilePick = dispose
+      void markDesktopReady()
+    })
     return () => {
       disposeCapture?.()
       disposeCaptureError?.()
@@ -904,7 +908,7 @@ function EvidenceStrip({ session }: { session: QuerySession }) {
           {file.provenance?.metadata.map((item) => <div key={`${item.label}-${item.value}`}><dt>{item.label}</dt><dd>{item.value}</dd></div>)}
           {file.provenance?.detectorCoverage && <div className="evidence-coverage"><dt>检测范围</dt><dd>{file.provenance.detectorCoverage}</dd></div>}
         </dl>}
-        {browser && <dl><div><dt>网页</dt><dd>{browser.title}</dd></div>{browser.contextMenuKind && <div><dt>触发方式</dt><dd>网页右键 · {{ selection: '所选文字', image: '图片', video: '视频', page: '当前页面' }[browser.contextMenuKind]}</dd></div>}<div><dt>文字范围</dt><dd>{browser.selectionMode ?? '当前对象'}</dd></div>{browser.selectedText && <div><dt>所选文字</dt><dd>{browser.selectedText}</dd></div>}{browser.captions && <div><dt>当前字幕</dt><dd>{browser.captions}</dd></div>}{browser.transcript && <div><dt>视频转写</dt><dd>{browser.transcriptLanguage ? `${browser.transcriptLanguage} · ` : ''}{browser.transcript.slice(0, 1200)}{browser.transcript.length > 1200 ? '…' : ''}</dd></div>}<div><dt>元素</dt><dd>{browser.tagName.toLowerCase()}{browser.role ? ` · ${browser.role}` : ''}</dd></div><div><dt>地址</dt><dd>{browser.url}</dd></div>{browser.selector && <div><dt>选择器</dt><dd><code>{browser.selector}</code></dd></div>}</dl>}
+        {browser && <dl><div><dt>网页</dt><dd>{browser.title}</dd></div>{browser.contextMenuKind && <div><dt>触发方式</dt><dd>网页右键 · {{ selection: '所选文字', image: '图片', video: '视频', audio: '音频', link: '链接', editable: '编辑区', object: '当前对象', page: '当前页面' }[browser.contextMenuKind]}</dd></div>}<div><dt>文字范围</dt><dd>{browser.selectionMode ?? '当前对象'}</dd></div>{browser.selectedText && <div><dt>所选文字</dt><dd>{browser.selectedText}</dd></div>}{browser.captions && <div><dt>当前字幕</dt><dd>{browser.captions}</dd></div>}{browser.transcript && <div><dt>视频转写</dt><dd>{browser.transcriptLanguage ? `${browser.transcriptLanguage} · ` : ''}{browser.transcript.slice(0, 1200)}{browser.transcript.length > 1200 ? '…' : ''}</dd></div>}<div><dt>元素</dt><dd>{browser.tagName.toLowerCase()}{browser.role ? ` · ${browser.role}` : ''}</dd></div><div><dt>地址</dt><dd>{browser.url}</dd></div>{browser.selector && <div><dt>选择器</dt><dd><code>{browser.selector}</code></dd></div>}</dl>}
         {videoFrames.length > 1 && <div className="evidence-frame-grid">{videoFrames.map((frame) => <figure key={frame.path}><img src={framePreview(frame)} alt={`视频 ${formatDuration(frame.timestampSeconds)} 画面`} /><figcaption>{formatDuration(frame.timestampSeconds)}</figcaption></figure>)}</div>}
         {session.annotation && <div className="evidence-annotation"><NotePencil size={16} /><span><strong>你的注释</strong>{session.annotation}</span></div>}
       </div>

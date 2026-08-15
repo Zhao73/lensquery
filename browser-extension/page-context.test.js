@@ -75,6 +75,22 @@ describe('LensQuery browser page context', () => {
     expect(context.transcript).toBeUndefined()
   })
 
+  it('resolves links, audio, and editable fields from a universal right-click request', () => {
+    document.body.innerHTML = `
+      <main>
+        <a href="https://example.test/details">Details</a>
+        <audio src="https://example.test/lesson.mp3"></audio>
+        <textarea aria-label="Customer reply"></textarea>
+      </main>
+    `
+    const collector = loadCollector()
+
+    expect(collector.findTarget({ kind: 'link', linkUrl: 'https://example.test/details' })?.tagName).toBe('A')
+    expect(collector.findTarget({ kind: 'audio', srcUrl: 'https://example.test/lesson.mp3' })?.tagName).toBe('AUDIO')
+    document.querySelector('textarea').focus()
+    expect(collector.findTarget({ kind: 'editable' })?.tagName).toBe('TEXTAREA')
+  })
+
   it('fetches a time-coded YouTube transcript from the page caption track', async () => {
     document.head.innerHTML = `<title>NASA short</title><script>var ytInitialPlayerResponse = {"captions":{"playerCaptionsTracklistRenderer":{"captionTracks":[{"baseUrl":"https://www.youtube.com/api/timedtext?v=lensquery-test","languageCode":"en","name":{"simpleText":"English"}}]}}};</script>`
     document.body.innerHTML = '<main><video id="lesson" src="https://example.test/lesson.mp4"></video></main>'

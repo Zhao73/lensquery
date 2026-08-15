@@ -1,0 +1,41 @@
+name: LensQueryFinder
+options:
+  deploymentTarget:
+    macOS: "13.0"
+  createIntermediateGroups: true
+targets:
+  LensQuery Finder:
+    type: app-extension
+    platform: macOS
+    sources:
+      - path: LensQueryFinder
+    info:
+      path: LensQueryFinder/Info.plist
+      properties:
+        CFBundleDevelopmentRegion: zh_CN
+        CFBundleDisplayName: LensQuery Finder
+        CFBundleExecutable: $(EXECUTABLE_NAME)
+        CFBundleIdentifier: $(PRODUCT_BUNDLE_IDENTIFIER)
+        CFBundleInfoDictionaryVersion: "6.0"
+        CFBundleName: $(PRODUCT_NAME)
+        CFBundlePackageType: XPC!
+        CFBundleShortVersionString: "0.1.0"
+        CFBundleVersion: "1"
+        LSMinimumSystemVersion: "13.0"
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.FinderSync
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).LensQueryFinderSync
+    entitlements:
+      path: LensQueryFinder/LensQueryFinder.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.lensquery.desktop.electron-preview.finder
+        PRODUCT_NAME: LensQuery Finder
+        PRODUCT_MODULE_NAME: LensQueryFinder
+        SWIFT_VERSION: "6.0"
+        APPLICATION_EXTENSION_API_ONLY: YES
+        CODE_SIGN_STYLE: Manual
+        SKIP_INSTALL: YES
+        GENERATE_INFOPLIST_FILE: NO

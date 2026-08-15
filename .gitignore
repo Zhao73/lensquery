@@ -11,6 +11,9 @@ node_modules
 dist
 dist-ssr
 release-electron
+build-native
+native/macos/FinderIntegration/.derived-data
+native/macos/FinderIntegration/*.xcodeproj
 *.local
 
 # Editor directories and files

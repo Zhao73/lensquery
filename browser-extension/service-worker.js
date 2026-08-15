@@ -1,34 +1,16 @@
+import {
+  contextRequestFor,
+  UNIVERSAL_CONTEXT_MENU,
+  UNIVERSAL_CONTEXT_MENU_ID,
+} from './context-menu.js'
+
 const NATIVE_HOST = 'com.lensquery.desktop'
 const MAX_SNAPSHOT_DATA_URL_LENGTH = 650_000
-
-const CONTEXT_ACTIONS = {
-  'lensquery-selection': {
-    kind: 'selection',
-    title: '用 LensQuery 分析所选文字',
-    contexts: ['selection'],
-  },
-  'lensquery-image': {
-    kind: 'image',
-    title: '用 LensQuery 分析这张图片',
-    contexts: ['image'],
-  },
-  'lensquery-video': {
-    kind: 'video',
-    title: '用 LensQuery 分析这个视频',
-    contexts: ['video'],
-  },
-  'lensquery-page': {
-    kind: 'page',
-    title: '用 LensQuery 分析当前页面',
-    contexts: ['page'],
-  },
-}
 
 chrome.runtime.onInstalled.addListener(installContextMenus)
 chrome.runtime.onStartup.addListener(installContextMenus)
 chrome.contextMenus.onClicked.addListener((info, tab) => {
-  const action = CONTEXT_ACTIONS[info.menuItemId]
-  if (action) void handleContextMenu(action, info, tab)
+  if (info.menuItemId === UNIVERSAL_CONTEXT_MENU_ID) void handleContextMenu(contextRequestFor(info), info, tab)
 })
 
 chrome.action.onClicked.addListener(startPicker)
@@ -46,9 +28,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 function installContextMenus() {
   chrome.contextMenus.removeAll(() => {
-    for (const [id, item] of Object.entries(CONTEXT_ACTIONS)) {
-      chrome.contextMenus.create({ id, title: item.title, contexts: item.contexts })
-    }
+    chrome.contextMenus.create(UNIVERSAL_CONTEXT_MENU)
   })
 }
 
@@ -73,9 +53,7 @@ async function handleContextMenu(action, info, tab) {
           {
             type: 'lensquery-collect-page-context',
             request: {
-              kind: action.kind,
-              selectionText: info.selectionText,
-              srcUrl: info.srcUrl,
+              ...action,
             },
           },
           { frameId },
@@ -174,21 +152,34 @@ async function blobToDataUrl(blob) {
 function fallbackContext(kind, info, tab) {
   const selectedText = String(info.selectionText || '').trim().slice(0, 16_000) || undefined
   const source = info.srcUrl || info.linkUrl
+  const mediaKind = kind === 'video' || kind === 'audio' ? kind : undefined
   return {
     url: info.pageUrl || tab.url || '',
     title: tab.title || '网页',
-    tagName: kind === 'image' ? 'IMG' : kind === 'video' ? 'VIDEO' : kind === 'selection' ? 'SELECTION' : 'BODY',
+    tagName: kind === 'image'
+      ? 'IMG'
+      : kind === 'video'
+        ? 'VIDEO'
+        : kind === 'audio'
+          ? 'AUDIO'
+          : kind === 'link'
+            ? 'A'
+            : kind === 'editable'
+              ? 'INPUT'
+              : kind === 'selection'
+                ? 'SELECTION'
+                : 'BODY',
     role: kind,
     text: selectedText,
     accessibleName: source,
     nearbyText: selectedText,
-    selectionMode: kind === 'selection' ? 'selection' : kind === 'page' ? 'page' : 'object',
+    selectionMode: kind === 'selection' ? 'selection' : 'object',
     selectedText,
     contextMenuKind: kind,
     analysisMode: kind === 'image' ? 'identify' : 'explain',
-    outputFormat: kind === 'video' ? 'summary' : 'adaptive',
-    media: kind === 'video' ? {
-      kind: 'video',
+    outputFormat: mediaKind ? 'summary' : 'adaptive',
+    media: mediaKind ? {
+      kind: mediaKind,
       currentTime: 0,
       source: info.srcUrl,
       paused: true,

@@ -62,7 +62,7 @@ export interface BrowserContext {
   transcriptLanguage?: string
   transcriptCueCount?: number
   transcriptTruncated?: boolean
-  contextMenuKind?: 'selection' | 'image' | 'video' | 'page'
+  contextMenuKind?: 'selection' | 'image' | 'video' | 'audio' | 'link' | 'editable' | 'object' | 'page'
   snapshotPath?: string
   snapshotPreviewUrl?: string
   snapshotBounds?: Bounds

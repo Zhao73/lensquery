@@ -43,6 +43,14 @@
     })
   }
 
+  function deepestHoveredElement() {
+    try {
+      return [...document.querySelectorAll(':hover')].at(-1) || null
+    } catch {
+      return null
+    }
+  }
+
   function sameSource(element, sourceUrl) {
     if (!sourceUrl) return false
     const expected = absoluteUrl(sourceUrl)
@@ -69,7 +77,28 @@
         || document.querySelector('.html5-video-player video, [data-media-player] video, video')
         || document.body
     }
-    return document.querySelector('main, article, [role="main"]') || document.body || document.documentElement
+    if (request.kind === 'audio') {
+      return hoveredElement('audio')
+        || [...document.querySelectorAll('audio')].find((audio) => sameSource(audio, request.srcUrl))
+        || document.querySelector('audio')
+        || document.body
+    }
+    if (request.kind === 'link') {
+      const expected = absoluteUrl(request.linkUrl)
+      return hoveredElement('a[href]')
+        || [...document.querySelectorAll('a[href]')].find((link) => absoluteUrl(link.href) === expected)
+        || document.body
+    }
+    if (request.kind === 'editable') {
+      const active = document.activeElement
+      return hoveredElement('input, textarea, [contenteditable="true"]')
+        || (active?.matches?.('input, textarea, [contenteditable="true"]') ? active : null)
+        || document.body
+    }
+    return deepestHoveredElement()
+      || document.querySelector('main, article, [role="main"]')
+      || document.body
+      || document.documentElement
   }
 
   function textForScope(element, scope) {

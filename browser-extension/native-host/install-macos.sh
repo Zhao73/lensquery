@@ -3,8 +3,13 @@
 set -Eeuo pipefail
 
 EXTENSION_ID="${1:-}"
-LENSQUERY_APP="${2:-/Applications/LensQuery.app}"
-LENSQUERY_EXE="$LENSQUERY_APP/Contents/MacOS/lensquery"
+if [[ -n "${2:-}" ]]; then
+  LENSQUERY_APP="$2"
+elif [[ -d "/Applications/LensQuery Electron Preview.app" ]]; then
+  LENSQUERY_APP="/Applications/LensQuery Electron Preview.app"
+else
+  LENSQUERY_APP="/Applications/LensQuery.app"
+fi
 INSTALL_DIR="$HOME/Library/Application Support/LensQuery/NativeMessaging"
 HOST_NAME="com.lensquery.desktop"
 HOST_WRAPPER="$INSTALL_DIR/lensquery-native-host"
@@ -15,8 +20,19 @@ if [[ ! "$EXTENSION_ID" =~ ^[a-p]{32}$ ]]; then
   exit 2
 fi
 
-if [[ ! -x "$LENSQUERY_EXE" ]]; then
-  printf 'LensQuery executable not found: %s\n' "$LENSQUERY_EXE" >&2
+executable_candidates=(
+  "$LENSQUERY_APP/Contents/Resources/sidecar/lensquery-core"
+  "$LENSQUERY_APP/Contents/MacOS/lensquery"
+)
+LENSQUERY_EXE=""
+for candidate in "${executable_candidates[@]}"; do
+  if [[ -x "$candidate" ]]; then
+    LENSQUERY_EXE="$candidate"
+    break
+  fi
+done
+if [[ -z "$LENSQUERY_EXE" ]]; then
+  printf 'LensQuery native messaging executable not found inside: %s\n' "$LENSQUERY_APP" >&2
   exit 1
 fi
 

@@ -24,6 +24,7 @@ import {
 } from 'electron'
 
 import { createExtensionManager } from './extension-manager.js'
+import { isLensQueryDeepLink, pathsFromDeepLink } from './deep-link.js'
 import {
   isDirectProvider,
   normalizeProviderBaseUrl,
@@ -86,6 +87,10 @@ let state
 let extensionManager
 let queueTimer
 let saveStateQueue = Promise.resolve()
+let rendererIsReady = false
+let processingExternalPaths = false
+let launchHidden = process.argv.some(isLensQueryDeepLink)
+const pendingDeepLinks = process.argv.filter(isLensQueryDeepLink)
 
 function debugRuntime(event, details = {}) {
   if (process.env.LENSQUERY_DEBUG !== '1') return
@@ -184,7 +189,7 @@ async function createMainWindow() {
     }
   })
   mainWindow.on('ready-to-show', () => {
-    if (process.argv.includes('--background')) app.dock?.hide()
+    if (process.argv.includes('--background') || launchHidden) app.dock?.hide()
     else mainWindow.show()
   })
   await mainWindow.loadURL(rendererUrl())
@@ -261,6 +266,40 @@ function navigate(view) {
 function sendEvent(channel, payload) {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload)
   if (captureWindow && !captureWindow.isDestroyed()) captureWindow.webContents.send(channel, payload)
+}
+
+function enqueueDeepLink(value) {
+  if (!pathsFromDeepLink(value).length) return false
+  launchHidden = true
+  pendingDeepLinks.push(value)
+  if (rendererIsReady) void flushDeepLinks()
+  return true
+}
+
+async function flushDeepLinks() {
+  if (!rendererIsReady || processingExternalPaths || pendingDeepLinks.length === 0) return
+  processingExternalPaths = true
+  try {
+    while (pendingDeepLinks.length) {
+      const values = pendingDeepLinks.splice(0, pendingDeepLinks.length)
+      const paths = [...new Set(values.flatMap(pathsFromDeepLink))]
+        .filter((sourcePath) => path.isAbsolute(sourcePath) && existsSync(sourcePath))
+        .slice(0, 32)
+      if (!paths.length) throw new Error('右键选中的文件或文件夹已被移动。')
+      const files = await invokeSidecar('inspectFiles', { paths })
+      sendEvent('lensquery://evidence-ready', {
+        files,
+        analysisMode: state.settings.defaultAnalysisMode,
+        outputFormat: state.settings.defaultOutputFormat,
+      })
+      debugRuntime('finder-context-received', { count: files.length, paths })
+    }
+  } catch (error) {
+    sendEvent('lensquery://capture-error', String(error))
+    showNotification('LensQuery 右键识别失败', String(error).slice(0, 240))
+  } finally {
+    processingExternalPaths = false
+  }
 }
 
 async function startCapture(mode = 'element') {
@@ -410,6 +449,11 @@ function registerIpc() {
     providers: await discoverProviders(),
     settings: state.settings,
   }))
+  handle('rendererReady', async () => {
+    rendererIsReady = true
+    void flushDeepLinks()
+    return true
+  })
   handle('discoverCliProviders', discoverProviders)
   handle('startCapture', ({ mode }) => startCapture(mode))
   handle('completeCapture', ({ selection }) => completeCapture(selection))
@@ -691,12 +735,25 @@ async function writeJsonAtomic(file, value) {
   await fs.rename(temporary, file)
 }
 
+app.on('open-url', (event, url) => {
+  event.preventDefault()
+  enqueueDeepLink(url)
+})
+
 if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
-  app.on('second-instance', showMain)
+  app.on('second-instance', (_event, commandLine) => {
+    const deepLinks = commandLine.filter(isLensQueryDeepLink)
+    if (deepLinks.length) {
+      deepLinks.forEach(enqueueDeepLink)
+      return
+    }
+    showMain()
+  })
   app.whenReady().then(async () => {
     app.setName('LensQuery')
+    app.setAsDefaultProtocolClient('lensquery')
     nativeTheme.themeSource = process.env.LENSQUERY_THEME === 'dark' ? 'dark' : process.env.LENSQUERY_THEME === 'light' ? 'light' : 'system'
     state = await loadState()
     extensionManager = createExtensionManager(app.getPath('userData'))

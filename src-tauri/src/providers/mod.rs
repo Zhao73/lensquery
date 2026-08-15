@@ -175,7 +175,7 @@ async fn run_cli(
                 command.arg("--model").arg(&profile.model);
             }
             for path in collect_attachment_paths(request) {
-                command.arg("--file").arg(path);
+                command.arg(format!("--file={path}"));
             }
             command.arg(&prompt);
         }
@@ -353,6 +353,9 @@ fn codex_reasoning_effort(request: &AnalysisRequest) -> &'static str {
 fn collect_attachment_paths(request: &AnalysisRequest) -> Vec<String> {
     let mut paths = Vec::new();
     for file in &request.files {
+        if file.media_type == "application/x-directory" {
+            continue;
+        }
         if let Some(preparation) = &file.video_preparation {
             paths.extend(preparation.frames.iter().map(|frame| frame.path.clone()));
         } else {
@@ -956,6 +959,55 @@ mod tests {
             extension_instructions: None,
         };
         assert_eq!(codex_reasoning_effort(&request), "medium");
+    }
+
+    #[test]
+    fn attaches_extracted_files_but_not_directory_paths() {
+        let text_file = FileEvidence {
+            id: "text".into(),
+            name: "brief.txt".into(),
+            path: "/tmp/brief.txt".into(),
+            media_type: "text/plain".into(),
+            size: 5,
+            kind: "text".into(),
+            video: None,
+            video_preparation: None,
+            processing_error: None,
+            extracted_text: Some("brief".into()),
+            page_count: None,
+            extraction_status: Some("ready".into()),
+            provenance: None,
+        };
+        let directory = FileEvidence {
+            id: "folder".into(),
+            name: "docs".into(),
+            path: "/tmp/docs".into(),
+            media_type: "application/x-directory".into(),
+            size: 0,
+            kind: "other".into(),
+            video: None,
+            video_preparation: None,
+            processing_error: None,
+            extracted_text: Some("Folder: /tmp/docs".into()),
+            page_count: None,
+            extraction_status: Some("ready".into()),
+            provenance: None,
+        };
+        let request = AnalysisRequest {
+            question: "summarize".into(),
+            prompt_id: "file".into(),
+            provider_id: "opencode-cli".into(),
+            captures: vec![],
+            files: vec![text_file, directory],
+            browser_context: None,
+            conversation: vec![],
+            analysis_mode: "explain".into(),
+            output_format: "adaptive".into(),
+            annotation: None,
+            extension_instructions: None,
+        };
+
+        assert_eq!(collect_attachment_paths(&request), vec!["/tmp/brief.txt"]);
     }
 
     #[test]

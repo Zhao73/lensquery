@@ -67,6 +67,7 @@ Canonical tokens live in `src/index.css`.
 - A monochrome template icon lives in the macOS menu bar and adapts to appearance; Windows uses the colored app mark in the system tray.
 - Left click starts the default capture. Right click exposes only Start Recognition and Analyze Files, followed by Timeline, Settings, and Quit.
 - The upper-right result card is concise and bounded; the full Markdown answer and selected evidence thumbnail remain in the local timeline.
+- Finder and browser context menus each expose one direct, verb-led item: **使用 LensQuery 识别**. Do not split target types into a long submenu; the selected object determines whether LensQuery collects text, media, link, DOM, file, folder, or container evidence.
 
 ## Motion
 

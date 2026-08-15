@@ -7,9 +7,15 @@ files:
   - dist/**
   - electron/**
   - package.json
+protocols:
+  - name: LensQuery Recognition
+    schemes:
+      - lensquery
 extraResources:
   - from: src-tauri/icons
     to: icons
+  - from: browser-extension
+    to: browser-extension
 asar: true
 compression: maximum
 mac:
@@ -21,6 +27,9 @@ mac:
   extraResources:
     - from: src-tauri/target/release/lensquery
       to: sidecar/lensquery-core
+  extraFiles:
+    - from: build-native/macos/LensQuery Finder.appex
+      to: PlugIns/LensQuery Finder.appex
   hardenedRuntime: false
   gatekeeperAssess: false
   identity: null

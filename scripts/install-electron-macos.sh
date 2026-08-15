@@ -5,6 +5,8 @@ set -Eeuo pipefail
 APP_NAME="LensQuery Electron Preview"
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_DESTINATION="/Applications/$APP_NAME.app"
+FINDER_EXTENSION_ID="com.lensquery.desktop.electron-preview.finder"
+BROWSER_EXTENSION_ID="filelbpgenppllkeeofajalcgbnifgmi"
 RELEASE_ROOT="$PROJECT_ROOT/release-electron"
 MIN_FREE_GIB=4
 SIGNING_IDENTITY="${APPLE_SIGNING_IDENTITY:-}"
@@ -81,6 +83,13 @@ install_bundle() {
   run_install_command /usr/bin/ditto "$APP_SOURCE" "$staging"
   run_install_command /usr/bin/xattr -dr com.apple.quarantine "$staging" 2>/dev/null || true
   run_install_command /usr/bin/codesign --force --deep --timestamp=none --sign "$SIGNING_IDENTITY" "$staging"
+  local finder_extension="$staging/Contents/PlugIns/LensQuery Finder.appex"
+  if [[ -d "$finder_extension" ]]; then
+    run_install_command /usr/bin/codesign --force --timestamp=none --sign "$SIGNING_IDENTITY" \
+      --entitlements "$PROJECT_ROOT/native/macos/FinderIntegration/LensQueryFinder/LensQueryFinder.entitlements" \
+      "$finder_extension"
+    run_install_command /usr/bin/codesign --force --timestamp=none --sign "$SIGNING_IDENTITY" "$staging"
+  fi
 
   if [[ -e "$APP_DESTINATION" ]]; then
     run_install_command /bin/mv "$APP_DESTINATION" "$backup"
@@ -115,6 +124,14 @@ for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do
 done
 (( launched == 1 )) || fail "$APP_NAME was installed but did not remain running."
 
+finder_extension="$APP_DESTINATION/Contents/PlugIns/LensQuery Finder.appex"
+if [[ -d "$finder_extension" ]]; then
+  /usr/bin/pluginkit -a "$finder_extension" 2>/dev/null || true
+  /usr/bin/pluginkit -e use -i "$FINDER_EXTENSION_ID" 2>/dev/null || true
+fi
+
+"$PROJECT_ROOT/browser-extension/native-host/install-macos.sh" "$BROWSER_EXTENSION_ID" "$APP_DESTINATION"
+
 bundle_size="$(/usr/bin/du -sh "$APP_DESTINATION" | /usr/bin/awk '{ print $1 }')"
 printf '\nInstalled: %s\n' "$APP_DESTINATION"
 printf 'Bundle size: %s\n' "$bundle_size"
@@ -126,3 +143,5 @@ else
   printf 'Signature: %s\n' "$SIGNING_IDENTITY"
 fi
 printf 'Use the menu-bar icon or Command+Shift+Space to start recognition.\n'
+[[ -d "$finder_extension" ]] && printf 'Finder right-click: enabled (%s).\n' "$FINDER_EXTENSION_ID"
+printf 'Browser connector folder: %s\n' "$APP_DESTINATION/Contents/Resources/browser-extension"

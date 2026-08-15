@@ -12,6 +12,7 @@ function localFileUrl(filePath) {
 
 const invokeChannels = new Set([
   'bootstrap',
+  'rendererReady',
   'discoverCliProviders',
   'startCapture',
   'completeCapture',

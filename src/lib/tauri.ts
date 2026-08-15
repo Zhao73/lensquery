@@ -308,6 +308,10 @@ export async function stopSpeaking(): Promise<void> {
   else await invoke('stop_speaking')
 }
 
+export async function markDesktopReady(): Promise<void> {
+  if (isElectronRuntime()) await invokeElectron('rendererReady')
+}
+
 export interface QueryEvidenceEvent {
   capture?: CaptureEvidence
   files?: FileEvidence[]
