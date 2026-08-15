@@ -44,6 +44,16 @@ body {
   overflow: hidden;
 }
 
+/* The capture renderer is a transparent, click-through-to-context surface.
+   The normal app canvas on :root otherwise paints an opaque dark rectangle
+   behind the selection UI on macOS. */
+html[data-lensquery-window="capture"],
+html[data-lensquery-window="capture"] body,
+html[data-lensquery-window="capture"] #root {
+  min-width: 0;
+  background: transparent !important;
+}
+
 button,
 input,
 textarea,

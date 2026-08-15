@@ -144,7 +144,7 @@ pub async fn inspect_capture_target(
 ) -> Result<CaptureTarget, String> {
     crate::hide_capture_overlay(&app)?;
     tokio::time::sleep(std::time::Duration::from_millis(110)).await;
-    let inspection = capture::inspect_target(point, text_scope).await;
+    let inspection = capture::inspect_target(point, text_scope, None).await;
     let restore = crate::show_capture_overlay(&app);
     match (inspection, restore) {
         (Ok(target), Ok(())) => Ok(target),

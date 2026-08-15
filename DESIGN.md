@@ -33,6 +33,7 @@ Canonical tokens live in `src/index.css`.
 - Sidebar: wordmark, new conversation, direct recognition action, search, recent local sessions, and bottom navigation for conversations, models, extensions, and settings.
 - Top bar: 52px with the current surface name, resident status, current provider, and a direct recognition action.
 - Conversation: source/title bar, centered message stream, persistent follow-up dock.
+- The follow-up dock exposes one quiet `provider · model` control. Its anchored menu contains provider, editable model ID, reasoning effort, and conversation-context scope; it does not navigate away from the conversation.
 - Video sessions place an expanded local/web player at the top of the message stream, before evidence and the report, so playback is immediately available without displacing the conversation context.
 - New-conversation state uses one centered, spacious composer with optional instruction, intent, output contract, attachment, and send controls. It is not a homepage or upload landing page.
 - Settings use ruled groups rather than decorative cards.
@@ -56,7 +57,7 @@ Canonical tokens live in `src/index.css`.
 
 - Fully transparent full-desktop layer with a small arrow-plus-question-mark cursor; the current application remains visually unchanged.
 - The first click resolves and outlines the real object/file bounds; clicking that highlighted target again confirms it. Movement beyond eight logical pixels becomes a rectangular drag and submits on release.
-- The selected region is a blue outline with a dimmed exterior and pixel dimensions.
+- The selected region is a blue outline with a very light interior and pixel dimensions. The exterior remains visually unchanged so the user never loses the surrounding desktop context.
 - No toolbar, instruction plaque, client confirmation, or busy card appears over the desktop. The configured intent is applied in the background, and Escape always cancels.
 
 ## Background surfaces

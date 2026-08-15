@@ -83,13 +83,21 @@ install_bundle() {
   run_install_command /usr/bin/ditto "$APP_SOURCE" "$staging"
   run_install_command /usr/bin/xattr -dr com.apple.quarantine "$staging" 2>/dev/null || true
   run_install_command /usr/bin/codesign --force --deep --timestamp=none --sign "$SIGNING_IDENTITY" "$staging"
+  local sidecar="$staging/Contents/Resources/sidecar/lensquery-core"
+  if [[ -f "$sidecar" ]]; then
+    # Keep the helper's designated requirement stable across builds. Without a
+    # certificate-backed identifier macOS keys TCC to a changing CDHash and can
+    # present the recording confirmation again after every update.
+    run_install_command /usr/bin/codesign --force --timestamp=none --sign "$SIGNING_IDENTITY" \
+      --identifier "com.lensquery.desktop.electron-preview.sidecar" "$sidecar"
+  fi
   local finder_extension="$staging/Contents/PlugIns/LensQuery Finder.appex"
   if [[ -d "$finder_extension" ]]; then
     run_install_command /usr/bin/codesign --force --timestamp=none --sign "$SIGNING_IDENTITY" \
       --entitlements "$PROJECT_ROOT/native/macos/FinderIntegration/LensQueryFinder/LensQueryFinder.entitlements" \
       "$finder_extension"
-    run_install_command /usr/bin/codesign --force --timestamp=none --sign "$SIGNING_IDENTITY" "$staging"
   fi
+  run_install_command /usr/bin/codesign --force --timestamp=none --sign "$SIGNING_IDENTITY" "$staging"
 
   if [[ -e "$APP_DESTINATION" ]]; then
     run_install_command /bin/mv "$APP_DESTINATION" "$backup"

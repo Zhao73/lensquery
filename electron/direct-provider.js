@@ -73,12 +73,12 @@ export async function runDirectProvider({ profile, secret, request, settings, fe
   const started = Date.now()
   const evidence = await collectEvidence(request, readFile)
   const prompt = buildPrompt(request, settings, evidence.manifest)
-  const conversation = boundedConversation(request.conversation)
+  const conversation = boundedConversation(request.conversation, request.contextMode)
   const endpoint = providerEndpoint(profile, 'chat')
   const images = profile.capabilities?.vision === false ? [] : evidence.images
   const payload = profile.kind === 'anthropic'
     ? anthropicPayload(profile, prompt, conversation, images, isLongVideoRequest(request) ? 8192 : 4096)
-    : openAiPayload(profile, prompt, conversation, images)
+    : openAiPayload(profile, prompt, conversation, images, request.reasoningEffort)
   const response = await fetchWithTimeout(fetchImpl, endpoint, {
     method: 'POST',
     headers: {
@@ -113,7 +113,7 @@ function providerHeaders(profile, secret) {
   return headers
 }
 
-function openAiPayload(profile, prompt, conversation, images) {
+function openAiPayload(profile, prompt, conversation, images, reasoningEffort) {
   const messages = conversation.map((message) => ({
     role: message.role,
     content: message.content,
@@ -121,7 +121,11 @@ function openAiPayload(profile, prompt, conversation, images) {
   const content = [{ type: 'text', text: prompt }]
   for (const image of images) content.push({ type: 'image_url', image_url: { url: image.dataUrl, detail: 'auto' } })
   messages.push({ role: 'user', content })
-  return { model: profile.model, messages }
+  const payload = { model: profile.model, messages }
+  if (profile.kind === 'openai' && ['low', 'medium', 'high', 'xhigh'].includes(reasoningEffort)) {
+    payload.reasoning_effort = reasoningEffort
+  }
+  return payload
 }
 
 function anthropicPayload(profile, prompt, conversation, images, maxTokens = 4096) {
@@ -319,12 +323,22 @@ function sampleEvenly(items, limit) {
   return Array.from({ length: limit }, (_, index) => items[Math.round(index * (items.length - 1) / (limit - 1))])
 }
 
-function boundedConversation(messages = []) {
-  return messages
-    .filter((message) => ['user', 'assistant'].includes(message.role) && message.status !== 'pending')
-    .slice(-12)
-    .map((message) => ({ role: message.role, content: bounded(message.content, 12_000) }))
-    .filter((message) => message.content)
+function boundedConversation(messages = [], contextMode = 'auto') {
+  if (contextMode === 'evidence-only') return []
+  const limit = contextMode === 'compact' ? 4 : contextMode === 'full' ? 48 : 12
+  const selected = messages
+    .filter((message) => ['user', 'assistant'].includes(message.role) && message.status === 'complete')
+    .slice(-limit)
+  const output = []
+  let remaining = 120_000
+  for (const message of selected.toReversed()) {
+    if (remaining <= 0) break
+    const content = bounded(message.content, Math.min(12_000, remaining))
+    if (!content) continue
+    remaining -= content.length
+    output.unshift({ role: message.role, content })
+  }
+  return output
 }
 
 function localPathFromUrl(value) {

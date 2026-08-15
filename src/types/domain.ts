@@ -190,6 +190,9 @@ export interface ProviderRemovalResult {
   settings: AppSettings
 }
 
+export type ReasoningEffort = 'auto' | 'low' | 'medium' | 'high' | 'xhigh'
+export type ContextMode = 'auto' | 'compact' | 'full' | 'evidence-only'
+
 export interface AnalysisRequest {
   question: string
   promptId: string
@@ -202,6 +205,9 @@ export interface AnalysisRequest {
   outputFormat?: OutputFormat
   annotation?: string
   extensionInstructions?: string
+  model?: string
+  reasoningEffort?: ReasoningEffort
+  contextMode?: ContextMode
 }
 
 export interface ExtensionPackage {
@@ -256,6 +262,9 @@ export interface QuerySession {
   analysisMode: AnalysisMode
   outputFormat: OutputFormat
   annotation?: string
+  model?: string
+  reasoningEffort?: ReasoningEffort
+  contextMode?: ContextMode
 }
 
 export interface CaptureSelection {

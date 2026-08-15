@@ -4,7 +4,7 @@ Press one shortcut, point at anything on screen, and ask an AI agent about it.
 
 LensQuery is an open-source resident utility for Windows and macOS. Press a global shortcut, click once to highlight an interface element/file and again to confirm it, or hold-drag a region; LensQuery then starts analysis in the background through Codex, Claude Code, OpenCode, Grok, or a configured API. Its normal window is a quiet local conversation timeline for evidence, previous queries, and follow-ups.
 
-> Current status: the repository now has an Electron workbench modeled on quiet coding-agent clients, while the existing Rust implementation runs as a bounded native sidecar for capture, accessibility, PDF/text/video preparation, local Whisper transcription, long-video chaptering, local C2PA/EXIF provenance inspection, CLI discovery, and local-agent calls. Electron owns the window, tray, shortcut, notifications, encrypted settings, direct API transports, and plugin/Skill manager. The previously installed Tauri application remains a side-by-side fallback until packaged Electron capture permissions pass the full physical macOS/Windows matrix. Physical Windows mixed-DPI testing, richer arbitrary-app macOS text ranges, automatic browser-host packaging, Codex App Server/OpenCode session adapters, hosted/provider-native audio transcription, Realtime audio playback, and OCR remain implementation gates.
+> Current status: the repository now has an Electron workbench modeled on quiet coding-agent clients, while the existing Rust implementation runs as a bounded native sidecar for accessibility, PDF/text/video preparation, local Whisper transcription, long-video chaptering, local C2PA/EXIF provenance inspection, CLI discovery, and local-agent calls. Electron owns the window, tray, shortcut, macOS pixel capture, notifications, encrypted settings, direct API transports, and plugin/Skill manager. The previously installed Tauri application remains a side-by-side fallback until packaged Electron capture permissions pass the full physical macOS/Windows matrix. Physical Windows mixed-DPI testing, richer arbitrary-app macOS text ranges, automatic browser-host packaging, Codex App Server/OpenCode session adapters, hosted/provider-native audio transcription, Realtime audio playback, and OCR remain implementation gates.
 
 ## Intended workflow
 
@@ -28,6 +28,7 @@ There is no upload-style homepage. Point at a Desktop/Finder/Explorer file and c
 - Settings can automatically infer the customer's language from the question and visible evidence, or force a fallback reply language. Reply style and a bounded custom instruction are included in every local CLI request.
 - Simplified Chinese and English interface copy are included for the main navigation and complete settings screen. The setting is persisted locally by the desktop runtime.
 - Six analysis intents are available: identify, explain, how-to, deep-dive, customer reply, and code analysis. Output can be adaptive, summary, steps, full report, customer-ready, or explicit Markdown.
+- Every conversation has an inline runtime menu in the follow-up composer. It can switch the ready provider, override the model ID, choose automatic/low/medium/high/extra-high reasoning, and use automatic, compact, full-session, or evidence-only history without changing already completed answers.
 
 ## What it is designed to analyze
 
@@ -45,7 +46,7 @@ There is no upload-style homepage. Point at a Desktop/Finder/Explorer file and c
 
 - Electron main/preload process for the coding-agent-style client, tray, global shortcut, secure settings, notifications, and extension management
 - React 19 + TypeScript + Zustand renderer with context isolation and a narrow IPC allowlist
-- Rust native core exposed as a one-request/one-response sidecar for capture, accessibility, files/media, CLI discovery, and analysis
+- Rust native core exposed as a one-request/one-response sidecar for accessibility, files/media, CLI discovery, analysis, and the legacy Tauri capture path
 - Existing Tauri 2 shell retained temporarily as a migration fallback, using the same React UI and Rust modules
 - Provider-independent request/result contracts
 - XCap screen-region capture and Windows UI Automation behind platform modules
@@ -88,6 +89,8 @@ npm run dev:electron
 
 Closing the client window returns it to the menu bar. A left click on the menu-bar item starts recognition; Timeline, Plugins & Skills, and Settings remain available from its short right-click menu.
 
+The first actual capture on macOS requires **Privacy & Security → Screen & System Audio Recording → LensQuery**. The signed Electron process owns pixel capture, while its packaged helper has a stable certificate-backed identifier; the first shortcut can ask once, and later shortcuts do not launch a new helper identity or keep reopening the request. Enable the switch, fully quit LensQuery, and reopen it. If LensQuery is absent from the list, press `+` and choose `/Applications/LensQuery Electron Preview.app`. Accessibility permission is separate and supplies exact object/file bounds and exposed text.
+
 ### Legacy Tauri fallback on macOS
 
 Install the [Tauri 2 prerequisites](https://v2.tauri.app/start/prerequisites/) and use the fallback installer only when comparing native-capture behavior:
@@ -102,7 +105,7 @@ npm run install:macos
 
 LensQuery starts hidden in the menu bar. Press `Command+Shift+Space` to activate the question cursor. The generated DMG remains under `src-tauri/target/release/bundle/dmg/`.
 
-The first actual capture on macOS requires **Privacy & Security → Screen & System Audio Recording → LensQuery**. The first shortcut asks once; repeated shortcuts do not keep reopening the system request. Enable the switch, fully quit LensQuery, and reopen it. If LensQuery is absent from the list, press `+` and choose `/Applications/LensQuery.app`. Accessibility permission is separately required for exact element bounds/text and real PDF/image/video/file detection; both permission pages are linked from LensQuery Settings.
+The Tauri fallback uses its own `/Applications/LensQuery.app` permission identity. Its first shortcut asks once; enable that separate switch only when testing the fallback, then fully quit and reopen it.
 
 `npm run tauri dev` is the development runner; it compiles and launches a debug build but does **not** install an application into `/Applications`.
 

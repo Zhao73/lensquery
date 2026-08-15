@@ -9,6 +9,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import {
   app,
   BrowserWindow,
+  desktopCapturer,
   dialog,
   globalShortcut,
   ipcMain,
@@ -91,6 +92,8 @@ let rendererIsReady = false
 let processingExternalPaths = false
 let launchHidden = process.argv.some(isLensQueryDeepLink)
 const pendingDeepLinks = process.argv.filter(isLensQueryDeepLink)
+let screenPermissionRequestedThisRun = false
+let screenPermissionNoticeShown = false
 
 function debugRuntime(event, details = {}) {
   if (process.env.LENSQUERY_DEBUG !== '1') return
@@ -303,6 +306,15 @@ async function flushDeepLinks() {
 }
 
 async function startCapture(mode = 'element') {
+  const permission = await ensureScreenCapturePermission()
+  if (!permission.granted) {
+    sendEvent('lensquery://capture-error', permission.message)
+    if (!screenPermissionNoticeShown) {
+      screenPermissionNoticeShown = true
+      showNotification('LensQuery 需要一次录屏授权', permission.message)
+    }
+    return { status: 'unavailable', message: permission.message }
+  }
   if (!captureWindow || captureWindow.isDestroyed()) await createCaptureWindow()
   const displays = screen.getAllDisplays()
   const left = Math.min(...displays.map((display) => display.bounds.x))
@@ -330,7 +342,9 @@ async function completeCapture(selection) {
   captureWindow?.hide()
   await new Promise((resolve) => setTimeout(resolve, 130))
   try {
-    const response = await invokeSidecar('completeCapture', { selection })
+    const response = process.platform === 'darwin'
+      ? await completeCaptureWithElectron(selection)
+      : await invokeSidecar('completeCapture', { selection })
     const sourcePath = response.evidence?.sourcePath
     const files = sourcePath ? await invokeSidecar('inspectFiles', { paths: [sourcePath] }).catch(() => []) : []
     sendEvent('lensquery://evidence-ready', {
@@ -344,6 +358,108 @@ async function completeCapture(selection) {
   } catch (error) {
     sendEvent('lensquery://capture-error', String(error))
     throw error
+  }
+}
+
+async function ensureScreenCapturePermission() {
+  if (process.platform !== 'darwin') return { granted: true, message: '' }
+  let status = systemPreferences.getMediaAccessStatus('screen')
+  if (status === 'granted') return { granted: true, message: '' }
+
+  // desktopCapturer attributes the one-time TCC request to the signed app
+  // instead of the short-lived Rust process. Do this at most once per launch.
+  if (status === 'not-determined' && !screenPermissionRequestedThisRun) {
+    screenPermissionRequestedThisRun = true
+    await desktopCapturer.getSources({
+      types: ['screen'],
+      thumbnailSize: { width: 2, height: 2 },
+      fetchWindowIcons: false,
+    }).catch(() => [])
+    status = systemPreferences.getMediaAccessStatus('screen')
+    if (status === 'granted') return { granted: true, message: '' }
+  }
+
+  const message = status === 'not-determined'
+    ? '首次使用请允许 LensQuery 读取你确认的屏幕区域，然后完全退出并重新打开。本次运行不会再次请求。'
+    : '录屏权限尚未开启。请在 LensQuery「设置 → 系统权限」中打开系统设置；当前快捷键不会反复弹出请求。'
+  return { granted: false, message }
+}
+
+function displayForBounds(bounds) {
+  return screen.getDisplayNearestPoint({
+    x: Math.round(Number(bounds?.x || 0) + Number(bounds?.width || 1) / 2),
+    y: Math.round(Number(bounds?.y || 0) + Number(bounds?.height || 1) / 2),
+  })
+}
+
+async function inspectCaptureTargetWithDisplay(point, textScope) {
+  const display = displayForBounds(point)
+  return invokeSidecar('inspectCaptureTarget', {
+    point,
+    textScope,
+    monitorBounds: display.bounds,
+  })
+}
+
+async function completeCaptureWithElectron(selection) {
+  const target = selection.mode === 'element'
+    ? await inspectCaptureTargetWithDisplay(selection.bounds, selection.textScope).catch(() => undefined)
+    : undefined
+  const requestedBounds = target?.bounds?.width >= 2 && target?.bounds?.height >= 2
+    ? target.bounds
+    : selection.bounds
+  const display = displayForBounds(requestedBounds)
+  const pixelWidth = Math.max(1, Math.round(display.bounds.width * display.scaleFactor))
+  const pixelHeight = Math.max(1, Math.round(display.bounds.height * display.scaleFactor))
+  const sources = await desktopCapturer.getSources({
+    types: ['screen'],
+    thumbnailSize: { width: pixelWidth, height: pixelHeight },
+    fetchWindowIcons: false,
+  })
+  const source = sources.find((item) => String(item.display_id) === String(display.id))
+    ?? sources.find((item) => {
+      const size = item.thumbnail.getSize()
+      return Math.abs(size.width / Math.max(1, size.height) - pixelWidth / pixelHeight) < 0.02
+    })
+    ?? sources[0]
+  if (!source || source.thumbnail.isEmpty()) {
+    throw new Error('屏幕画面尚未授权给 LensQuery，请开启录屏权限后重新打开应用。')
+  }
+
+  const sourceSize = source.thumbnail.getSize()
+  const scaleX = sourceSize.width / Math.max(1, display.bounds.width)
+  const scaleY = sourceSize.height / Math.max(1, display.bounds.height)
+  const localX = Math.max(0, Math.min(sourceSize.width - 1, Math.round((requestedBounds.x - display.bounds.x) * scaleX)))
+  const localY = Math.max(0, Math.min(sourceSize.height - 1, Math.round((requestedBounds.y - display.bounds.y) * scaleY)))
+  const cropWidth = Math.max(1, Math.min(sourceSize.width - localX, Math.round(Math.max(1, requestedBounds.width) * scaleX)))
+  const cropHeight = Math.max(1, Math.min(sourceSize.height - localY, Math.round(Math.max(1, requestedBounds.height) * scaleY)))
+  const image = source.thumbnail.crop({ x: localX, y: localY, width: cropWidth, height: cropHeight })
+  const outputDirectory = path.join(os.tmpdir(), 'lensquery-captures')
+  await fs.mkdir(outputDirectory, { recursive: true })
+  const outputPath = path.join(outputDirectory, `${randomUUID()}.png`)
+  await fs.writeFile(outputPath, image.toPNG())
+
+  return {
+    status: 'started',
+    message: '所选内容已读取，正在后台分析。',
+    evidence: {
+      id: randomUUID(),
+      kind: selection.mode,
+      previewUrl: pathToFileURL(outputPath).href,
+      bounds: {
+        x: requestedBounds.x,
+        y: requestedBounds.y,
+        width: Math.max(1, requestedBounds.width),
+        height: Math.max(1, requestedBounds.height),
+      },
+      windowTitle: target?.label,
+      accessibleText: target?.accessibleText,
+      sourcePath: target?.sourcePath,
+      textScope: selection.textScope,
+      annotation: selection.annotation,
+      analysisMode: selection.analysisMode,
+      outputFormat: selection.outputFormat,
+    },
   }
 }
 
@@ -457,7 +573,7 @@ function registerIpc() {
   handle('discoverCliProviders', discoverProviders)
   handle('startCapture', ({ mode }) => startCapture(mode))
   handle('completeCapture', ({ selection }) => completeCapture(selection))
-  handle('inspectCaptureTarget', ({ point, textScope }) => invokeSidecar('inspectCaptureTarget', { point, textScope }))
+  handle('inspectCaptureTarget', ({ point, textScope }) => inspectCaptureTargetWithDisplay(point, textScope))
   handle('cancelCapture', async () => { captureWindow?.hide() })
   handle('showMainWindow', async () => showMain())
   handle('permissionStatus', async () => ({
@@ -521,19 +637,23 @@ function registerIpc() {
   handle('analyze', async ({ request }) => {
     const profile = state.providers.find((item) => item.id === request.providerId)
     if (!profile) throw new Error('没有找到所选模型通道。')
+    const runtimeProfile = {
+      ...profile,
+      model: normalizeRuntimeModel(request.model, profile.model),
+    }
     const extensionInstructions = await extensionManager.collectInstructions()
     const enrichedRequest = { ...request, extensionInstructions }
-    if (isDirectProvider(profile)) {
+    if (isDirectProvider(runtimeProfile)) {
       return runDirectProvider({
-        profile,
-        secret: decryptProviderSecret(profile.id),
+        profile: runtimeProfile,
+        secret: decryptProviderSecret(runtimeProfile.id),
         request: enrichedRequest,
         settings: state.settings,
       })
     }
     return invokeSidecar('analyze', {
       request: enrichedRequest,
-      profile,
+      profile: runtimeProfile,
       settings: state.settings,
     })
   })
@@ -575,6 +695,14 @@ function registerIpc() {
     return true
   })
   handle('extensions:openFolder', async ({ filePath }) => shell.openPath(filePath))
+}
+
+function normalizeRuntimeModel(value, fallback) {
+  const model = String(value || fallback || 'default').trim()
+  if (!model || model.length > 160 || /[\0\r\n]/.test(model)) {
+    throw new Error('模型 ID 应为 1–160 个字符的单行文本。')
+  }
+  return model
 }
 
 function handle(channel, handler) {

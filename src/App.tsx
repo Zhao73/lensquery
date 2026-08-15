@@ -34,6 +34,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import './App.css'
 import { SessionVideoPlayer } from './components/SessionVideoPlayer'
+import { SessionRuntimeControls, type SessionRuntimeUpdate } from './components/SessionRuntimeControls'
 import { evidenceAccept, formatBytes, formatDuration, normalizeBrowserFiles } from './lib/files'
 import {
   analyze,
@@ -406,6 +407,9 @@ function ConversationApp() {
       createdAt,
       updatedAt: createdAt,
       providerId: provider.id,
+      model: provider.model,
+      reasoningEffort: 'auto',
+      contextMode: 'auto',
       sourceLabel: source.label,
       sourceKind: source.kind,
       captures: input.captures,
@@ -423,6 +427,9 @@ function ConversationApp() {
         question,
         promptId: preparedFiles.some(({ kind }) => kind === 'video') || input.browserContext?.media?.kind === 'video' ? 'video' : requestedMode,
         providerId: provider.id,
+        model: provider.model,
+        reasoningEffort: 'auto',
+        contextMode: 'auto',
         captures: input.captures,
         files: preparedFiles,
         browserContext: input.browserContext,
@@ -525,6 +532,9 @@ function ConversationApp() {
         question,
         promptId: 'follow-up',
         providerId: provider.id,
+        model: activeSession.model ?? provider.model,
+        reasoningEffort: activeSession.reasoningEffort ?? 'auto',
+        contextMode: activeSession.contextMode ?? 'auto',
         captures: activeSession.captures,
         files: activeSession.files,
         browserContext: activeSession.browserContext,
@@ -569,7 +579,12 @@ function ConversationApp() {
     setError('')
     try {
       const response = await startCapture('element')
-      setCaptureStatus(response.message)
+      if (response.status === 'unavailable') {
+        setCaptureStatus('')
+        setError(response.message)
+      } else {
+        setCaptureStatus(response.message)
+      }
     } catch (cause) {
       setError(String(cause))
     }
@@ -681,6 +696,7 @@ function ConversationApp() {
             <ConversationView
               session={activeSession}
               provider={providers.find(({ id }) => id === activeSession.providerId)}
+              providers={providers}
               followUp={followUp}
               onFollowUp={setFollowUp}
               onSubmit={submitFollowUp}
@@ -689,6 +705,9 @@ function ConversationApp() {
               onRetry={() => {
                 const lastQuestion = [...activeSession.messages].reverse().find(({ role }) => role === 'user')?.content
                 if (lastQuestion) setFollowUp(lastQuestion)
+              }}
+              onRuntimeChange={(update) => {
+                upsertSession({ ...activeSession, ...update })
               }}
             />
           ) : (
@@ -754,12 +773,14 @@ function ConversationApp() {
 function ConversationView(props: {
   session: QuerySession
   provider?: ProviderProfile
+  providers: ProviderProfile[]
   followUp: string
   onFollowUp: (value: string) => void
   onSubmit: () => void
   onQuickAsk: (question: string) => void
   onDelete: () => void
   onRetry: () => void
+  onRuntimeChange: (update: SessionRuntimeUpdate) => void
 }) {
   const streamRef = useRef<HTMLDivElement>(null)
   const tailRef = useRef<HTMLDivElement>(null)
@@ -839,8 +860,13 @@ function ConversationView(props: {
               }
             }}
           />
-          <div>
-            <span>{props.provider?.name ?? '模型不可用'} · {props.provider?.model ?? 'default'}</span>
+          <div className="follow-up-footer">
+            <SessionRuntimeControls
+              session={props.session}
+              provider={props.provider}
+              providers={props.providers}
+              onChange={props.onRuntimeChange}
+            />
             <button type="button" disabled={!props.followUp.trim()} onClick={props.onSubmit} aria-label="发送追问"><PaperPlaneTilt size={18} weight="fill" /></button>
           </div>
         </div>
@@ -1197,7 +1223,7 @@ function SettingsPanel(props: { settings: AppSettings; onSave: (settings: AppSet
     <section className="settings-surface narrow">
       <header className="section-heading"><div><h1>设置</h1><p>快捷键、语言、回复方式和本地记录。</p></div></header>
       <div className="settings-group"><h2>取景</h2><label>全局快捷键<input value={draft.shortcut} onChange={(event) => setDraft({ ...draft, shortcut: event.target.value })} /><small>第一次点击高亮文本、图片、PDF、文件或程序对象，再点一次确认；拖动直接选择区域。</small></label><Toggle checked={draft.showPreview} label="手动导入文件时显示预览" onChange={(showPreview) => setDraft({ ...draft, showPreview })} /></div>
-      <div className="settings-group"><h2>系统权限</h2><div className="permission-row"><span><strong>录屏</strong><small>框选和对象图片预览</small></span><i className={permissions?.screenCapture ? 'permission-ok' : 'permission-needed'}>{permissions?.screenCapture ? '已允许' : '需要开启'}</i><button type="button" className="secondary-button" onClick={() => void openPermissionSettings('screen')}>打开设置</button></div><div className="permission-row"><span><strong>辅助功能</strong><small>识别单个 PDF、文件、文本和控件</small></span><i className={permissions?.accessibility ? 'permission-ok' : 'permission-needed'}>{permissions?.accessibility ? '已允许' : '需要开启'}</i><button type="button" className="secondary-button" onClick={() => void openPermissionSettings('accessibility')}>打开设置</button></div><small>如果系统列表中没有 LensQuery，点“+”并选择 /Applications/LensQuery.app。更改权限后请完全退出并重新打开。</small></div>
+      <div className="settings-group"><h2>系统权限</h2><div className="permission-row"><span><strong>录屏</strong><small>框选和对象图片预览</small></span><i className={permissions?.screenCapture ? 'permission-ok' : 'permission-needed'}>{permissions?.screenCapture ? '已允许' : '需要开启'}</i><button type="button" className="secondary-button" onClick={() => void openPermissionSettings('screen')}>打开设置</button></div><div className="permission-row"><span><strong>辅助功能</strong><small>识别单个 PDF、文件、文本和控件</small></span><i className={permissions?.accessibility ? 'permission-ok' : 'permission-needed'}>{permissions?.accessibility ? '已允许' : '需要开启'}</i><button type="button" className="secondary-button" onClick={() => void openPermissionSettings('accessibility')}>打开设置</button></div><small>如果系统列表中没有 LensQuery，点“+”并选择 {isElectronRuntime() ? '/Applications/LensQuery Electron Preview.app' : '/Applications/LensQuery.app'}。更改权限后请完全退出并重新打开。</small></div>
       <div className="settings-group"><h2>分析与回复</h2><label>默认分析方式<select value={draft.defaultAnalysisMode} onChange={(event) => setDraft({ ...draft, defaultAnalysisMode: event.target.value as AnalysisMode })}>{analysisModes.map((mode) => <option key={mode.id} value={mode.id}>{mode.label} · {mode.hint}</option>)}</select></label><label>默认回复格式<select value={draft.defaultOutputFormat} onChange={(event) => setDraft({ ...draft, defaultOutputFormat: event.target.value as OutputFormat })}>{outputFormats.map((format) => <option key={format.id} value={format.id}>{format.label}</option>)}</select></label><label>回答风格<select value={draft.replyStyle} onChange={(event) => setDraft({ ...draft, replyStyle: event.target.value as AppSettings['replyStyle'] })}><option value="customer-ready">客户可直接使用</option><option value="concise">简短结论</option><option value="detailed">详细分析</option></select></label><label>自定义要求<textarea value={draft.customReplyInstruction} onChange={(event) => setDraft({ ...draft, customReplyInstruction: event.target.value })} placeholder="例如：先给结论，再说明原理、步骤和验证方法。" /></label></div>
       <div className="settings-group"><h2>语言</h2><label>界面语言<select value={draft.language} onChange={(event) => setDraft({ ...draft, language: event.target.value as AppSettings['language'] })}><option value="zh-CN">简体中文</option><option value="en">English</option></select></label><Toggle checked={draft.detectCustomerLanguage} label="自动跟随顾客语言回答" onChange={(detectCustomerLanguage) => setDraft({ ...draft, detectCustomerLanguage })} /><label>无法识别时的语言<select value={draft.responseLanguage} onChange={(event) => setDraft({ ...draft, responseLanguage: event.target.value as AppSettings['responseLanguage'] })}><option value="zh-CN">简体中文</option><option value="en">English</option><option value="ja-JP">日本語</option><option value="ko-KR">한국어</option><option value="es-ES">Español</option><option value="fr-FR">Français</option><option value="de-DE">Deutsch</option></select></label></div>
       <div className="settings-group"><h2>后台与结果</h2><Toggle checked={draft.launchAtStartup} label="登录系统后自动在后台启动" onChange={(launchAtStartup) => setDraft({ ...draft, launchAtStartup })} /><Toggle checked={draft.notificationsEnabled} label="分析完成后在右上角显示结果卡片" onChange={(notificationsEnabled) => setDraft({ ...draft, notificationsEnabled })} /><Toggle checked={draft.notificationPreview} label="在结果卡片中显示回答摘要" onChange={(notificationPreview) => setDraft({ ...draft, notificationPreview })} /><label>结果呈现<select value={draft.resultPresentation} onChange={(event) => setDraft({ ...draft, resultPresentation: event.target.value as AppSettings['resultPresentation'] })}><option value="notification">只显示右上角结果，继续后台运行</option><option value="window">自动打开会话窗口</option><option value="both">右上角显示并打开窗口</option></select></label><div><button type="button" className="secondary-button" onClick={() => void showSystemNotification('LensQuery 结果显示正常', '以后每次分析完成，回答摘要都会直接出现在右上角。')}>测试右上角结果</button></div></div>

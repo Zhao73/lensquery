@@ -22,11 +22,11 @@ flowchart LR
 
 ## Processes and windows
 
-- **Resident Electron main process:** owns the tray, global shortcut, window lifecycle, OS notifications/speech, login item, encrypted secret storage, file dialogs, browser-queue handoff, and extension manager.
+- **Resident Electron main process:** owns the tray, global shortcut, window lifecycle, macOS `desktopCapturer` permission/pixel acquisition, OS notifications/speech, login item, encrypted secret storage, file dialogs, browser-queue handoff, and extension manager.
 - **Sandboxed renderer:** React/TypeScript workbench loaded with `contextIsolation`, `sandbox`, no Node integration, and a channel allowlist exposed by `preload.cjs`.
-- **Rust sidecar:** the existing `lensquery` binary starts with `--electron-sidecar`, accepts one bounded JSON request on stdin, returns one JSON envelope on stdout, then exits. It owns native capture/accessibility, local file/PDF/video preparation, CLI discovery, and CLI analysis. It does not expose a listening port.
+- **Rust sidecar:** the existing `lensquery` binary starts with `--electron-sidecar`, accepts one bounded JSON request on stdin, returns one JSON envelope on stdout, then exits. It owns Accessibility/UI Automation, local file/PDF/video preparation, CLI discovery, CLI analysis, and the legacy Tauri/XCap capture path. It does not expose a listening port. Electron supplies monitor geometry during macOS target inspection, so the helper does not touch the screen-capture API.
 - **`main` window:** a coding-agent-style conversation workbench. Closing hides it and its Dock presence; it does not terminate the resident tray process.
-- **`capture` window:** transparent, borderless, always-on-top Electron overlay spanning the virtual desktop. Its custom cursor is a question mark. It distinguishes a click from a drag by movement threshold and delegates native inspection/capture to the Rust sidecar.
+- **`capture` window:** transparent, borderless, always-on-top Electron overlay spanning the virtual desktop. Its custom cursor is a question mark. It distinguishes a click from a drag by movement threshold, delegates target inspection to the Rust sidecar, then asks the resident Electron process for the confirmed crop.
 - **Browser companion extension:** reads the explicitly clicked DOM element through `activeTab` and content-script APIs, sanitizes a bounded context package, and forwards it through a Native Messaging host.
 - **Tauri migration fallback:** remains buildable and installed separately while Electron permission attribution, mixed-DPI selection, and packaged sidecar behavior are verified. It is not the target client architecture.
 
@@ -61,14 +61,16 @@ The production application does not use Ink, Bubble Tea, Ratatui, or another TUI
 1. The Electron global shortcut opens the transparent capture renderer and sends it the persisted capture intent.
 2. The capture window covers all monitors using virtual-screen coordinates.
 3. A click temporarily hides the overlay, resolves the underlying accessibility/file target, then restores the overlay around the real bounds; a second click confirms it. A dragged rectangle bypasses this target-confirmation step.
-4. LensQuery hides its overlay before target inspection and final pixel acquisition.
+4. LensQuery hides its overlay before target inspection and final pixel acquisition. The capture renderer explicitly clears the normal app/root canvas, so transparent pixels reveal the unchanged desktop instead of an opaque dark window.
 5. On Windows, UI Automation resolves the click to a role, name, class, AutomationId, true element rectangle, and word/paragraph/document range when exposed. On macOS, Accessibility reads bounded `AXSelectedText`, `AXValue`, or title context when the user grants permission.
-6. XCap captures the bounded region to a local temporary PNG.
-7. The Rust sidecar returns evidence to Electron; the main process emits `lensquery://evidence-ready` and the renderer immediately creates a pending conversation.
+6. On packaged macOS Electron, `desktopCapturer` acquires the selected display once under the stable app identity and crops the confirmed logical bounds at the display scale factor. Windows and the Tauri fallback retain the XCap platform path.
+7. Electron writes the bounded PNG locally, combines it with sidecar Accessibility metadata, emits `lensquery://evidence-ready`, and the renderer immediately creates a pending conversation.
 8. The selected agent adapter receives the evidence and streams/returns the answer.
 9. LensQuery follows the configured result presentation: permission-independent upper-right card, conversation window, or both. The local conversation keeps the selected image/file metadata, full answer, media quick actions, and follow-up context.
 
 Native accessibility is best-effort and permission-bound. Canvas applications, protected surfaces, elevated/secure windows, and some GPU/video surfaces may expose no useful element metadata. The pixel crop remains the fallback. The overlay supports pointer selection plus keyboard move/resize/confirm/cancel.
+
+The macOS installer signs the embedded sidecar with `com.lensquery.desktop.electron-preview.sidecar` before re-signing the parent bundle. With an Apple Development identity this yields a stable designated requirement instead of a per-build CDHash, preventing local upgrades from appearing as a different helper to TCC.
 
 ## Browser context
 

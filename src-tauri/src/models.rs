@@ -455,6 +455,12 @@ pub struct AnalysisRequest {
     pub annotation: Option<String>,
     #[serde(default)]
     pub extension_instructions: Option<String>,
+    #[serde(default)]
+    pub model: Option<String>,
+    #[serde(default)]
+    pub reasoning_effort: Option<String>,
+    #[serde(default)]
+    pub context_mode: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

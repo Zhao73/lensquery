@@ -22,30 +22,50 @@ pub async fn complete(selection: CaptureSelection) -> Result<CaptureResponse, St
 pub async fn inspect_target(
     point: Bounds,
     text_scope: Option<String>,
+    monitor_bounds: Option<Bounds>,
 ) -> Result<CaptureTarget, String> {
-    tokio::task::spawn_blocking(move || inspect_target_native(point, text_scope.as_deref()))
-        .await
-        .map_err(|error| format!("目标检测任务异常结束: {error}"))?
+    tokio::task::spawn_blocking(move || {
+        inspect_target_native(point, text_scope.as_deref(), monitor_bounds)
+    })
+    .await
+    .map_err(|error| format!("目标检测任务异常结束: {error}"))?
 }
 
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]
 pub async fn inspect_target(
     _point: crate::models::Bounds,
     _text_scope: Option<String>,
+    _monitor_bounds: Option<crate::models::Bounds>,
 ) -> Result<crate::models::CaptureTarget, String> {
     Err("当前 Linux 构建尚未接入桌面目标检测。".into())
 }
 
 #[cfg(any(target_os = "windows", target_os = "macos"))]
-fn inspect_target_native(point: Bounds, text_scope: Option<&str>) -> Result<CaptureTarget, String> {
+fn inspect_target_native(
+    point: Bounds,
+    text_scope: Option<&str>,
+    monitor_bounds: Option<Bounds>,
+) -> Result<CaptureTarget, String> {
     use xcap::Monitor;
 
-    let monitor = Monitor::from_point(point.x.round() as i32, point.y.round() as i32)
-        .map_err(|error| format!("没有找到所选位置的显示器: {error}"))?;
-    let monitor_x = monitor.x().map_err(|error| error.to_string())?;
-    let monitor_y = monitor.y().map_err(|error| error.to_string())?;
-    let monitor_width = monitor.width().map_err(|error| error.to_string())?;
-    let monitor_height = monitor.height().map_err(|error| error.to_string())?;
+    let (monitor_x, monitor_y, monitor_width, monitor_height) = if let Some(bounds) = monitor_bounds
+    {
+        (
+            bounds.x.round() as i32,
+            bounds.y.round() as i32,
+            bounds.width.round().max(1.0) as u32,
+            bounds.height.round().max(1.0) as u32,
+        )
+    } else {
+        let monitor = Monitor::from_point(point.x.round() as i32, point.y.round() as i32)
+            .map_err(|error| format!("没有找到所选位置的显示器: {error}"))?;
+        (
+            monitor.x().map_err(|error| error.to_string())?,
+            monitor.y().map_err(|error| error.to_string())?,
+            monitor.width().map_err(|error| error.to_string())?,
+            monitor.height().map_err(|error| error.to_string())?,
+        )
+    };
 
     #[cfg(target_os = "windows")]
     let inspection = inspect_element(&point, text_scope).map(|element| TargetInspection {

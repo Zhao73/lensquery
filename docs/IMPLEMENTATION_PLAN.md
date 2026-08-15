@@ -18,15 +18,17 @@ The release is successful when a Windows user can leave LensQuery in the tray, p
 - Left-click Quick Ask plus a distilled right-click menu: Start, Analyze Files, Timeline, Settings, and Quit.
 - Main-window close hides to tray.
 - Configurable global shortcut registration in Electron, with rollback to the previous shortcut if a new accelerator is occupied.
-- Separate transparent all-monitor capture overlay.
+- Separate transparent all-monitor capture overlay whose document/root canvas is explicitly transparent.
 - Transparent desktop, small question-mark cursor, real-target first-click highlight, second-click confirmation, drag threshold, Escape cancellation, and configured analysis intent.
 - Permission-independent upper-right result card, card/window/both result presentation, autostart preference, and system speech.
 
 macOS compilation is verified locally. Windows behavior must still be exercised on physical Windows 10/11, especially mixed-DPI coordinates and tray lifecycle.
 
-### M2 — Native capture: implemented baseline, Windows QA pending
+### M2 — Native capture: implemented macOS ownership fix, Windows QA pending
 
 - XCap region capture to a temporary PNG.
+- Packaged macOS Electron capture through the resident `desktopCapturer` identity, with scale-aware cropping; Accessibility inspection receives Electron monitor bounds and does not invoke helper screen capture.
+- One-request-per-run permission gate plus stable certificate-backed sidecar identifier, preventing repeated allow/deny prompts from an ephemeral helper identity.
 - Windows UI Automation `ElementFromPoint` lookup for name, role, class, AutomationId, and bounding rectangle.
 - Pixel fallback when UI Automation exposes nothing useful.
 - Automatic confirmed evidence event into the background conversation pipeline without a client confirmation page; macOS document URLs are promoted to PDF/image/video/file evidence after explicit two-click confirmation.
@@ -38,6 +40,7 @@ Remaining: multi-monitor mixed-DPI test matrix, protected/elevated-surface error
 - No upload/dashboard homepage.
 - Searchable local timeline, source metadata, answer states, semantic Markdown, copy/read-aloud/retry, deletion, and clear history.
 - Same-session follow-up with transcript context.
+- Inline per-session provider/model, reasoning-effort, and automatic/compact/full/evidence-only history controls.
 - Six analysis modes, six output contracts, and optional annotations.
 - Plain Windows/macOS/Codex-like workbench styling with system typography and one action color.
 - Persistent coding-agent-style sidebar, centered new-conversation composer, provider chip, and dedicated Plugins/Skills capability view.

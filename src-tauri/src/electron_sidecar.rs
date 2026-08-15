@@ -72,6 +72,8 @@ struct InspectTargetPayload {
     point: Bounds,
     #[serde(default)]
     text_scope: Option<String>,
+    #[serde(default)]
+    monitor_bounds: Option<Bounds>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -150,7 +152,10 @@ async fn dispatch(request: SidecarRequest) -> Result<Value, String> {
         }
         "inspectCaptureTarget" => {
             let payload: InspectTargetPayload = decode(request.payload)?;
-            encode(capture::inspect_target(payload.point, payload.text_scope).await?)
+            encode(
+                capture::inspect_target(payload.point, payload.text_scope, payload.monitor_bounds)
+                    .await?,
+            )
         }
         "completeCapture" => {
             let payload: CompleteCapturePayload = decode(request.payload)?;

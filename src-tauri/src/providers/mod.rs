@@ -16,9 +16,20 @@ use crate::{
 
 pub async fn analyze(
     request: AnalysisRequest,
-    profile: ProviderProfile,
+    mut profile: ProviderProfile,
     settings: AppSettings,
 ) -> Result<AnalysisResult, String> {
+    if let Some(model) = request
+        .model
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        if model.chars().count() > 160 || model.chars().any(char::is_control) {
+            return Err("模型 ID 应为 1–160 个字符的单行文本。".into());
+        }
+        profile.model = model.to_string();
+    }
     let started = Instant::now();
     let answer = match profile.kind.as_str() {
         "codex-cli" | "claude-cli" | "opencode-cli" | "grok-cli" => {
@@ -339,7 +350,12 @@ fn visual_instruction(request: &AnalysisRequest) -> &'static str {
     }
 }
 
-fn codex_reasoning_effort(request: &AnalysisRequest) -> &'static str {
+fn codex_reasoning_effort(request: &AnalysisRequest) -> &str {
+    if let Some(effort @ ("low" | "medium" | "high" | "xhigh")) =
+        request.reasoning_effort.as_deref()
+    {
+        return effort;
+    }
     if request.analysis_mode == "deep-dive"
         || request.analysis_mode == "code"
         || request.output_format == "report"
@@ -856,12 +872,31 @@ fn build_evidence_manifest(request: &AnalysisRequest) -> String {
 }
 
 fn build_conversation_manifest(request: &AnalysisRequest) -> String {
-    let messages = request
+    if request.context_mode.as_deref() == Some("evidence-only") {
+        return "Conversation history omitted; use the supplied evidence and current question only.".into();
+    }
+    let completed = request
         .conversation
         .iter()
         .filter(|message| message.status == "complete")
-        .map(|message| format!("{}: {}", message.role, truncate(&message.content, 4_000)))
         .collect::<Vec<_>>();
+    let limit = match request.context_mode.as_deref() {
+        Some("compact") => 4,
+        Some("full") => usize::MAX,
+        _ => 12,
+    };
+    let start = completed.len().saturating_sub(limit);
+    let mut remaining = 120_000usize;
+    let mut messages = Vec::new();
+    for message in completed[start..].iter().rev() {
+        if remaining == 0 {
+            break;
+        }
+        let content = truncate(&message.content, 4_000.min(remaining));
+        remaining = remaining.saturating_sub(content.chars().count());
+        messages.push(format!("{}: {}", message.role, content));
+    }
+    messages.reverse();
     if messages.is_empty() {
         "New conversation.".into()
     } else {
@@ -883,7 +918,7 @@ fn tail(value: &str, max_chars: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{FileEvidence, VideoFrame, VideoPreparation};
+    use crate::models::{ConversationMessage, FileEvidence, VideoFrame, VideoPreparation};
 
     #[test]
     fn expands_prepared_video_into_frame_paths() {
@@ -931,6 +966,9 @@ mod tests {
             output_format: "adaptive".into(),
             annotation: None,
             extension_instructions: None,
+            model: None,
+            reasoning_effort: None,
+            context_mode: None,
         };
         assert_eq!(
             collect_image_paths(&request).expect("prepared video"),
@@ -945,7 +983,7 @@ mod tests {
 
     #[test]
     fn keeps_deep_reports_bounded_but_not_minimal() {
-        let request = AnalysisRequest {
+        let mut request = AnalysisRequest {
             question: "why?".into(),
             prompt_id: "deep-dive".into(),
             provider_id: "codex-cli".into(),
@@ -957,8 +995,29 @@ mod tests {
             output_format: "report".into(),
             annotation: None,
             extension_instructions: None,
+            model: None,
+            reasoning_effort: None,
+            context_mode: None,
         };
         assert_eq!(codex_reasoning_effort(&request), "medium");
+        request.reasoning_effort = Some("high".into());
+        assert_eq!(codex_reasoning_effort(&request), "high");
+        request.conversation = (0..6)
+            .map(|index| ConversationMessage {
+                id: format!("m-{index}"),
+                role: if index % 2 == 0 { "user" } else { "assistant" }.into(),
+                content: format!("turn-{index}"),
+                created_at: "2026-08-15T00:00:00Z".into(),
+                status: "complete".into(),
+            })
+            .collect();
+        request.context_mode = Some("compact".into());
+        let compact = build_conversation_manifest(&request);
+        assert!(!compact.contains("turn-1"));
+        assert!(compact.contains("turn-2"));
+        assert!(compact.contains("turn-5"));
+        request.context_mode = Some("evidence-only".into());
+        assert!(build_conversation_manifest(&request).contains("history omitted"));
     }
 
     #[test]
@@ -1005,6 +1064,9 @@ mod tests {
             output_format: "adaptive".into(),
             annotation: None,
             extension_instructions: None,
+            model: None,
+            reasoning_effort: None,
+            context_mode: None,
         };
 
         assert_eq!(collect_attachment_paths(&request), vec!["/tmp/brief.txt"]);
@@ -1102,6 +1164,9 @@ mod tests {
             output_format: "summary".into(),
             annotation: None,
             extension_instructions: None,
+            model: None,
+            reasoning_effort: None,
+            context_mode: None,
         };
         let context = long_video_context(&request).expect("long video");
         assert_eq!(context.duration_seconds, 24.0 * 60.0);

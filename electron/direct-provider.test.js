@@ -116,4 +116,29 @@ describe('Electron direct provider adapter', () => {
     )
     expect(message).toContain('可见 1 个模型')
   })
+
+  it('applies OpenAI reasoning effort and the selected conversation scope', async () => {
+    let body
+    await runDirectProvider({
+      profile: { id: 'openai', name: 'OpenAI', kind: 'openai', model: 'gpt-5', baseUrl: 'https://api.openai.com/v1', apiKeyRequired: true, secretConfigured: true },
+      secret: 'TOKEN',
+      request: {
+        ...request,
+        reasoningEffort: 'high',
+        contextMode: 'compact',
+        conversation: Array.from({ length: 8 }, (_, index) => ({
+          role: index % 2 ? 'assistant' : 'user',
+          content: `turn-${index}`,
+          status: 'complete',
+        })),
+      },
+      settings,
+      fetchImpl: async (_url, options) => {
+        body = JSON.parse(options.body)
+        return new Response(JSON.stringify({ model: 'gpt-5', choices: [{ message: { content: '完成。' } }] }), { status: 200 })
+      },
+    })
+    expect(body.reasoning_effort).toBe('high')
+    expect(body.messages.slice(0, -1).map(({ content }) => content)).toEqual(['turn-4', 'turn-5', 'turn-6', 'turn-7'])
+  })
 })

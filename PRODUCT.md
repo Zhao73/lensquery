@@ -33,6 +33,7 @@ The product treats the desktop itself as the input surface. One capture action p
 - Accepts screenshots, images, videos, PDFs, and other local files via picker, drag-and-drop, or shell integration.
 - Creates a local conversation immediately, shows an optional upper-right result card, and preserves the selected evidence image, copy, read-aloud, retry, and follow-up actions in the timeline; the optional preview applies to manual imports rather than the shortcut path.
 - Routes requests to direct model APIs or installed local agent CLIs when available.
+- Lets each conversation switch its ready provider and model, reasoning effort, and bounded history scope from the follow-up composer. These settings apply to the next turn and do not rewrite prior answers.
 - Installs, enables, disables, audits, and removes local LensQuery plugins and Codex-compatible Skills from a dedicated capability surface rather than a store-style homepage.
 
 ## Capabilities and Constraints
@@ -43,6 +44,7 @@ The product treats the desktop itself as the input surface. One capture action p
 - Customer-response language can follow the detected language in the customer's text/evidence or use a configured fallback; reply style and custom guidance remain user-controlled.
 - API secrets must use the operating-system credential vault; configuration files store only non-secret metadata.
 - Screen and file content stays local until the explicit shortcut plus second confirming click or drag release. Manual imports can use an optional second confirmation. History is local and can be disabled or cleared.
+- On macOS the stable signed Electron app owns screen pixels; the short-lived Rust helper receives monitor geometry for Accessibility lookup and therefore does not create a new screen-recording TCC identity on each click. A packaged helper signature remains stable across signed local upgrades.
 - Browser-page understanding uses a companion extension with one universal right-click action across selected text, images, video/audio, links, editable areas, controls, and page background, plus the two-click DOM picker. It supplies a bounded target crop, DOM element, URL/title, accessible name, nearby text, annotation, video/audio state, visible captions, and page-exposed transcript segments. Deeper DevTools/CDP inspection is a separate explicit action.
 - The macOS package embeds a Finder Sync extension. Its direct **使用 LensQuery 识别** menu accepts selected files, folders, or the current Finder container, passes only absolute existing paths through the registered `lensquery://analyze` route, and begins the same background conversation without first showing the client.
 - Desktop element identification uses Windows UI Automation when available and pixel-region fallback otherwise.
