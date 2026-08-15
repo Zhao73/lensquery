@@ -249,7 +249,11 @@ export async function showMainWindow(): Promise<void> {
 
 export interface DesktopPermissionStatus {
   screenCapture: boolean
+  screenCaptureStatus?: 'not-determined' | 'granted' | 'denied' | 'restricted' | 'unknown'
+  screenCaptureRestartRequired?: boolean
   accessibility: boolean
+  applicationName?: string
+  applicationPath?: string
 }
 
 export async function getPermissionStatus(): Promise<DesktopPermissionStatus> {

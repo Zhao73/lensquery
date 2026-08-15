@@ -597,6 +597,9 @@ kbd {
 .permission-row .permission-ok { color: var(--success); }
 .permission-row .permission-needed { color: var(--warning); }
 .permission-row .secondary-button { min-height: 30px; padding: 0 9px; font-size: 10px; }
+.permission-help { color: var(--text-tertiary); font-size: 10px; line-height: 1.6; overflow-wrap: anywhere; }
+.permission-help strong { color: var(--text); font-weight: 600; }
+.permission-help code { padding: 1px 4px; border-radius: 4px; color: var(--text-secondary); background: var(--surface-subtle); font-family: "Cascadia Mono", "SFMono-Regular", Consolas, monospace; font-size: 9px; }
 .voice-check { margin-left: 10px; color: var(--success) !important; }
 .toggle-row { display: flex; min-height: 38px; align-items: center; justify-content: space-between; gap: 18px; color: var(--text); font-size: 12px; }
 .toggle-row input { position: absolute; opacity: 0; pointer-events: none; }

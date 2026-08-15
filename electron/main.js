@@ -32,6 +32,11 @@ import {
   normalizeProviderBaseUrl,
   runDirectProvider,
 } from './direct-provider.js'
+import {
+  evaluateScreenPermission,
+  screenPermissionMessage,
+  shouldRequestScreenPermission,
+} from './screen-permission.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const devUrl = process.env.LENSQUERY_DEV_URL
@@ -94,6 +99,10 @@ let launchHidden = process.argv.some(isLensQueryDeepLink)
 const pendingDeepLinks = process.argv.filter(isLensQueryDeepLink)
 let screenPermissionRequestedThisRun = false
 let screenPermissionNoticeShown = false
+let screenPermissionStatusAtLaunch = process.platform === 'darwin' ? 'unknown' : 'granted'
+let screenPermissionUnavailableThisRun = process.platform === 'darwin'
+let screenPermissionWatchTimer
+let screenPermissionRelaunching = false
 
 function debugRuntime(event, details = {}) {
   if (process.env.LENSQUERY_DEBUG !== '1') return
@@ -162,6 +171,9 @@ async function loadState() {
     settings: { ...defaultSettings, ...(persisted.settings || {}) },
     providers,
     secrets,
+    permissionPrompts: {
+      screenCaptureRequestedAt: Number(persisted.permissionPrompts?.screenCaptureRequestedAt) || 0,
+    },
   }
 }
 
@@ -365,6 +377,13 @@ async function completeCapture(selection) {
   captureWindow?.hide()
   await new Promise((resolve) => setTimeout(resolve, 130))
   try {
+    if (process.platform === 'darwin') {
+      const permission = currentScreenCapturePermission()
+      if (!permission.granted) {
+        if (permission.restartRequired) startScreenPermissionWatcher()
+        throw new Error(permission.message)
+      }
+    }
     const response = process.platform === 'darwin'
       ? await completeCaptureWithElectron(selection)
       : await invokeSidecar('completeCapture', { selection })
@@ -385,27 +404,93 @@ async function completeCapture(selection) {
 }
 
 async function ensureScreenCapturePermission() {
-  if (process.platform !== 'darwin') return { granted: true, message: '' }
-  let status = systemPreferences.getMediaAccessStatus('screen')
-  if (status === 'granted') return { granted: true, message: '' }
+  const current = currentScreenCapturePermission()
+  if (current.granted || process.platform !== 'darwin') return current
 
-  // desktopCapturer attributes the one-time TCC request to the signed app
-  // instead of the short-lived Rust process. Do this at most once per launch.
-  if (status === 'not-determined' && !screenPermissionRequestedThisRun) {
+  // The native request is attributed to this signed Electron bundle. Persist a
+  // cooldown as well as the per-process flag so repeated app launches cannot
+  // trap the user in the same system alert when the wrong LensQuery row was
+  // enabled. A settings action remains available throughout the cooldown.
+  if (shouldRequestScreenPermission({
+    platform: process.platform,
+    status: current.status,
+    requestedThisRun: screenPermissionRequestedThisRun,
+    lastRequestedAt: state.permissionPrompts.screenCaptureRequestedAt,
+  })) {
     screenPermissionRequestedThisRun = true
+    state.permissionPrompts.screenCaptureRequestedAt = Date.now()
+    await saveState()
+    startScreenPermissionWatcher()
     await desktopCapturer.getSources({
       types: ['screen'],
       thumbnailSize: { width: 2, height: 2 },
       fetchWindowIcons: false,
     }).catch(() => [])
-    status = systemPreferences.getMediaAccessStatus('screen')
-    if (status === 'granted') return { granted: true, message: '' }
   }
+  const updated = currentScreenCapturePermission()
+  if (updated.restartRequired || screenPermissionRequestedThisRun) startScreenPermissionWatcher()
+  return updated
+}
 
-  const message = status === 'not-determined'
-    ? '首次使用请允许 LensQuery 读取你确认的屏幕区域，然后完全退出并重新打开。本次运行不会再次请求。'
-    : '录屏权限尚未开启。请在 LensQuery「设置 → 系统权限」中打开系统设置；当前快捷键不会反复弹出请求。'
-  return { granted: false, message }
+function applicationBundlePath() {
+  const executable = app.getPath('exe')
+  if (process.platform !== 'darwin') return executable
+  const marker = '.app/Contents/MacOS/'
+  const markerIndex = executable.indexOf(marker)
+  return markerIndex >= 0 ? executable.slice(0, markerIndex + 4) : executable
+}
+
+function currentScreenCapturePermission() {
+  const status = process.platform === 'darwin'
+    ? systemPreferences.getMediaAccessStatus('screen')
+    : 'granted'
+  if (process.platform === 'darwin' && status !== 'granted') screenPermissionUnavailableThisRun = true
+  const decision = evaluateScreenPermission({
+    platform: process.platform,
+    status,
+    launchStatus: screenPermissionUnavailableThisRun ? 'not-determined' : screenPermissionStatusAtLaunch,
+  })
+  return {
+    ...decision,
+    message: decision.granted ? '' : screenPermissionMessage({
+      decision,
+      applicationName: app.getName(),
+      applicationPath: applicationBundlePath(),
+    }),
+  }
+}
+
+function screenPermissionStatusPayload() {
+  const screenPermission = currentScreenCapturePermission()
+  return {
+    screenCapture: screenPermission.granted,
+    screenCaptureStatus: screenPermission.status,
+    screenCaptureRestartRequired: screenPermission.restartRequired,
+    accessibility: process.platform !== 'darwin' || systemPreferences.isTrustedAccessibilityClient(false),
+    applicationName: app.getName(),
+    applicationPath: applicationBundlePath(),
+  }
+}
+
+function startScreenPermissionWatcher() {
+  if (process.platform !== 'darwin' || screenPermissionWatchTimer || screenPermissionRelaunching) return
+  const expiresAt = Date.now() + 5 * 60 * 1_000
+  screenPermissionWatchTimer = setInterval(() => {
+    if (Date.now() >= expiresAt) {
+      clearInterval(screenPermissionWatchTimer)
+      screenPermissionWatchTimer = undefined
+      return
+    }
+    const permission = currentScreenCapturePermission()
+    if (!permission.restartRequired) return
+    clearInterval(screenPermissionWatchTimer)
+    screenPermissionWatchTimer = undefined
+    screenPermissionRelaunching = true
+    debugRuntime('screen-permission-granted-relaunching', { status: permission.status })
+    app.relaunch({ args: ['--background', '--screen-permission-restarted'] })
+    app.isQuitting = true
+    app.quit()
+  }, 700)
 }
 
 function displayForBounds(bounds) {
@@ -624,10 +709,7 @@ function registerIpc() {
   handle('inspectCaptureTarget', ({ point, textScope }) => inspectCaptureTargetWithDisplay(point, textScope))
   handle('cancelCapture', async () => { captureWindow?.hide() })
   handle('showMainWindow', async () => showMain())
-  handle('permissionStatus', async () => ({
-    screenCapture: process.platform !== 'darwin' || systemPreferences.getMediaAccessStatus('screen') === 'granted',
-    accessibility: process.platform !== 'darwin' || systemPreferences.isTrustedAccessibilityClient(false),
-  }))
+  handle('permissionStatus', async () => screenPermissionStatusPayload())
   handle('openPermissionSettings', ({ permission }) => openPermissionSettings(permission))
   handle('showNotification', ({ title, body }) => showNotification(title, body))
   handle('hideResultToast', async () => undefined)
@@ -851,11 +933,14 @@ function sanitizeProvider(input) {
 
 async function openPermissionSettings(permission) {
   if (process.platform === 'darwin') {
+    captureWindow?.hide()
     const pane = permission === 'accessibility' ? 'Privacy_Accessibility' : 'Privacy_ScreenCapture'
+    if (permission !== 'accessibility') startScreenPermissionWatcher()
     await shell.openExternal(`x-apple.systempreferences:com.apple.preference.security?${pane}`)
-    return
+    return screenPermissionStatusPayload()
   }
   if (process.platform === 'win32') await shell.openExternal('ms-settings:privacy-screenshots')
+  return screenPermissionStatusPayload()
 }
 
 function showNotification(title, body) {
@@ -954,10 +1039,14 @@ if (!app.requestSingleInstanceLock()) {
     showMain()
   })
   app.whenReady().then(async () => {
-    app.setName('LensQuery')
+    app.setName(isDevelopment ? 'LensQuery Development' : 'LensQuery Electron Preview')
     app.setAsDefaultProtocolClient('lensquery')
     nativeTheme.themeSource = process.env.LENSQUERY_THEME === 'dark' ? 'dark' : process.env.LENSQUERY_THEME === 'light' ? 'light' : 'system'
     state = await loadState()
+    screenPermissionStatusAtLaunch = process.platform === 'darwin'
+      ? systemPreferences.getMediaAccessStatus('screen')
+      : 'granted'
+    screenPermissionUnavailableThisRun = process.platform === 'darwin' && screenPermissionStatusAtLaunch !== 'granted'
     extensionManager = createExtensionManager(app.getPath('userData'))
     registerIpc()
     await createMainWindow()
@@ -965,6 +1054,9 @@ if (!app.requestSingleInstanceLock()) {
     createTray()
     registerShortcut(state.settings.shortcut)
     queueTimer = setInterval(() => void pollBrowserQueue(), 350)
+    if (process.argv.includes('--screen-permission-restarted') && currentScreenCapturePermission().granted) {
+      setTimeout(() => showNotification('LensQuery 录屏权限已生效', '快捷键可以直接选择屏幕对象或区域。'), 700)
+    }
     if (process.env.LENSQUERY_CAPTURE_PATH) {
       const targetView = process.env.LENSQUERY_CAPTURE_VIEW
       setTimeout(async () => {
@@ -983,6 +1075,7 @@ app.on('window-all-closed', () => undefined)
 app.on('before-quit', () => {
   app.isQuitting = true
   clearInterval(queueTimer)
+  clearInterval(screenPermissionWatchTimer)
   globalShortcut.unregisterAll()
   stopSpeaking()
 })

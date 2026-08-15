@@ -3,6 +3,7 @@
 set -Eeuo pipefail
 
 APP_NAME="LensQuery Electron Preview"
+APP_BUNDLE_ID="com.lensquery.desktop.electron-preview"
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_DESTINATION="/Applications/$APP_NAME.app"
 FINDER_EXTENSION_ID="com.lensquery.desktop.electron-preview.finder"
@@ -97,7 +98,8 @@ install_bundle() {
       --entitlements "$PROJECT_ROOT/native/macos/FinderIntegration/LensQueryFinder/LensQueryFinder.entitlements" \
       "$finder_extension"
   fi
-  run_install_command /usr/bin/codesign --force --timestamp=none --sign "$SIGNING_IDENTITY" "$staging"
+  run_install_command /usr/bin/codesign --force --timestamp=none --sign "$SIGNING_IDENTITY" \
+    --identifier "$APP_BUNDLE_ID" "$staging"
 
   if [[ -e "$APP_DESTINATION" ]]; then
     run_install_command /bin/mv "$APP_DESTINATION" "$backup"
@@ -151,5 +153,6 @@ else
   printf 'Signature: %s\n' "$SIGNING_IDENTITY"
 fi
 printf 'Use the menu-bar icon or Command+Shift+Space to start recognition.\n'
+printf 'Screen Recording entry: %s (%s).\n' "$APP_NAME" "$APP_DESTINATION"
 [[ -d "$finder_extension" ]] && printf 'Finder right-click: enabled (%s).\n' "$FINDER_EXTENSION_ID"
 printf 'Browser connector folder: %s\n' "$APP_DESTINATION/Contents/Resources/browser-extension"
