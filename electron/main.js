@@ -343,16 +343,17 @@ async function invokeSidecar(method, payload = {}) {
     const child = spawn(executable, ['--electron-sidecar'], {
       stdio: ['pipe', 'pipe', 'pipe'],
       env: process.env,
+      detached: process.platform !== 'win32',
     })
     let stdout = ''
     let stderr = ''
     const timeout = setTimeout(() => {
-      child.kill('SIGKILL')
+      killChildTree(child)
       reject(new Error(`LensQuery sidecar ${method} 超时。`))
     }, method === 'analyze' ? 100_000 : 45_000)
     child.stdout.on('data', (chunk) => {
       stdout += String(chunk)
-      if (stdout.length > 64 * 1024 * 1024) child.kill('SIGKILL')
+      if (stdout.length > 64 * 1024 * 1024) killChildTree(child)
     })
     child.stderr.on('data', (chunk) => { stderr += String(chunk).slice(0, 8_000) })
     child.on('error', (error) => { clearTimeout(timeout); reject(error) })
@@ -369,6 +370,23 @@ async function invokeSidecar(method, payload = {}) {
     })
     child.stdin.end(request)
   })
+}
+
+function killChildTree(child) {
+  if (!child.pid) return
+  if (process.platform === 'win32') {
+    const killer = spawn('taskkill', ['/PID', String(child.pid), '/T', '/F'], {
+      stdio: 'ignore',
+      windowsHide: true,
+    })
+    killer.unref()
+    return
+  }
+  try {
+    process.kill(-child.pid, 'SIGKILL')
+  } catch {
+    child.kill('SIGKILL')
+  }
 }
 
 async function discoverProviders() {

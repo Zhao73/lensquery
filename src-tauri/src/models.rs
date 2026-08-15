@@ -284,6 +284,8 @@ pub struct BrowserContext {
     #[serde(default)]
     pub transcript: Option<String>,
     #[serde(default)]
+    pub transcript_language: Option<String>,
+    #[serde(default)]
     pub context_menu_kind: Option<String>,
     #[serde(default)]
     pub snapshot_data_url: Option<String>,
@@ -340,6 +342,49 @@ pub struct FileEvidence {
     pub page_count: Option<u32>,
     #[serde(default)]
     pub extraction_status: Option<String>,
+    #[serde(default)]
+    pub provenance: Option<ImageProvenance>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImageProvenance {
+    pub c2pa: Option<C2paEvidence>,
+    #[serde(default)]
+    pub metadata: Vec<MetadataEvidence>,
+    #[serde(default)]
+    pub ai_signals: Vec<String>,
+    pub camera_metadata_present: bool,
+    pub detector_coverage: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct C2paEvidence {
+    pub embedded: bool,
+    pub validation_state: String,
+    pub signer_trusted: bool,
+    pub issuer: Option<String>,
+    pub common_name: Option<String>,
+    pub claim_generator: Option<String>,
+    pub signed_at: Option<String>,
+    #[serde(default)]
+    pub actions: Vec<String>,
+    #[serde(default)]
+    pub digital_source_types: Vec<String>,
+    #[serde(default)]
+    pub software_agents: Vec<String>,
+    pub ai_generated_declared: bool,
+    pub embedded_watermark_declared: bool,
+    #[serde(default)]
+    pub validation_warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MetadataEvidence {
+    pub label: String,
+    pub value: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -374,6 +419,12 @@ pub struct VideoPreparation {
     pub sample_interval_seconds: f64,
     pub original_duration_seconds: f64,
     pub strategy: String,
+    #[serde(default)]
+    pub transcript: Option<String>,
+    #[serde(default)]
+    pub transcript_source: Option<String>,
+    #[serde(default)]
+    pub transcript_language: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

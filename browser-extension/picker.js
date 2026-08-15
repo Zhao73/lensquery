@@ -62,7 +62,8 @@
     context.outputFormat = undefined
     delete context.__element
     stop()
-    const response = await chrome.runtime.sendMessage({ type: 'lensquery-context', context })
+    const enriched = await contextApi.enrichContext(context)
+    const response = await chrome.runtime.sendMessage({ type: 'lensquery-context', context: enriched })
     if (!response?.ok) showFailure(response?.error)
   }
 
@@ -107,7 +108,8 @@
       context.outputFormat = context.analysisMode === 'customer-reply' ? 'customer-reply' : 'adaptive'
       delete context.__element
       stop()
-      const response = await chrome.runtime.sendMessage({ type: 'lensquery-context', context })
+      const enriched = await contextApi.enrichContext(context)
+      const response = await chrome.runtime.sendMessage({ type: 'lensquery-context', context: enriched })
       if (!response?.ok) showFailure(response?.error)
     })
     composer.querySelector('textarea')?.focus()

@@ -79,7 +79,7 @@ The extension collects only after the user explicitly invokes it:
 - selection/word/paragraph/page/object scope, clicked tag, role, text, accessible name, and selector;
 - optional user annotation plus requested analysis mode and output format;
 - sanitized bounded `outerHTML` and nearby section text;
-- for `video` / `audio`: current time, duration, source URL when exposed, paused state, visible captions, and page-exposed transcript segments;
+- for `video` / `audio`: current time, duration, source URL when exposed, paused state, visible captions, page-published YouTube caption tracks, and already-open generic transcript segments;
 - a bounded compressed target crop when visible-tab capture is permitted. The native host rejects incoming local paths and writes only validated JPEG/PNG/WebP bytes to LensQuery's temporary capture directory.
 
 The default extension uses `activeTab`, `contextMenus`, `scripting`, and `nativeMessaging`, with no persistent all-sites content script. Source/network inspection through `chrome.debugger` is deliberately a separate opt-in capability because it carries a stronger permission warning. It should be enabled only for an explicit “深入分析页面” action, never for every click.
@@ -87,8 +87,8 @@ The default extension uses `activeTab`, `contextMenus`, `scripting`, and `native
 ## Local files and video
 
 - File selection/drop enters the same timeline without a separate upload homepage.
-- Images go directly to vision-capable adapters.
-- Video is locally probed and automatically prepared into time-coded frames plus an optional compact audio derivative before the model request.
+- Images go to vision-capable adapters after local common-EXIF extraction and C2PA Content Credentials validation. C2PA structure, asset binding, signature, and signer trust use a release-pinned official trust-list snapshot; visible watermark reading and visual AI-style inference remain separate evidence classes.
+- Video is locally probed and automatically prepared into time-coded frames plus an optional compact audio derivative before the model request. Same-name `.vtt`/`.srt` files are discovered, bounded, normalized, and attached as a time-coded transcript.
 - Machine-readable PDFs and text/code files use bounded local extraction. Image-only PDFs remain an OCR milestone.
 - Explorer integration can forward a selected path through a protocol activation or shell verb; it remains a packaging milestone.
 
@@ -98,6 +98,8 @@ The default extension uses `activeTab`, `contextMenus`, `scripting`, and `native
 - Capture occurs only after the explicit shortcut and pointer action.
 - API secrets stay in the OS credential vault.
 - CLI fallback uses fixed executable allowlists and argument arrays, never a shell command string.
+- The Codex fallback prefers the native executable, removes inherited parent-agent session IDs, and uses a private LensQuery `CODEX_HOME`/`CODEX_SQLITE_HOME`. It links the user's configuration/authentication inputs but keeps LensQuery analysis state separate from the user's Codex conversation/history databases.
+- CLI stdin is explicitly closed after the bounded prompt; stdout/stderr are collected independently; timeouts terminate the complete subprocess group so npm/Node wrappers cannot leave native agent children behind.
 - Browser HTML is bounded and strips common secret-bearing attributes and scripts before transport.
 - Agent tool permissions stay disabled for ordinary visual explanation. A later source-code workspace mode must be a distinct, explicit user action.
 - Optional outbound preview pauses the request with a removable context summary; disabling it restores the one-shortcut direct path.

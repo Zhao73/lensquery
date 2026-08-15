@@ -1,12 +1,17 @@
 use std::{process::Stdio, time::Instant};
 
 use chrono::Utc;
-use tokio::{io::AsyncWriteExt, process::Command, time::timeout};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    process::Command,
+    time::timeout,
+};
 use uuid::Uuid;
 
 use crate::{
     cli,
     models::{AnalysisRequest, AnalysisResult, AppSettings, ProviderProfile},
+    subprocess,
 };
 
 pub async fn analyze(
@@ -44,6 +49,11 @@ async fn run_cli(
     settings: &AppSettings,
 ) -> Result<String, String> {
     let executable = cli::resolve_profile_executable(profile)?;
+    let isolated_codex_home = if profile.kind == "codex-cli" {
+        Some(cli::prepare_isolated_codex_home()?)
+    } else {
+        None
+    };
     validate_evidence_for_profile(profile, request)?;
     let image_paths = if profile.kind == "codex-cli" || profile.kind == "claude-cli" {
         collect_image_paths(request)?
@@ -104,6 +114,11 @@ async fn run_cli(
     command.current_dir(&working_directory);
     match profile.kind.as_str() {
         "codex-cli" => {
+            if let Some(home) = &isolated_codex_home {
+                command
+                    .env("CODEX_HOME", home)
+                    .env("CODEX_SQLITE_HOME", home.join("sqlite"));
+            }
             command.args([
                 "exec",
                 "--skip-git-repo-check",
@@ -111,6 +126,10 @@ async fn run_cli(
                 "read-only",
                 "--ephemeral",
             ]);
+            command.arg("--config").arg(format!(
+                "model_reasoning_effort=\"{}\"",
+                codex_reasoning_effort(request)
+            ));
             if profile.model != "default" && !profile.model.trim().is_empty() {
                 command.arg("--model").arg(&profile.model);
             }
@@ -169,44 +188,122 @@ async fn run_cli(
         }
         _ => return Err("未知 CLI 通道。".into()),
     }
+    sanitize_parent_agent_environment(&mut command, &profile.kind);
     command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
+    subprocess::isolate_process_tree(&mut command);
 
     let mut child = command
         .spawn()
         .map_err(|error| format!("无法启动 {}: {error}", executable.display()))?;
+    let child_pid = child.id();
+    let mut stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| format!("{} 输出通道不可用。", executable.display()))?;
+    let mut stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| format!("{} 错误通道不可用。", executable.display()))?;
+    let mut stdout_task = tokio::spawn(async move {
+        let mut bytes = Vec::new();
+        stdout.read_to_end(&mut bytes).await.map(|_| bytes)
+    });
+    let mut stderr_task = tokio::spawn(async move {
+        let mut bytes = Vec::new();
+        stderr.read_to_end(&mut bytes).await.map(|_| bytes)
+    });
     if profile.kind == "codex-cli" {
         let mut stdin = child
             .stdin
             .take()
             .ok_or_else(|| "Codex CLI 输入通道不可用。".to_string())?;
+        timeout(
+            std::time::Duration::from_secs(10),
+            stdin.write_all(prompt.as_bytes()),
+        )
+        .await
+        .map_err(|_| format!("写入 {} 输入超时。", executable.display()))?
+        .map_err(|error| format!("写入 {} 输入失败: {error}", executable.display()))?;
         stdin
-            .write_all(prompt.as_bytes())
+            .shutdown()
             .await
-            .map_err(|error| format!("写入 {} 输入失败: {error}", executable.display()))?;
+            .map_err(|error| format!("关闭 {} 输入失败: {error}", executable.display()))?;
     }
 
-    let output = timeout(std::time::Duration::from_secs(90), child.wait_with_output())
+    let status = match timeout(std::time::Duration::from_secs(90), child.wait()).await {
+        Ok(result) => {
+            result.map_err(|error| format!("{} 运行失败: {error}", executable.display()))?
+        }
+        Err(_) => {
+            subprocess::kill_process_tree(child_pid);
+            let stderr_bytes = timeout(std::time::Duration::from_secs(2), &mut stderr_task)
+                .await
+                .ok()
+                .and_then(Result::ok)
+                .and_then(Result::ok)
+                .unwrap_or_default();
+            stdout_task.abort();
+            let diagnostic = tail(&String::from_utf8_lossy(&stderr_bytes), 900);
+            return Err(if diagnostic.trim().is_empty() {
+                format!("{} 分析超时，已终止。", executable.display())
+            } else {
+                format!(
+                    "{} 分析超时，已终止。运行日志：{}",
+                    executable.display(),
+                    diagnostic
+                )
+            });
+        }
+    };
+    let stdout_bytes = (&mut stdout_task)
         .await
-        .map_err(|_| format!("{} 分析超时，已终止。", executable.display()))?
-        .map_err(|error| format!("{} 运行失败: {error}", executable.display()))?;
+        .map_err(|error| format!("读取 {} 输出失败: {error}", executable.display()))?
+        .map_err(|error| format!("读取 {} 输出失败: {error}", executable.display()))?;
+    let stderr_bytes = (&mut stderr_task)
+        .await
+        .map_err(|error| format!("读取 {} 错误输出失败: {error}", executable.display()))?
+        .map_err(|error| format!("读取 {} 错误输出失败: {error}", executable.display()))?;
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
+    if !status.success() {
+        let stderr = String::from_utf8_lossy(&stderr_bytes);
         return Err(format!(
             "{} 返回错误: {}",
             executable.display(),
             truncate(&stderr, 600)
         ));
     }
-    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let stdout = String::from_utf8_lossy(&stdout_bytes).trim().to_string();
     if stdout.is_empty() {
         return Err(format!("{} 没有返回可显示的文字。", executable.display()));
     }
     Ok(stdout)
+}
+
+fn sanitize_parent_agent_environment(command: &mut Command, provider_kind: &str) {
+    let keys: &[&str] = match provider_kind {
+        "codex-cli" => &[
+            "CODEX_CI",
+            "CODEX_INTERNAL_ORIGINATOR_OVERRIDE",
+            "CODEX_SESSION_ID",
+            "CODEX_SHELL",
+            "CODEX_THREAD_ID",
+            "CODEX_TURN_ID",
+        ],
+        "claude-cli" => &[
+            "CLAUDECODE",
+            "CLAUDE_CODE_ENTRYPOINT",
+            "CLAUDE_CODE_SESSION_ID",
+        ],
+        "opencode-cli" => &["OPENCODE_SESSION_ID"],
+        _ => &[],
+    };
+    for key in keys {
+        command.env_remove(key);
+    }
 }
 
 fn visual_instruction(request: &AnalysisRequest) -> &'static str {
@@ -216,9 +313,20 @@ fn visual_instruction(request: &AnalysisRequest) -> &'static str {
             .iter()
             .any(|file| matches!(file.kind.as_str(), "image" | "video"))
     {
-        "For visual evidence, identify the subject, visible text, composition, style, lighting, and relevant surrounding context. If an image appears AI-generated, label that as an inference and add a reusable reconstruction prompt covering subject, composition, medium, palette, lighting, camera or lens cues, and useful negative constraints. Never claim to know the exact original prompt."
+        "For visual evidence, identify the subject, visible text, composition, style, lighting, and relevant surrounding context. Separate three evidence classes: visible pixel labels or watermarks; locally parsed provenance such as C2PA or EXIF; and visual-style inference. A trusted, intact C2PA digitalSourceType=trainedAlgorithmicMedia is direct machine-readable AI-origin evidence. EXIF camera fields are supporting metadata, not proof that an image is human-made. If an image only appears AI-generated, label that as an inference. Report the stated detector coverage and never claim to know the exact original prompt. When useful, add a reusable reconstruction prompt covering subject, composition, medium, palette, lighting, camera or lens cues, and negative constraints."
     } else {
         ""
+    }
+}
+
+fn codex_reasoning_effort(request: &AnalysisRequest) -> &'static str {
+    if request.analysis_mode == "deep-dive"
+        || request.analysis_mode == "code"
+        || request.output_format == "report"
+    {
+        "medium"
+    } else {
+        "low"
     }
 }
 
@@ -352,7 +460,10 @@ fn build_evidence_manifest(request: &AnalysisRequest) -> String {
             lines.push(format!("Visible/current video captions: {captions}"));
         }
         if let Some(transcript) = &browser.transcript {
-            lines.push(format!("Page-exposed video transcript:\n{transcript}"));
+            lines.push(format!(
+                "Page-exposed video transcript (language={}):\n{transcript}",
+                browser.transcript_language.as_deref().unwrap_or("unknown")
+            ));
         }
         if let Some(annotation) = &browser.annotation {
             lines.push(format!("Browser annotation: {annotation}"));
@@ -374,16 +485,35 @@ fn build_evidence_manifest(request: &AnalysisRequest) -> String {
     for file in &request.files {
         if let Some(preparation) = &file.video_preparation {
             lines.push(format!(
-                "Video: {} | duration {:.2}s | sampled every {:.2}s | audio derivative: {}",
+                "Video: {} | duration {:.2}s | sampled every {:.2}s | audio derivative: {} | transcript: {}",
                 file.name,
                 preparation.original_duration_seconds,
                 preparation.sample_interval_seconds,
                 if preparation.audio_path.is_some() {
-                    "present but not transcribed by this CLI route"
+                    "present"
                 } else {
                     "absent"
-                }
+                },
+                preparation
+                    .transcript_source
+                    .as_deref()
+                    .unwrap_or("not available")
             ));
+            if let Some(transcript) = &preparation.transcript {
+                lines.push(format!(
+                    "Time-coded sidecar subtitle transcript (language={}):\n{}",
+                    preparation
+                        .transcript_language
+                        .as_deref()
+                        .unwrap_or("unknown"),
+                    transcript
+                ));
+            } else if preparation.audio_path.is_some() {
+                lines.push(
+                    "Audio was extracted but this CLI route did not transcribe it; do not infer unheard speech."
+                        .into(),
+                );
+            }
             for (index, frame) in preparation.frames.iter().enumerate() {
                 lines.push(format!(
                     "  Attached image {} = frame {} at {:.2}s",
@@ -404,6 +534,47 @@ fn build_evidence_manifest(request: &AnalysisRequest) -> String {
                     text
                 ));
             }
+        }
+        if let Some(provenance) = &file.provenance {
+            if let Some(c2pa) = &provenance.c2pa {
+                lines.push(format!(
+                    "Local C2PA provenance: embedded={} | validation={} | signerTrusted={} | issuer={} | signer={} | claimGenerator={} | signedAt={} | AI-generated declaration={} | embedded-watermark declaration={} | digitalSourceTypes={} | softwareAgents={} | actions={} | warnings={}",
+                    c2pa.embedded,
+                    c2pa.validation_state,
+                    c2pa.signer_trusted,
+                    c2pa.issuer.as_deref().unwrap_or("not exposed"),
+                    c2pa.common_name.as_deref().unwrap_or("not exposed"),
+                    c2pa.claim_generator.as_deref().unwrap_or("not exposed"),
+                    c2pa.signed_at.as_deref().unwrap_or("not exposed"),
+                    c2pa.ai_generated_declared,
+                    c2pa.embedded_watermark_declared,
+                    c2pa.digital_source_types.join(", "),
+                    c2pa.software_agents.join(", "),
+                    c2pa.actions.join(", "),
+                    c2pa.validation_warnings.join("; ")
+                ));
+            }
+            if !provenance.metadata.is_empty() {
+                lines.push(format!(
+                    "Local image metadata (supporting evidence, not proof): {}",
+                    provenance
+                        .metadata
+                        .iter()
+                        .map(|item| format!("{}={}", item.label, item.value))
+                        .collect::<Vec<_>>()
+                        .join(" | ")
+                ));
+            }
+            if !provenance.ai_signals.is_empty() {
+                lines.push(format!(
+                    "Direct local AI provenance signals: {}",
+                    provenance.ai_signals.join(" | ")
+                ));
+            }
+            lines.push(format!(
+                "Provenance detector coverage: {}",
+                provenance.detector_coverage
+            ));
         }
     }
     if lines.is_empty() {
@@ -429,6 +600,13 @@ fn build_conversation_manifest(request: &AnalysisRequest) -> String {
 
 fn truncate(value: &str, max_chars: usize) -> String {
     value.chars().take(max_chars).collect()
+}
+
+fn tail(value: &str, max_chars: usize) -> String {
+    let chars = value.chars().collect::<Vec<_>>();
+    chars[chars.len().saturating_sub(max_chars)..]
+        .iter()
+        .collect()
 }
 
 #[cfg(test)]
@@ -464,11 +642,15 @@ mod tests {
                     sample_interval_seconds: 1.0,
                     original_duration_seconds: 1.0,
                     strategy: "uniform-keyframes-v1".into(),
+                    transcript: None,
+                    transcript_source: None,
+                    transcript_language: None,
                 }),
                 processing_error: None,
                 extracted_text: None,
                 page_count: None,
                 extraction_status: Some("not-needed".into()),
+                provenance: None,
             }],
             browser_context: None,
             conversation: vec![],
@@ -485,6 +667,25 @@ mod tests {
         assert!(manifest.contains("at 0.00s"));
         assert!(manifest.contains("audio derivative: absent"));
         assert!(visual_instruction(&request).contains("reconstruction prompt"));
+        assert_eq!(codex_reasoning_effort(&request), "low");
+    }
+
+    #[test]
+    fn keeps_deep_reports_bounded_but_not_minimal() {
+        let request = AnalysisRequest {
+            question: "why?".into(),
+            prompt_id: "deep-dive".into(),
+            provider_id: "codex-cli".into(),
+            captures: vec![],
+            files: vec![],
+            browser_context: None,
+            conversation: vec![],
+            analysis_mode: "deep-dive".into(),
+            output_format: "report".into(),
+            annotation: None,
+            extension_instructions: None,
+        };
+        assert_eq!(codex_reasoning_effort(&request), "medium");
     }
 
     #[test]
@@ -501,5 +702,20 @@ mod tests {
             ..AppSettings::default()
         };
         assert!(language_instruction(&settings).contains("ja-JP"));
+    }
+
+    #[test]
+    fn parent_agent_session_variables_are_not_required_configuration() {
+        let mut command = Command::new("codex");
+        sanitize_parent_agent_environment(&mut command, "codex-cli");
+        let debug = format!("{command:?}");
+        for key in [
+            "CODEX_INTERNAL_ORIGINATOR_OVERRIDE",
+            "CODEX_SESSION_ID",
+            "CODEX_THREAD_ID",
+        ] {
+            assert!(debug.contains(key));
+        }
+        assert!(!debug.contains("CODEX_HOME"));
     }
 }

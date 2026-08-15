@@ -282,6 +282,7 @@ mod tests {
             selected_text: None,
             captions: None,
             transcript: None,
+            transcript_language: None,
             context_menu_kind: None,
             snapshot_data_url: None,
             snapshot_path: None,

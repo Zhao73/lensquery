@@ -5,9 +5,11 @@ mod commands;
 mod electron_sidecar;
 mod files;
 mod models;
+mod provenance;
 mod providers;
 mod secrets;
 mod state;
+mod subprocess;
 mod video;
 
 use commands::{

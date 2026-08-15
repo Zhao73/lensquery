@@ -46,6 +46,7 @@ Canonical tokens live in `src/index.css`.
 - Loading stays inline in the pending assistant message.
 - Errors name the failed action and remain in the owning conversation or top status strip.
 - Assistant prose uses semantic Markdown: restrained heading steps, real ordered lists, readable tables, dark code blocks, quotes, and links. User prose stays plain.
+- Evidence details use quiet ruled rows for C2PA trust, AI source type, watermark declaration, EXIF fields, subtitle coverage, and detector boundaries. Direct evidence is never visually merged with model inference.
 - Brand mark: a lens/speech ring with three annotation strokes and one cobalt focus point. The colored mark is used for the app and extension; the menu-bar/tray template uses the same geometry without a background tile.
 
 ## Capture overlay

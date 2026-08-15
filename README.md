@@ -4,7 +4,7 @@ Press one shortcut, point at anything on screen, and ask an AI agent about it.
 
 LensQuery is an open-source resident utility for Windows and macOS. Press a global shortcut, click once to highlight an interface element/file and again to confirm it, or hold-drag a region; LensQuery then starts analysis in the background through Codex, Claude Code, OpenCode, Grok, or a configured API. Its normal window is a quiet local conversation timeline for evidence, previous queries, and follow-ups.
 
-> Current status: the repository now has an Electron workbench modeled on quiet coding-agent clients, while the existing Rust implementation runs as a bounded native sidecar for capture, accessibility, PDF/text/video preparation, CLI discovery, and local-agent calls. Electron owns the window, tray, shortcut, notifications, encrypted settings, direct API transports, and plugin/Skill manager. The previously installed Tauri application remains a side-by-side fallback until packaged Electron capture permissions pass the full physical macOS/Windows matrix. Physical Windows mixed-DPI testing, richer arbitrary-app macOS text ranges, automatic browser-host packaging, Codex App Server/OpenCode session adapters, Realtime audio playback, and OCR remain implementation gates.
+> Current status: the repository now has an Electron workbench modeled on quiet coding-agent clients, while the existing Rust implementation runs as a bounded native sidecar for capture, accessibility, PDF/text/video preparation, local C2PA/EXIF provenance inspection, CLI discovery, and local-agent calls. Electron owns the window, tray, shortcut, notifications, encrypted settings, direct API transports, and plugin/Skill manager. The previously installed Tauri application remains a side-by-side fallback until packaged Electron capture permissions pass the full physical macOS/Windows matrix. Physical Windows mixed-DPI testing, richer arbitrary-app macOS text ranges, automatic browser-host packaging, Codex App Server/OpenCode session adapters, direct audio transcription, Realtime audio playback, and OCR remain implementation gates.
 
 ## Intended workflow
 
@@ -24,6 +24,7 @@ There is no upload-style homepage. Point at a Desktop/Finder/Explorer file and c
 - Version probes run in parallel with a two-second timeout. A slow version command is reported separately and never blocks the whole app indefinitely; authentication is verified only by the first real request.
 - The model page shows the resolved executable path and version, supports a manual rescan, and lets the user choose any discovered CLI as the default route.
 - CLI calls are built from fixed argument arrays rather than shell strings. Codex uses a read-only sandbox; Claude Code receives no built-in or MCP tools; Grok receives an empty tool allowlist; OpenCode receives only explicitly selected attachments with every tool permission denied. Grok's current adapter is text-only until its structured local-media input is verified end to end.
+- Codex analysis runs in a private LensQuery state/SQLite directory so the resident client neither scans nor writes the user's Codex conversation history. Existing Codex configuration and authentication are linked by reference into that state, parent thread/session variables are removed, and timeout cleanup terminates the full CLI process tree.
 - Settings can automatically infer the customer's language from the question and visible evidence, or force a fallback reply language. Reply style and a bounded custom instruction are included in every local CLI request.
 - Simplified Chinese and English interface copy are included for the main navigation and complete settings screen. The setting is persisted locally by the desktop runtime.
 - Six analysis intents are available: identify, explain, how-to, deep-dive, customer reply, and code analysis. Output can be adaptive, summary, steps, full report, customer-ready, or explicit Markdown.
@@ -31,10 +32,11 @@ There is no upload-style homepage. Point at a Desktop/Finder/Explorer file and c
 ## What it is designed to analyze
 
 - Anything visible on screen: controls, icons, error dialogs, charts, screenshots, and surrounding application context.
-- Website elements through the companion extension: two-click confirmed text, controls, images, video/audio state, visible captions, page-exposed transcript segments, bounded nearby DOM, URL, and title.
+- Website elements through the companion extension: two-click confirmed text, controls, images, video/audio state, visible captions, page-published YouTube caption tracks, already-open generic transcript segments, bounded nearby DOM, URL, and title.
 - Images, videos, PDFs, text, code, logs, and other bounded local files. Text and machine-readable PDFs are extracted locally before the model request.
-- Visual answers describe the subject, visible text, composition, style, lighting, and surrounding context. When an image appears AI-generated, the answer labels that as an inference and adds a reusable reconstruction prompt rather than claiming to recover the exact original prompt.
-- Videos are probed and sampled locally as part of file submission. Vision routes receive ordered timestamped frames and return a quick introduction, summary, interesting moments, and learning takeaways. An audio derivative is prepared; full transcription remains provider-dependent, while YouTube/page captions and exposed transcript segments are used directly when available.
+- Visual answers describe the subject, visible text, composition, style, lighting, and surrounding context. Image inspection separates visible pixel labels, locally parsed provenance, and visual inference. The Rust sidecar validates embedded C2PA structure, asset binding, signature, and a release-pinned official trust-list snapshot, then reads common EXIF fields. A trusted `trainedAlgorithmicMedia` claim is direct machine-readable AI-origin evidence; EXIF camera fields are supporting metadata, not proof that an image is human-made.
+- Visible AI disclosures are read by the selected vision model. A C2PA `c2pa.watermarked.*` action is reported as an embedded-watermark declaration, not as an independent SynthID pixel-level detection. Issuer-specific invisible watermark verification remains a separate provider/API capability.
+- Videos are probed and sampled locally as part of file submission. Vision routes receive ordered timestamped frames and return a quick summary, important moments, and learning takeaways. LensQuery also discovers bounded same-name `.vtt`/`.srt` subtitle files and sends their time-coded transcript; an audio derivative is prepared, but speech outside available subtitles remains explicitly untranscribed.
 - Fast customer-answer tasks through the built-in “Customer reply” prompt template.
 
 ## Architecture
@@ -62,7 +64,7 @@ The browser preview exercises the timeline, settings, and local file workflow. I
 
 ## Run the desktop app
 
-Requirements: Node.js 22+, Rust stable, and platform build tools.
+Requirements: Node.js 22+, Rust 1.88 or newer, and platform build tools.
 
 ### Electron client on macOS
 
@@ -126,9 +128,11 @@ See [the extension format and security model](docs/EXTENSIONS.md) and [`examples
 
 ## Browser connector
 
-Load [`browser-extension`](browser-extension) as an unpacked Chrome/Edge extension. It adds direct right-click analysis for selected text, images, videos, and page background, plus the existing two-click DOM picker. LensQuery receives bounded nearby text, DOM/accessibility metadata, page URL/title, available captions/transcript, and a compressed target crop for visual grounding. Install the `com.lensquery.desktop` Native Messaging host with the included macOS or Windows helper after copying the extension ID; see [the connector README](browser-extension/README.md).
+Load [`browser-extension`](browser-extension) as an unpacked Chrome/Edge extension. It adds direct right-click analysis for selected text, images, videos, and page background, plus the existing two-click DOM picker. LensQuery receives bounded nearby text, DOM/accessibility metadata, page URL/title, available captions/transcript, and a compressed target crop for visual grounding. On YouTube it reads a caption-track URL already published in the page and locally assembles a time-coded transcript; it does not download the video or invent missing speech. Install the `com.lensquery.desktop` Native Messaging host with the included macOS or Windows helper after copying the extension ID; see [the connector README](browser-extension/README.md).
 
 Video preparation currently requires `ffmpeg` and `ffprobe` on `PATH`. The interface reports a direct recovery message when they are missing; a verified bundled sidecar is planned before the signed 1.0 installer. Scanned/image-only PDFs also need the planned OCR fallback.
+
+The reproducible ordinary-photo, OpenAI-generated image, visible/embedded-watermark, and NASA YouTube acceptance run is documented in [`docs/MEDIA_ACCEPTANCE.md`](docs/MEDIA_ACCEPTANCE.md).
 
 ## Background, results, and voice
 
@@ -155,6 +159,7 @@ Source checks and builds are separate from Windows runtime verification. Capture
 - Direct transports send the bounded question, extracted text, browser context, and at most eight individually bounded images after the existing confirmation path. Remote plaintext HTTP endpoints and URLs containing embedded credentials are rejected; HTTP is limited to loopback local-model servers.
 - The UI never stores a raw API key in JSON or browser local storage.
 - Codex, Claude Code, OpenCode, and Grok adapters use non-interactive, bounded invocations and do not grant command/file-write tools for ordinary analysis.
+- The reproducible installed-client acceptance covers an ordinary camera photo, an OpenAI-generated image with visible/C2PA watermark evidence, and a 60-second NASA YouTube video; see [`docs/MEDIA_ACCEPTANCE.md`](docs/MEDIA_ACCEPTANCE.md).
 - Screenshot retention is off by default in the product contract.
 
 ## Contributing

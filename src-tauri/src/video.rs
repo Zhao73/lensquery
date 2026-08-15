@@ -1,4 +1,8 @@
-use std::{fs, path::Path, process::Stdio};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    process::Stdio,
+};
 
 use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::Deserialize;
@@ -160,6 +164,16 @@ pub async fn prepare(path: &str, max_frames: Option<u32>) -> Result<VideoPrepara
         None
     };
 
+    let subtitle = discover_sidecar_subtitle(path).and_then(|subtitle_path| {
+        let transcript = read_subtitle_transcript(&subtitle_path)?;
+        let language = subtitle_language(path, &subtitle_path);
+        Some((
+            transcript,
+            subtitle_path.to_string_lossy().into_owned(),
+            language,
+        ))
+    });
+
     Ok(VideoPreparation {
         id,
         source_path: path.into(),
@@ -169,7 +183,171 @@ pub async fn prepare(path: &str, max_frames: Option<u32>) -> Result<VideoPrepara
         sample_interval_seconds: interval,
         original_duration_seconds: metadata.duration_seconds,
         strategy: "uniform-keyframes-v1".into(),
+        transcript: subtitle
+            .as_ref()
+            .map(|(transcript, _, _)| transcript.clone()),
+        transcript_source: subtitle.as_ref().map(|(_, source, _)| source.clone()),
+        transcript_language: subtitle.and_then(|(_, _, language)| language),
     })
+}
+
+fn discover_sidecar_subtitle(source: &str) -> Option<PathBuf> {
+    let source = Path::new(source);
+    let parent = source.parent()?;
+    let stem = source.file_stem()?.to_str()?;
+    let mut candidates = fs::read_dir(parent)
+        .ok()?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| {
+            let extension = path
+                .extension()
+                .and_then(|value| value.to_str())
+                .unwrap_or_default();
+            let candidate_stem = path
+                .file_stem()
+                .and_then(|value| value.to_str())
+                .unwrap_or_default();
+            matches!(extension.to_ascii_lowercase().as_str(), "vtt" | "srt")
+                && (candidate_stem == stem || candidate_stem.starts_with(&format!("{stem}.")))
+        })
+        .collect::<Vec<_>>();
+    candidates.sort_by_key(|path| subtitle_rank(stem, path));
+    candidates.into_iter().next()
+}
+
+fn subtitle_rank(source_stem: &str, path: &Path) -> (u8, String) {
+    let stem = path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default();
+    let suffix = stem.strip_prefix(source_stem).unwrap_or_default();
+    let lower = suffix.to_ascii_lowercase();
+    let rank = if suffix.is_empty() {
+        0
+    } else if matches!(
+        lower.as_str(),
+        ".en" | ".en-us" | ".en-gb" | ".zh" | ".zh-cn"
+    ) {
+        1
+    } else if lower.contains("orig") {
+        3
+    } else {
+        2
+    };
+    (rank, path.to_string_lossy().into_owned())
+}
+
+fn subtitle_language(source: &str, subtitle: &Path) -> Option<String> {
+    let source_stem = Path::new(source).file_stem()?.to_str()?;
+    let subtitle_stem = subtitle.file_stem()?.to_str()?;
+    subtitle_stem
+        .strip_prefix(source_stem)?
+        .trim_start_matches('.')
+        .split('.')
+        .next()
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn read_subtitle_transcript(path: &Path) -> Option<String> {
+    const MAX_SUBTITLE_BYTES: u64 = 4 * 1024 * 1024;
+    const MAX_TRANSCRIPT_CHARS: usize = 120_000;
+    if fs::metadata(path).ok()?.len() > MAX_SUBTITLE_BYTES {
+        return None;
+    }
+    let source = fs::read_to_string(path).ok()?;
+    let source = source.replace("\r\n", "\n").replace('\r', "\n");
+    let mut cues = Vec::new();
+    for block in source.split("\n\n") {
+        let mut lines = block.lines().map(str::trim).filter(|line| !line.is_empty());
+        let Some(first) = lines.next() else {
+            continue;
+        };
+        if first.starts_with("WEBVTT")
+            || first.starts_with("Kind:")
+            || first.starts_with("Language:")
+            || first.starts_with("NOTE")
+            || first.starts_with("STYLE")
+            || first.starts_with("REGION")
+        {
+            continue;
+        }
+        let (timing, text_lines) = if first.contains("-->") {
+            (first, lines.collect::<Vec<_>>())
+        } else {
+            let Some(second) = lines.next() else {
+                continue;
+            };
+            if !second.contains("-->") {
+                continue;
+            }
+            (second, lines.collect::<Vec<_>>())
+        };
+        let timestamp = timing
+            .split("-->")
+            .next()
+            .and_then(format_subtitle_timestamp)
+            .unwrap_or_else(|| "??:??".into());
+        let text = clean_subtitle_text(&text_lines.join(" "));
+        if text.is_empty() {
+            continue;
+        }
+        let line = format!("[{timestamp}] {text}");
+        if cues.last().is_none_or(|previous| previous != &line) {
+            cues.push(line);
+        }
+    }
+    let transcript = cues.join("\n");
+    if transcript.is_empty() {
+        None
+    } else {
+        Some(transcript.chars().take(MAX_TRANSCRIPT_CHARS).collect())
+    }
+}
+
+fn format_subtitle_timestamp(value: &str) -> Option<String> {
+    let normalized = value.trim().replace(',', ".");
+    let parts = normalized.split(':').collect::<Vec<_>>();
+    match parts.as_slice() {
+        [minutes, seconds] => Some(format!(
+            "{:02}:{:02}",
+            minutes.parse::<u64>().ok()?,
+            seconds.split('.').next()?.parse::<u64>().ok()?
+        )),
+        [hours, minutes, seconds] => {
+            let hours = hours.parse::<u64>().ok()?;
+            let minutes = minutes.parse::<u64>().ok()?;
+            let seconds = seconds.split('.').next()?.parse::<u64>().ok()?;
+            if hours == 0 {
+                Some(format!("{minutes:02}:{seconds:02}"))
+            } else {
+                Some(format!("{hours:02}:{minutes:02}:{seconds:02}"))
+            }
+        }
+        _ => None,
+    }
+}
+
+fn clean_subtitle_text(value: &str) -> String {
+    let mut text = String::with_capacity(value.len());
+    let mut inside_tag = false;
+    for character in value.chars() {
+        match character {
+            '<' => inside_tag = true,
+            '>' => inside_tag = false,
+            _ if !inside_tag => text.push(character),
+            _ => {}
+        }
+    }
+    text.replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn validate_source(path: &str) -> Result<(), String> {
@@ -281,5 +459,34 @@ mod tests {
     fn parses_fractional_frame_rate() {
         let value = parse_rate(Some("30000/1001")).expect("valid rate");
         assert!((value - 29.970).abs() < 0.001);
+    }
+
+    #[test]
+    fn turns_sidecar_vtt_into_time_coded_transcript() {
+        let path = std::env::temp_dir().join(format!("lensquery-{}.vtt", Uuid::new_v4()));
+        fs::write(
+            &path,
+            "WEBVTT\n\n00:00:00.029 --> 00:00:02.000\n<c Speaker>We have a mission.</c>\n\n00:00:27.463 --> 00:00:32.253\nOne small step for man.\n",
+        )
+        .expect("write fixture");
+        let transcript = read_subtitle_transcript(&path).expect("transcript");
+        let _ = fs::remove_file(path);
+        assert_eq!(
+            transcript,
+            "[00:00] We have a mission.\n[00:27] One small step for man."
+        );
+    }
+
+    #[test]
+    fn ranks_exact_and_language_subtitles_before_original_autocaptions() {
+        let source = "lesson";
+        assert!(
+            subtitle_rank(source, Path::new("lesson.en.vtt"))
+                < subtitle_rank(source, Path::new("lesson.en-orig.vtt"))
+        );
+        assert!(
+            subtitle_rank(source, Path::new("lesson.vtt"))
+                < subtitle_rank(source, Path::new("lesson.en.vtt"))
+        );
     }
 }

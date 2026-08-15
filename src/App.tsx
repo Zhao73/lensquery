@@ -98,6 +98,7 @@ import type {
 } from './types/domain'
 
 const DEFAULT_QUESTION = '请分析所选内容，并结合周围上下文说明它是什么、有什么作用以及下一步该怎么做。'
+const VIDEO_DEFAULT_QUESTION = '请快速总结这个视频：先用一段话说明大概内容，再列出带时间点的关键或有趣片段和学习要点，并明确字幕与音频覆盖范围。'
 
 const analysisModes: Array<{ id: AnalysisMode; label: string; hint: string }> = [
   { id: 'identify', label: '快速介绍', hint: '是什么、有什么用' },
@@ -313,10 +314,12 @@ function ConversationApp() {
       void showSystemNotification('LensQuery 未开始分析', '未找到可用的模型通道，请在 LensQuery 的“模型”页面检查配置。').catch(() => undefined)
       return
     }
-    const question = input.question?.trim() || DEFAULT_QUESTION
+    const hasVideoInput = input.files.some(({ kind }) => kind === 'video') || input.browserContext?.media?.kind === 'video'
+    const usesDefaultQuestion = !input.question?.trim()
+    const question = input.question?.trim() || (hasVideoInput ? VIDEO_DEFAULT_QUESTION : DEFAULT_QUESTION)
     let preparedFiles = input.files
     if (isDesktopRuntime() && input.files.some(({ kind, videoPreparation }) => kind === 'video' && !videoPreparation)) {
-      setCaptureStatus('正在本地提取视频关键帧和音频线索…')
+      setCaptureStatus('正在本地提取视频关键帧、音频和同名字幕…')
       try {
         preparedFiles = await Promise.all(input.files.map(async (file) => {
           if (file.kind !== 'video' || file.videoPreparation) return file
@@ -337,7 +340,10 @@ function ConversationApp() {
       }
     }
     const requestedMode = input.analysisMode ?? input.browserContext?.analysisMode ?? input.captures[0]?.analysisMode ?? analysisMode
-    const requestedFormat = input.outputFormat ?? input.browserContext?.outputFormat ?? input.captures[0]?.outputFormat ?? outputFormat
+    const requestedFormat = input.outputFormat
+      ?? input.browserContext?.outputFormat
+      ?? input.captures[0]?.outputFormat
+      ?? (hasVideoInput && usesDefaultQuestion ? 'summary' : outputFormat)
     const requestAnnotation = (input.annotation ?? input.browserContext?.annotation ?? input.captures[0]?.annotation ?? annotation.trim()) || undefined
     const source = sourceFromEvidence(input.captures, preparedFiles, input.browserContext)
     const createdAt = now()
@@ -719,7 +725,7 @@ function ConversationView(props: {
       </header>
       <div className="message-stream">
         <EvidenceStrip session={props.session} />
-        {hasVideo && <div className="media-quick-actions" aria-label="视频快速分析"><span>继续分析视频</span><button type="button" onClick={() => props.onQuickAsk('用一段话快速介绍这个视频的大概意思。')}>快速介绍</button><button type="button" onClick={() => props.onQuickAsk('列出这个视频中最有趣或最有用的片段，有时间信息时请标注时间。')}>有趣片段</button><button type="button" onClick={() => props.onQuickAsk('把页面已提供的字幕或转写整理成连贯文本；没有完整转写时明确说明覆盖范围。')}>整理字幕</button><button type="button" onClick={() => props.onQuickAsk('把这个视频整理成便于学习和理解的重点、概念和行动清单。')}>学习要点</button></div>}
+        {hasVideo && <div className="media-quick-actions" aria-label="视频快速分析"><span>继续分析视频</span><button type="button" onClick={() => props.onQuickAsk('快速总结这个视频：一段话概括大意，再列不超过 5 个关键点。')}>快速总结</button><button type="button" onClick={() => props.onQuickAsk('列出这个视频中最有趣或最有用的片段，有时间信息时请标注时间。')}>有趣片段</button><button type="button" onClick={() => props.onQuickAsk('把页面已提供的字幕或转写整理成连贯文本；没有完整转写时明确说明覆盖范围。')}>整理字幕</button><button type="button" onClick={() => props.onQuickAsk('把这个视频整理成便于学习和理解的重点、概念和行动清单。')}>学习要点</button></div>}
         {props.session.messages.map((message) => (
           <article key={message.id} className={`message ${message.role} ${message.status}`}>
             <div className="message-author">{message.role === 'user' ? '你' : props.provider?.name ?? 'LensQuery'}</div>
@@ -785,6 +791,16 @@ function EvidenceStrip({ session }: { session: QuerySession }) {
   const previewUrl = capture?.previewUrl
     ?? (file?.kind === 'image' ? encodeURI(`file://${file.path}`) : undefined)
     ?? videoFrames[0]?.previewUrl
+  const c2pa = file?.provenance?.c2pa
+  const fileSummary = file
+    ? [
+        file.kind.toUpperCase(),
+        formatBytes(file.size),
+        c2pa?.aiGeneratedDeclared
+          ? c2pa.signerTrusted ? 'AI 来源凭证已验证' : 'AI 来源凭证已读取'
+          : file.videoPreparation?.transcript ? '已读取字幕' : undefined,
+      ].filter(Boolean).join(' · ')
+    : undefined
   if (!capture && !file && !browser) return null
   const browserSummary = browser?.contextMenuKind === 'selection'
     ? '网页所选文字 · 已读取上下文'
@@ -799,14 +815,27 @@ function EvidenceStrip({ session }: { session: QuerySession }) {
     <details className="evidence-strip">
       <summary>
         {previewUrl ? <img className="evidence-thumbnail" src={previewUrl} alt="本次选择预览" /> : <span className="evidence-source-icon"><SourceIcon kind={session.sourceKind} /></span>}
-        <span className="evidence-summary-copy"><strong>{session.sourceLabel}</strong><small>{file ? `${file.kind.toUpperCase()} · ${formatBytes(file.size)}` : browserSummary ?? (capture ? `${Math.round(capture.bounds.width)} × ${Math.round(capture.bounds.height)}` : '网页上下文')}</small></span>
+        <span className="evidence-summary-copy"><strong>{session.sourceLabel}</strong><small>{fileSummary ?? browserSummary ?? (capture ? `${Math.round(capture.bounds.width)} × ${Math.round(capture.bounds.height)}` : '网页上下文')}</small></span>
         <small className="evidence-expand">查看详情</small><CaretDown size={15} />
       </summary>
       <div className="evidence-detail">
         {previewUrl && <img className="evidence-large-preview" src={previewUrl} alt="屏幕选择预览" />}
         {capture && <dl><div><dt>范围</dt><dd>{Math.round(capture.bounds.width)} × {Math.round(capture.bounds.height)}</dd></div>{capture.accessibleText && <div><dt>辅助信息</dt><dd>{capture.accessibleText}</dd></div>}</dl>}
-        {file && <dl><div><dt>文件</dt><dd>{file.name}</dd></div><div><dt>类型</dt><dd>{file.mediaType || file.kind}</dd></div><div><dt>大小</dt><dd>{formatBytes(file.size)}</dd></div>{file.pageCount && <div><dt>页数</dt><dd>{file.pageCount}</dd></div>}{file.extractionStatus && <div><dt>本地解析</dt><dd>{file.extractionStatus === 'ready' ? '文字已提取' : file.extractionStatus}</dd></div>}</dl>}
-        {browser && <dl><div><dt>网页</dt><dd>{browser.title}</dd></div>{browser.contextMenuKind && <div><dt>触发方式</dt><dd>网页右键 · {{ selection: '所选文字', image: '图片', video: '视频', page: '当前页面' }[browser.contextMenuKind]}</dd></div>}<div><dt>文字范围</dt><dd>{browser.selectionMode ?? '当前对象'}</dd></div>{browser.selectedText && <div><dt>所选文字</dt><dd>{browser.selectedText}</dd></div>}{browser.captions && <div><dt>当前字幕</dt><dd>{browser.captions}</dd></div>}{browser.transcript && <div><dt>视频转写</dt><dd>{browser.transcript.slice(0, 1200)}{browser.transcript.length > 1200 ? '…' : ''}</dd></div>}<div><dt>元素</dt><dd>{browser.tagName.toLowerCase()}{browser.role ? ` · ${browser.role}` : ''}</dd></div><div><dt>地址</dt><dd>{browser.url}</dd></div>{browser.selector && <div><dt>选择器</dt><dd><code>{browser.selector}</code></dd></div>}</dl>}
+        {file && <dl>
+          <div><dt>文件</dt><dd>{file.name}</dd></div>
+          <div><dt>类型</dt><dd>{file.mediaType || file.kind}</dd></div>
+          <div><dt>大小</dt><dd>{formatBytes(file.size)}</dd></div>
+          {file.pageCount && <div><dt>页数</dt><dd>{file.pageCount}</dd></div>}
+          {file.extractionStatus && <div><dt>本地解析</dt><dd>{file.extractionStatus === 'ready' ? '文字已提取' : file.extractionStatus}</dd></div>}
+          {file.videoPreparation && <div><dt>视频证据</dt><dd>{file.videoPreparation.frames.length} 个带时间点关键帧 · {file.videoPreparation.audioPath ? '已提取音频' : '无音频'}</dd></div>}
+          {file.videoPreparation?.transcript && <div><dt>字幕覆盖</dt><dd>已读取{file.videoPreparation.transcriptLanguage ? ` ${file.videoPreparation.transcriptLanguage}` : ''} 侧车字幕 · {file.videoPreparation.transcript.split('\n').length} 个时间段</dd></div>}
+          {c2pa && <div><dt>内容凭证</dt><dd><strong>{c2pa.signerTrusted ? '可信签名已验证' : c2pa.validationState === 'valid' ? '文件绑定有效' : '验证未通过'}</strong>{c2pa.issuer ? ` · ${c2pa.issuer}` : ''}{c2pa.claimGenerator ? ` · ${c2pa.claimGenerator}` : ''}</dd></div>}
+          {c2pa?.aiGeneratedDeclared && <div><dt>AI 来源</dt><dd>机器可读声明：{c2pa.digitalSourceTypes.join(', ') || '训练型算法媒体'}{c2pa.softwareAgents.length ? ` · ${c2pa.softwareAgents.join(', ')}` : ''}</dd></div>}
+          {c2pa?.embeddedWatermarkDeclared && <div><dt>隐形水印</dt><dd>C2PA 流程声明已加入水印；像素级 SynthID 由对应发行方验证器独立确认</dd></div>}
+          {file.provenance?.metadata.map((item) => <div key={`${item.label}-${item.value}`}><dt>{item.label}</dt><dd>{item.value}</dd></div>)}
+          {file.provenance?.detectorCoverage && <div className="evidence-coverage"><dt>检测范围</dt><dd>{file.provenance.detectorCoverage}</dd></div>}
+        </dl>}
+        {browser && <dl><div><dt>网页</dt><dd>{browser.title}</dd></div>{browser.contextMenuKind && <div><dt>触发方式</dt><dd>网页右键 · {{ selection: '所选文字', image: '图片', video: '视频', page: '当前页面' }[browser.contextMenuKind]}</dd></div>}<div><dt>文字范围</dt><dd>{browser.selectionMode ?? '当前对象'}</dd></div>{browser.selectedText && <div><dt>所选文字</dt><dd>{browser.selectedText}</dd></div>}{browser.captions && <div><dt>当前字幕</dt><dd>{browser.captions}</dd></div>}{browser.transcript && <div><dt>视频转写</dt><dd>{browser.transcriptLanguage ? `${browser.transcriptLanguage} · ` : ''}{browser.transcript.slice(0, 1200)}{browser.transcript.length > 1200 ? '…' : ''}</dd></div>}<div><dt>元素</dt><dd>{browser.tagName.toLowerCase()}{browser.role ? ` · ${browser.role}` : ''}</dd></div><div><dt>地址</dt><dd>{browser.url}</dd></div>{browser.selector && <div><dt>选择器</dt><dd><code>{browser.selector}</code></dd></div>}</dl>}
         {videoFrames.length > 1 && <div className="evidence-frame-grid">{videoFrames.map((frame) => <figure key={frame.path}><img src={frame.previewUrl} alt={`视频 ${formatDuration(frame.timestampSeconds)} 画面`} /><figcaption>{formatDuration(frame.timestampSeconds)}</figcaption></figure>)}</div>}
         {session.annotation && <div className="evidence-annotation"><NotePencil size={16} /><span><strong>你的注释</strong>{session.annotation}</span></div>}
       </div>

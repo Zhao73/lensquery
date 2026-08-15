@@ -190,6 +190,119 @@
     }
   }
 
+  function extractJsonArray(source, marker) {
+    const markerIndex = source.indexOf(marker)
+    if (markerIndex < 0) return undefined
+    const start = source.indexOf('[', markerIndex + marker.length)
+    if (start < 0) return undefined
+    let depth = 0
+    let quote = false
+    let escaped = false
+    for (let index = start; index < source.length; index += 1) {
+      const character = source[index]
+      if (quote) {
+        if (escaped) escaped = false
+        else if (character === '\\') escaped = true
+        else if (character === '"') quote = false
+        continue
+      }
+      if (character === '"') {
+        quote = true
+        continue
+      }
+      if (character === '[') depth += 1
+      if (character === ']') {
+        depth -= 1
+        if (depth === 0) {
+          try {
+            return JSON.parse(source.slice(start, index + 1))
+          } catch {
+            return undefined
+          }
+        }
+      }
+    }
+    return undefined
+  }
+
+  function youtubeCaptionTracks() {
+    if (!/(^|\.)youtube\.com$/i.test(location.hostname)) return []
+    for (const script of document.scripts) {
+      const source = script.textContent || ''
+      if (!source.includes('captionTracks')) continue
+      const tracks = extractJsonArray(source, '"captionTracks":')
+      if (Array.isArray(tracks) && tracks.length) return tracks
+    }
+    return []
+  }
+
+  function chooseCaptionTrack(tracks) {
+    const language = clean(navigator.language || 'en').toLowerCase()
+    const baseLanguage = language.split('-')[0]
+    const score = (track) => {
+      const code = clean(track.languageCode || '').toLowerCase()
+      if (code === language && track.kind !== 'asr') return 0
+      if (code === baseLanguage && track.kind !== 'asr') return 1
+      if (code === language) return 2
+      if (code === baseLanguage) return 3
+      if (code.startsWith('en') && track.kind !== 'asr') return 4
+      if (code.startsWith('en')) return 5
+      return track.kind === 'asr' ? 7 : 6
+    }
+    return [...tracks].sort((left, right) => score(left) - score(right))[0]
+  }
+
+  function formatTranscriptTime(milliseconds) {
+    const seconds = Math.max(0, Math.floor(Number(milliseconds || 0) / 1_000))
+    const hours = Math.floor(seconds / 3_600)
+    const minutes = Math.floor((seconds % 3_600) / 60)
+    const remainder = seconds % 60
+    return hours > 0
+      ? `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(remainder).padStart(2, '0')}`
+      : `${String(minutes).padStart(2, '0')}:${String(remainder).padStart(2, '0')}`
+  }
+
+  function transcriptFromJson3(payload) {
+    const lines = []
+    for (const event of payload?.events || []) {
+      const text = clean((event.segs || []).map((segment) => segment.utf8 || '').join(''))
+      if (!text || text === '\n') continue
+      const value = `[${formatTranscriptTime(event.tStartMs)}] ${text}`
+      if (lines.at(-1) !== value) lines.push(value)
+    }
+    return lines.join('\n').slice(0, 120_000) || undefined
+  }
+
+  async function fetchYouTubeTranscript() {
+    const track = chooseCaptionTrack(youtubeCaptionTracks())
+    if (!track?.baseUrl) return undefined
+    try {
+      const url = new URL(track.baseUrl, location.href)
+      url.searchParams.set('fmt', 'json3')
+      const response = await fetch(url.href, { credentials: 'include' })
+      if (!response.ok) return undefined
+      const transcript = transcriptFromJson3(await response.json())
+      if (!transcript) return undefined
+      return {
+        transcript,
+        captionLanguage: clean(track.languageCode || track.name?.simpleText || '') || undefined,
+      }
+    } catch {
+      return undefined
+    }
+  }
+
+  async function enrichContext(context) {
+    if (context.media?.kind !== 'video' || context.transcript) return context
+    const youtube = await fetchYouTubeTranscript()
+    if (!youtube?.transcript) return context
+    return {
+      ...context,
+      transcript: youtube.transcript,
+      transcriptLanguage: youtube.captionLanguage,
+    }
+  }
+
   function visibleRect(element, kind) {
     let rect
     if (kind === 'selection' && window.getSelection()?.rangeCount) {
@@ -238,7 +351,7 @@
       transcript: mediaText.transcript,
       contextMenuKind: options.contextMenuKind,
       analysisMode: options.analysisMode,
-      outputFormat: 'adaptive',
+      outputFormat: media ? 'summary' : 'adaptive',
       media: media ? {
         kind: media.tagName.toLowerCase(),
         currentTime: Number(media.currentTime || 0),
@@ -250,7 +363,7 @@
     }
   }
 
-  const api = { buildContext, findTarget, textForScope }
+  const api = { buildContext, enrichContext, findTarget, textForScope }
   window.__lensQueryPageContext = api
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -263,10 +376,12 @@
         selectionText: message.request?.selectionText,
         analysisMode: message.request?.kind === 'image' ? 'identify' : 'explain',
       })
-      sendResponse({ ok: true, context })
+      void enrichContext(context)
+        .then((enriched) => sendResponse({ ok: true, context: enriched }))
+        .catch((error) => sendResponse({ ok: false, error: String(error) }))
     } catch (error) {
       sendResponse({ ok: false, error: String(error) })
     }
-    return false
+    return true
   })
 })()

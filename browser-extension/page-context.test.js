@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+// @vitest-environment-options {"url":"https://www.youtube.com/watch?v=lensquery-test"}
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
@@ -22,6 +23,7 @@ describe('LensQuery browser page context', () => {
     document.documentElement.innerHTML = '<head><title>Example</title></head><body></body>'
     delete window.__lensQueryPageContext
     window.getSelection()?.removeAllRanges()
+    globalThis.fetch = vi.fn()
   })
 
   it('keeps selected text together with its surrounding page context', () => {
@@ -71,5 +73,32 @@ describe('LensQuery browser page context', () => {
 
     expect(context.media).toMatchObject({ kind: 'video', currentTime: 42, duration: 180, paused: true })
     expect(context.transcript).toBeUndefined()
+  })
+
+  it('fetches a time-coded YouTube transcript from the page caption track', async () => {
+    document.head.innerHTML = `<title>NASA short</title><script>var ytInitialPlayerResponse = {"captions":{"playerCaptionsTracklistRenderer":{"captionTracks":[{"baseUrl":"https://www.youtube.com/api/timedtext?v=lensquery-test","languageCode":"en","name":{"simpleText":"English"}}]}}};</script>`
+    document.body.innerHTML = '<main><video id="lesson" src="https://example.test/lesson.mp4"></video></main>'
+    globalThis.fetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        events: [
+          { tStartMs: 891, segs: [{ utf8: 'We have one of the most challenging assignments.' }] },
+          { tStartMs: 27_463, segs: [{ utf8: 'One small step for man.' }] },
+        ],
+      }),
+    })
+
+    const collector = loadCollector()
+    const video = document.querySelector('video')
+    const context = collector.buildContext(video, { kind: 'video', contextMenuKind: 'video' })
+    const enriched = await collector.enrichContext(context)
+
+    expect(enriched.transcript).toContain('[00:00] We have one of the most challenging assignments.')
+    expect(enriched.transcript).toContain('[00:27] One small step for man.')
+    expect(enriched.transcriptLanguage).toBe('en')
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      expect.stringContaining('fmt=json3'),
+      { credentials: 'include' },
+    )
   })
 })

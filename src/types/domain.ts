@@ -59,6 +59,7 @@ export interface BrowserContext {
   selectedText?: string
   captions?: string
   transcript?: string
+  transcriptLanguage?: string
   contextMenuKind?: 'selection' | 'image' | 'video' | 'page'
   snapshotPath?: string
   snapshotPreviewUrl?: string
@@ -89,6 +90,36 @@ export interface FileEvidence {
   extractedText?: string
   pageCount?: number
   extractionStatus?: 'not-needed' | 'ready' | 'partial' | 'unsupported' | 'error'
+  provenance?: ImageProvenance
+}
+
+export interface ImageProvenance {
+  c2pa?: C2paEvidence
+  metadata: MetadataEvidence[]
+  aiSignals: string[]
+  cameraMetadataPresent: boolean
+  detectorCoverage: string
+}
+
+export interface C2paEvidence {
+  embedded: boolean
+  validationState: 'trusted' | 'valid' | 'invalid'
+  signerTrusted: boolean
+  issuer?: string
+  commonName?: string
+  claimGenerator?: string
+  signedAt?: string
+  actions: string[]
+  digitalSourceTypes: string[]
+  softwareAgents: string[]
+  aiGeneratedDeclared: boolean
+  embeddedWatermarkDeclared: boolean
+  validationWarnings: string[]
+}
+
+export interface MetadataEvidence {
+  label: string
+  value: string
 }
 
 export interface VideoMetadata {
@@ -117,6 +148,9 @@ export interface VideoPreparation {
   sampleIntervalSeconds: number
   originalDurationSeconds: number
   strategy: 'uniform-keyframes-v1'
+  transcript?: string
+  transcriptSource?: string
+  transcriptLanguage?: string
 }
 
 export interface ProviderProfile {

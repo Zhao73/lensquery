@@ -165,7 +165,7 @@ function buildPrompt(request, settings, manifest) {
       ? '详细、结构化，并标出会影响结论的不确定性。'
       : '先给礼貌、自然、可直接使用的回复，需要时再补充简短分析。'
   const visual = request.captures?.length || request.files?.some((file) => ['image', 'video'].includes(file.kind))
-    ? '视觉证据需识别主体、可见文字、构图、风格、光线和周边上下文。若图片似为 AI 生成，将其标为推断，可给出可复现的提示词，但不宣称知道原始提示词。'
+    ? '视觉证据需识别主体、可见文字、构图、风格、光线和周边上下文。必须区分：可见像素水印；本地解析的 C2PA/EXIF 来源证据；仅凭视觉风格的推断。已通过可信签名与文件绑定验证、且 digitalSourceType=trainedAlgorithmicMedia 的 C2PA 是直接机器可读 AI 来源证据；EXIF 相机字段只是支持性元数据，不证明一定由人拍摄。若只是外观似 AI，明确标为推断。可给出可复现提示词，但不宣称知道原始提示词。'
     : ''
   const video = request.promptId === 'video'
     ? '视频只能根据已提供的关键帧、字幕、转写和音频线索重建顺序。输出快速介绍、摘要、有趣或有用片段及时间点、学习要点和证据缺口，不虚构连续动作或完整转写。'
@@ -202,7 +202,7 @@ async function collectEvidence(request, readFile) {
     if (browser.text) lines.push(`对象文字：${bounded(browser.text, 10_000)}`)
     if (browser.nearbyText) lines.push(`周边文字：${bounded(browser.nearbyText, 20_000)}`)
     if (browser.captions) lines.push(`当前字幕：${bounded(browser.captions, 10_000)}`)
-    if (browser.transcript) lines.push(`页面可用转写：${bounded(browser.transcript, 30_000)}`)
+    if (browser.transcript) lines.push(`页面可用转写（语言 ${bounded(browser.transcriptLanguage, 80) || '未知'}）：${bounded(browser.transcript, 30_000)}`)
     if (browser.outerHtml) lines.push(`对象 HTML：${bounded(browser.outerHtml, 8_000)}`)
     if (browser.snapshotPath) imageCandidates.push(browser.snapshotPath)
   }
@@ -216,8 +216,26 @@ async function collectEvidence(request, readFile) {
         lines.push(`视频关键帧：${Number(frame.timestampSeconds || 0).toFixed(2)}s`)
       }
     }
+    if (file.videoPreparation?.transcript) {
+      lines.push(`带时间点的侧车字幕转写（语言 ${bounded(file.videoPreparation.transcriptLanguage, 80) || '未知'}，来源 ${bounded(file.videoPreparation.transcriptSource, 1_000) || '未知'}）：\n${bounded(file.videoPreparation.transcript, 60_000)}`)
+    } else if (file.videoPreparation?.audioPath) {
+      lines.push('已提取音频，但当前通道没有转写；不得推断未听取的语音。')
+    }
     if (file.video) {
       lines.push(`视频元数据：${Number(file.video.durationSeconds || 0).toFixed(2)}s；${file.video.width || '?'}×${file.video.height || '?'}；含音频 ${Boolean(file.video.hasAudio)}`)
+    }
+    if (file.provenance?.c2pa) {
+      const c2pa = file.provenance.c2pa
+      lines.push(`本地 C2PA 来源凭证：嵌入=${Boolean(c2pa.embedded)}；验证=${bounded(c2pa.validationState, 80)}；签发者可信=${Boolean(c2pa.signerTrusted)}；发行者=${bounded(c2pa.issuer, 500) || '未提供'}；签名者=${bounded(c2pa.commonName, 500) || '未提供'}；生成器=${bounded(c2pa.claimGenerator, 500) || '未提供'}；AI 生成声明=${Boolean(c2pa.aiGeneratedDeclared)}；不可见水印声明=${Boolean(c2pa.embeddedWatermarkDeclared)}；digitalSourceTypes=${(c2pa.digitalSourceTypes || []).join(', ')}；softwareAgents=${(c2pa.softwareAgents || []).join(', ')}；actions=${(c2pa.actions || []).join(', ')}；warnings=${(c2pa.validationWarnings || []).join('; ')}`)
+    }
+    if (file.provenance?.metadata?.length) {
+      lines.push(`本地图片元数据（支持性证据，不是结论）：${file.provenance.metadata.map((item) => `${bounded(item.label, 100)}=${bounded(item.value, 500)}`).join(' | ')}`)
+    }
+    if (file.provenance?.aiSignals?.length) {
+      lines.push(`本地 AI 来源信号：${file.provenance.aiSignals.join(' | ')}`)
+    }
+    if (file.provenance?.detectorCoverage) {
+      lines.push(`来源检测覆盖：${bounded(file.provenance.detectorCoverage, 2_000)}`)
     }
   }
   const manifest = lines.join('\n').slice(0, MAX_TEXT_EVIDENCE_CHARS) || '未提供附加证据。'

@@ -14,7 +14,7 @@
 ### Local file analysis
 
 1. User opens LensQuery from the tray, drags files onto the home screen, uses the picker, or invokes an operating-system file action.
-2. LensQuery classifies each attachment and previews the local extraction result. Videos show duration, stream metadata, sampled timestamps, and whether an audio track will be transcribed.
+2. LensQuery classifies each attachment and previews the local extraction result. Images show local provenance coverage; videos show duration, stream metadata, sampled timestamps, available sidecar-subtitle coverage, and whether audio remains untranscribed.
 3. The request follows the same provider-independent preview and submission flow.
 
 ## Functional requirements
@@ -30,6 +30,8 @@
 | VIDEO-01 | Probe a local video without upload | Duration, resolution, codecs, rotation, and audio presence are visible |
 | VIDEO-02 | Prepare a bounded video evidence package | At most 24 time-coded frames and one compact mono audio track are created locally |
 | VIDEO-03 | Analyze long and short clips consistently | Sampling interval adapts to duration and the answer cites relevant timestamps |
+| VIDEO-04 | Use available subtitle evidence | A same-name VTT/SRT track is bounded, normalized, time-coded, and labeled separately from untranscribed audio |
+| IMAGE-01 | Inspect image provenance locally | C2PA validation, signer trust, AI source type, watermark declarations, EXIF, visible labels, and visual inference remain distinct |
 | AI-01 | Configure multiple provider profiles | Profiles preserve endpoint/model settings without storing raw secrets in JSON |
 | AI-02 | Stream a multimodal answer | Partial output is visible and cancellation stops the request |
 | AI-03 | Switch model before retry | Evidence and question stay intact while profile changes |
@@ -92,6 +94,7 @@ Every adapter implements:
 - **Troubleshoot** Read visible error evidence, list the most likely root cause, then the smallest verification steps.
 - **Summarize file** Summarize scope, important facts, decisions, dates, and missing information.
 - **Analyze video** Reconstruct the sequence from timestamped frames and transcript, summarize the content, identify important moments, and produce a customer-ready answer when requested.
+- **Check image origin** Prefer trusted C2PA claims over visual-style guesses, treat EXIF as supporting metadata only, and state the coverage boundary for proprietary invisible watermarks.
 - **Custom** Preserve the evidence and let the user type the instruction.
 
 ## Non-goals for the first release

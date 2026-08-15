@@ -65,6 +65,8 @@ Remaining: OpenAI Responses/file-upload/audio endpoints, streaming and cancellat
 
 ### M5 — Agent runtime adapters: next
 
+The bounded Codex CLI fallback is packaged and runtime-verified: it prefers the native binary, uses low reasoning effort for fast identify/summary requests, isolates LensQuery state from the user's Codex history database, preserves existing config/auth references, captures useful timeout diagnostics, and kills the full process tree. Installed macOS acceptance produced client-visible ordinary-photo, trusted-C2PA AI-image, and timestamped video-summary results.
+
 1. Implement a long-lived `codex app-server --stdio` JSON-RPC client.
 2. Generate schemas from the installed Codex version at build/test time.
 3. Map LensQuery session IDs to Codex thread IDs; use `thread/start`, `thread/resume`, `turn/start`, item deltas, and `turn/completed`.
@@ -92,8 +94,10 @@ Remaining: wire the host automatically after a fixed store extension ID exists, 
 - Native file picker/drop already enters the conversation pipeline.
 - Text and machine-readable PDFs are extracted locally with bounded content and page metadata.
 - Video selection automatically runs FFprobe/FFmpeg and prepares bounded timestamped frames plus an audio derivative.
+- Same-name VTT/SRT subtitles are normalized into bounded time-coded evidence; YouTube right-click analysis can fetch a caption track already published by the active page.
+- Images are checked locally with the official C2PA Rust SDK plus a release-pinned official trust-list snapshot, and common EXIF fields remain separate from visual inference.
 
-Remaining: OCR/page rendering for scanned PDFs, audio transcription routing, Explorer/Finder shell integration, outbound derivative preview, a bundled FFmpeg sidecar, and cleanup policies.
+Remaining: OCR/page rendering for scanned PDFs, speech transcription when no subtitle track exists, issuer-specific invisible-watermark verification, Explorer/Finder shell integration, outbound derivative preview, a bundled FFmpeg sidecar, and cleanup policies.
 
 ### M8 — Distribution
 

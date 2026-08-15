@@ -2,7 +2,7 @@ use std::{fs, path::Path};
 
 use uuid::Uuid;
 
-use crate::{models::FileEvidence, video};
+use crate::{models::FileEvidence, provenance, video};
 
 const MAX_ATTACHMENTS: usize = 32;
 const MAX_EXTRACTED_TEXT_CHARS: usize = 160_000;
@@ -65,6 +65,11 @@ pub async fn inspect(paths: Vec<String>) -> Result<Vec<FileEvidence>, String> {
             },
             _ => (None, None, Some("not-needed".into())),
         };
+        let provenance = if kind == "image" {
+            provenance::inspect_image(&path)
+        } else {
+            None
+        };
         evidence.push(FileEvidence {
             id: Uuid::new_v4().to_string(),
             name,
@@ -78,6 +83,7 @@ pub async fn inspect(paths: Vec<String>) -> Result<Vec<FileEvidence>, String> {
             extracted_text,
             page_count,
             extraction_status,
+            provenance,
         });
     }
     Ok(evidence)

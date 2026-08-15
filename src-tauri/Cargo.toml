@@ -6,7 +6,7 @@ authors = ["LensQuery contributors"]
 license = "MIT"
 repository = "https://github.com/Zhao73/lensquery"
 edition = "2021"
-rust-version = "1.77.2"
+rust-version = "1.88.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -35,9 +35,14 @@ uuid = { version = "1", features = ["v4", "serde"] }
 keyring = "4.1.6"
 base64 = "0.22"
 pdf-extract = "0.12"
+c2pa = { version = "0.90.15", default-features = false, features = ["file_io", "rust_native_crypto"] }
+kamadak-exif = "0.6"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-global-shortcut = "2"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 [target.'cfg(any(target_os = "windows", target_os = "macos"))'.dependencies]
 xcap = "0.9.8"
