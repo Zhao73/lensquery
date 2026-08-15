@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
   "name": "LensQuery Web Connector",
-  "version": "0.1.0",
-  "description": "Click text, controls, images, or media and send bounded page context to LensQuery.",
-  "permissions": ["activeTab", "scripting", "storage", "nativeMessaging"],
+  "version": "0.2.0",
+  "description": "Analyze selected text, images, videos, or page context with LensQuery.",
+  "permissions": ["activeTab", "contextMenus", "scripting", "storage", "nativeMessaging"],
   "action": {
     "default_title": "Ask LensQuery about this page"
   },

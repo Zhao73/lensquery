@@ -284,6 +284,16 @@ pub struct BrowserContext {
     #[serde(default)]
     pub transcript: Option<String>,
     #[serde(default)]
+    pub context_menu_kind: Option<String>,
+    #[serde(default)]
+    pub snapshot_data_url: Option<String>,
+    #[serde(default)]
+    pub snapshot_path: Option<String>,
+    #[serde(default)]
+    pub snapshot_preview_url: Option<String>,
+    #[serde(default)]
+    pub snapshot_bounds: Option<Bounds>,
+    #[serde(default)]
     pub annotation: Option<String>,
     #[serde(default)]
     pub analysis_mode: Option<String>,

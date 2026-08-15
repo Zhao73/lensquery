@@ -753,18 +753,27 @@ function EvidenceStrip({ session }: { session: QuerySession }) {
     ?? (file?.kind === 'image' ? encodeURI(`file://${file.path}`) : undefined)
     ?? videoFrames[0]?.previewUrl
   if (!capture && !file && !browser) return null
+  const browserSummary = browser?.contextMenuKind === 'selection'
+    ? '网页所选文字 · 已读取上下文'
+    : browser?.contextMenuKind === 'image'
+      ? '网页图片 · 已附加目标画面'
+      : browser?.contextMenuKind === 'video'
+        ? '网页视频 · 画面与字幕上下文'
+        : browser?.contextMenuKind === 'page'
+          ? '当前网页 · 已读取页面上下文'
+          : browser?.media ? '网页视频 · 已读取页面上下文' : undefined
   return (
     <details className="evidence-strip">
       <summary>
         {previewUrl ? <img className="evidence-thumbnail" src={previewUrl} alt="本次选择预览" /> : <span className="evidence-source-icon"><SourceIcon kind={session.sourceKind} /></span>}
-        <span className="evidence-summary-copy"><strong>{session.sourceLabel}</strong><small>{file ? `${file.kind.toUpperCase()} · ${formatBytes(file.size)}` : browser?.media ? '网页视频 · 已读取页面上下文' : capture ? `${Math.round(capture.bounds.width)} × ${Math.round(capture.bounds.height)}` : '网页上下文'}</small></span>
+        <span className="evidence-summary-copy"><strong>{session.sourceLabel}</strong><small>{file ? `${file.kind.toUpperCase()} · ${formatBytes(file.size)}` : browserSummary ?? (capture ? `${Math.round(capture.bounds.width)} × ${Math.round(capture.bounds.height)}` : '网页上下文')}</small></span>
         <small className="evidence-expand">查看详情</small><CaretDown size={15} />
       </summary>
       <div className="evidence-detail">
         {previewUrl && <img className="evidence-large-preview" src={previewUrl} alt="屏幕选择预览" />}
         {capture && <dl><div><dt>范围</dt><dd>{Math.round(capture.bounds.width)} × {Math.round(capture.bounds.height)}</dd></div>{capture.accessibleText && <div><dt>辅助信息</dt><dd>{capture.accessibleText}</dd></div>}</dl>}
         {file && <dl><div><dt>文件</dt><dd>{file.name}</dd></div><div><dt>类型</dt><dd>{file.mediaType || file.kind}</dd></div><div><dt>大小</dt><dd>{formatBytes(file.size)}</dd></div>{file.pageCount && <div><dt>页数</dt><dd>{file.pageCount}</dd></div>}{file.extractionStatus && <div><dt>本地解析</dt><dd>{file.extractionStatus === 'ready' ? '文字已提取' : file.extractionStatus}</dd></div>}</dl>}
-        {browser && <dl><div><dt>网页</dt><dd>{browser.title}</dd></div><div><dt>文字范围</dt><dd>{browser.selectionMode ?? '当前对象'}</dd></div>{browser.selectedText && <div><dt>所选文字</dt><dd>{browser.selectedText}</dd></div>}{browser.captions && <div><dt>当前字幕</dt><dd>{browser.captions}</dd></div>}{browser.transcript && <div><dt>视频转写</dt><dd>{browser.transcript.slice(0, 1200)}{browser.transcript.length > 1200 ? '…' : ''}</dd></div>}<div><dt>元素</dt><dd>{browser.tagName.toLowerCase()}{browser.role ? ` · ${browser.role}` : ''}</dd></div><div><dt>地址</dt><dd>{browser.url}</dd></div>{browser.selector && <div><dt>选择器</dt><dd><code>{browser.selector}</code></dd></div>}</dl>}
+        {browser && <dl><div><dt>网页</dt><dd>{browser.title}</dd></div>{browser.contextMenuKind && <div><dt>触发方式</dt><dd>网页右键 · {{ selection: '所选文字', image: '图片', video: '视频', page: '当前页面' }[browser.contextMenuKind]}</dd></div>}<div><dt>文字范围</dt><dd>{browser.selectionMode ?? '当前对象'}</dd></div>{browser.selectedText && <div><dt>所选文字</dt><dd>{browser.selectedText}</dd></div>}{browser.captions && <div><dt>当前字幕</dt><dd>{browser.captions}</dd></div>}{browser.transcript && <div><dt>视频转写</dt><dd>{browser.transcript.slice(0, 1200)}{browser.transcript.length > 1200 ? '…' : ''}</dd></div>}<div><dt>元素</dt><dd>{browser.tagName.toLowerCase()}{browser.role ? ` · ${browser.role}` : ''}</dd></div><div><dt>地址</dt><dd>{browser.url}</dd></div>{browser.selector && <div><dt>选择器</dt><dd><code>{browser.selector}</code></dd></div>}</dl>}
         {videoFrames.length > 1 && <div className="evidence-frame-grid">{videoFrames.map((frame) => <figure key={frame.path}><img src={frame.previewUrl} alt={`视频 ${formatDuration(frame.timestampSeconds)} 画面`} /><figcaption>{formatDuration(frame.timestampSeconds)}</figcaption></figure>)}</div>}
         {session.annotation && <div className="evidence-annotation"><NotePencil size={16} /><span><strong>你的注释</strong>{session.annotation}</span></div>}
       </div>

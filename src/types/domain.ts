@@ -58,6 +58,10 @@ export interface BrowserContext {
   selectedText?: string
   captions?: string
   transcript?: string
+  contextMenuKind?: 'selection' | 'image' | 'video' | 'page'
+  snapshotPath?: string
+  snapshotPreviewUrl?: string
+  snapshotBounds?: Bounds
   annotation?: string
   analysisMode?: AnalysisMode
   outputFormat?: OutputFormat

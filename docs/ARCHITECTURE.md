@@ -71,13 +71,15 @@ Native accessibility is best-effort and permission-bound. Canvas applications, p
 
 The extension collects only after the user explicitly invokes it:
 
+- native right-click source (`selection`, `image`, `video`, or `page`);
 - URL and page title;
 - selection/word/paragraph/page/object scope, clicked tag, role, text, accessible name, and selector;
 - optional user annotation plus requested analysis mode and output format;
 - sanitized bounded `outerHTML` and nearby section text;
-- for `video` / `audio`: current time, duration, source URL when exposed, and paused state.
+- for `video` / `audio`: current time, duration, source URL when exposed, paused state, visible captions, and page-exposed transcript segments;
+- a bounded compressed target crop when visible-tab capture is permitted. The native host rejects incoming local paths and writes only validated JPEG/PNG/WebP bytes to LensQuery's temporary capture directory.
 
-The default extension uses `activeTab`, `scripting`, and `nativeMessaging`. Source/network inspection through `chrome.debugger` is deliberately a separate opt-in capability because it carries a stronger permission warning. It should be enabled only for an explicit “深入分析页面” action, never for every click.
+The default extension uses `activeTab`, `contextMenus`, `scripting`, and `nativeMessaging`, with no persistent all-sites content script. Source/network inspection through `chrome.debugger` is deliberately a separate opt-in capability because it carries a stronger permission warning. It should be enabled only for an explicit “深入分析页面” action, never for every click.
 
 ## Local files and video
 

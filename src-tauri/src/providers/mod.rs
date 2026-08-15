@@ -326,6 +326,9 @@ fn build_evidence_manifest(request: &AnalysisRequest) -> String {
         }
     }
     if let Some(browser) = &request.browser_context {
+        if let Some(kind) = &browser.context_menu_kind {
+            lines.push(format!("Browser invocation: context menu / {kind}"));
+        }
         lines.push(format!(
             "Browser element: <{}> role={} | title={} | url={} | selector={} | text={} | nearby={} | html={}",
             browser.tag_name,

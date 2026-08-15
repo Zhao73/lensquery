@@ -54,15 +54,18 @@ Remaining: replace transcript replay with native thread IDs when Codex App Serve
 
 Acceptance: follow-ups append to the original agent session without replaying the entire transcript, partial output streams into the timeline, and approvals remain visible/user-controlled.
 
-### M5 — Browser connector: picker and native host implemented, installer packaging next
+### M5 — Browser connector: right-click actions, picker, and native host implemented
 
 - MV3 extension manifest.
+- Native context-menu actions for selected text, images, videos, and the current page.
 - Shortcut/action starts an in-page pointer picker.
 - Click extraction for selection/word/paragraph/page/object text, button/link roles, images, video/audio state, selector, nearby text, sanitized outer HTML, URL, title, intent, and annotation.
+- Visible target crop is compressed in the extension worker, validated/materialized by the native host, attached to the model request, and shown in the local conversation.
 - `activeTab` limits access to explicit user invocation.
 - Bounded framed Native Messaging host and resident queue handoff.
+- macOS and Windows scripts install the native host after the extension ID is known.
 
-Remaining: generate Chrome/Edge host manifests during install, inject verified extension IDs, resolve global-vs-extension shortcut precedence per browser, and add optional explicit DevTools/CDP deep-source mode.
+Remaining: wire the host automatically after a fixed store extension ID exists, resolve global-vs-extension shortcut precedence per browser, and add optional explicit DevTools/CDP deep-source mode.
 
 ### M6 — Files, PDF, and video baseline implemented
 

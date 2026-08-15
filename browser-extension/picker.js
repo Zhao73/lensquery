@@ -4,6 +4,12 @@
     return
   }
 
+  const contextApi = window.__lensQueryPageContext
+  if (!contextApi) {
+    showFailure('网页上下文采集器没有初始化，请刷新页面后重试。')
+    return
+  }
+
   const state = { active: true, highlighted: null, locked: null }
   document.documentElement.classList.add('lensquery-picking')
   const badge = document.createElement('div')
@@ -38,13 +44,20 @@
       badge.textContent = '已高亮目标 · 再点一次识别 · ⌥ 点击可设置范围'
       return
     }
-    const context = buildContext(element)
+    const selected = window.getSelection()?.toString().trim()
+    const kind = selected
+      ? 'selection'
+      : element.closest('video, audio, .html5-video-player, [data-media-player]')
+        ? 'video'
+        : element.closest('img, picture') ? 'image' : 'object'
+    const context = contextApi.buildContext(element, { kind })
+    context.__element = element
     if (event.altKey) {
       showComposer(context, event.clientX, event.clientY)
       return
     }
     context.selectionMode = window.getSelection()?.toString().trim() ? 'selection' : 'object'
-    context.selectedText = textForScope(element, context.selectionMode)
+    context.selectedText = contextApi.textForScope(element, context.selectionMode)
     context.analysisMode = undefined
     context.outputFormat = undefined
     delete context.__element
@@ -88,7 +101,7 @@
       const data = new FormData(composer)
       const scope = String(data.get('scope') || 'selection')
       context.selectionMode = scope
-      context.selectedText = textForScope(context.__element, scope)
+      context.selectedText = contextApi.textForScope(context.__element, scope)
       context.annotation = String(data.get('annotation') || '').trim()
       context.analysisMode = String(data.get('analysis') || 'explain')
       context.outputFormat = context.analysisMode === 'customer-reply' ? 'customer-reply' : 'adaptive'
@@ -98,28 +111,6 @@
       if (!response?.ok) showFailure(response?.error)
     })
     composer.querySelector('textarea')?.focus()
-  }
-
-  function textForScope(element, scope) {
-    const nativeSelection = clean(window.getSelection()?.toString() || '')
-    if (scope === 'selection' && nativeSelection) return nativeSelection.slice(0, 16000)
-    if (scope === 'word') return wordAtCurrentSelection(element).slice(0, 1000)
-    if (scope === 'paragraph') {
-      const paragraph = element.closest('p, li, dd, dt, blockquote, pre, h1, h2, h3, h4, h5, h6') || element
-      return clean(paragraph.innerText || paragraph.textContent || '').slice(0, 16000)
-    }
-    if (scope === 'page') return clean(document.body?.innerText || '').slice(0, 32000)
-    return clean(element.innerText || element.textContent || element.getAttribute('alt') || '').slice(0, 16000)
-  }
-
-  function wordAtCurrentSelection(element) {
-    const selection = window.getSelection()
-    const node = selection?.anchorNode || element.firstChild
-    const value = node?.textContent || element.textContent || ''
-    const offset = Math.min(selection?.anchorOffset || 0, value.length)
-    const before = value.slice(0, offset).match(/[\p{L}\p{N}_'-]+$/u)?.[0] || ''
-    const after = value.slice(offset).match(/^[\p{L}\p{N}_'-]+/u)?.[0] || ''
-    return before + after || clean(value).split(/\s+/)[0] || ''
   }
 
   function stop() {
@@ -133,114 +124,6 @@
     window.removeEventListener('keydown', onKey, true)
     document.getElementById('lensquery-annotation-composer')?.remove()
     delete window.__lensQueryPicker
-  }
-
-  function buildContext(element) {
-    const media = element.closest('video, audio')
-      || element.closest('.html5-video-player, [data-media-player]')?.querySelector('video, audio')
-    const nearby = element.closest('article, section, main, li, form, nav, header, footer') || element.parentElement
-    const text = clean(element.innerText || element.textContent || element.getAttribute('alt') || element.getAttribute('title') || '')
-    const mediaText = media ? collectMediaText(media) : {}
-    return {
-      url: location.href,
-      title: document.title,
-      tagName: element.tagName,
-      role: element.getAttribute('role') || implicitRole(element),
-      text: text.slice(0, 4000),
-      accessibleName: accessibleName(element).slice(0, 1000),
-      selector: uniqueSelector(element),
-      outerHtml: sanitizeHtml(element.outerHTML).slice(0, 12000),
-      nearbyText: clean(nearby?.innerText || nearby?.textContent || '').slice(0, 8000),
-      __element: element,
-      selectionMode: window.getSelection()?.toString().trim() ? 'selection' : 'object',
-      selectedText: clean(window.getSelection()?.toString() || '').slice(0, 16000),
-      captions: mediaText.captions,
-      transcript: mediaText.transcript,
-      media: media ? {
-        kind: media.tagName.toLowerCase(),
-        currentTime: Number(media.currentTime || 0),
-        duration: Number.isFinite(media.duration) ? Number(media.duration) : undefined,
-        source: media.currentSrc || media.src || media.querySelector('source')?.src,
-        paused: Boolean(media.paused),
-      } : undefined,
-    }
-  }
-
-  function collectMediaText(media) {
-    const cueLines = []
-    try {
-      for (const track of media.textTracks || []) {
-        for (const cue of track.activeCues || []) {
-          const value = clean(cue.text || '')
-          if (value && !cueLines.includes(value)) cueLines.push(value)
-        }
-      }
-    } catch {
-      // Some players expose only rendered caption nodes.
-    }
-    document.querySelectorAll('.ytp-caption-segment, [class*="caption"] [class*="text"]')
-      .forEach((node) => {
-        const value = clean(node.textContent || '')
-        if (value && !cueLines.includes(value)) cueLines.push(value)
-      })
-
-    const transcriptLines = []
-    document.querySelectorAll('ytd-transcript-segment-renderer, [data-transcript-segment], [class*="transcript-segment"]')
-      .forEach((node) => {
-        const timestamp = clean(node.querySelector('[class*="timestamp"], .segment-timestamp')?.textContent || '')
-        const line = clean(node.querySelector('[class*="segment-text"], yt-formatted-string')?.textContent || node.textContent || '')
-        const value = clean(`${timestamp} ${line}`)
-        if (value && !transcriptLines.includes(value)) transcriptLines.push(value)
-      })
-
-    return {
-      captions: cueLines.join(' ').slice(0, 16000) || undefined,
-      transcript: transcriptLines.join('\n').slice(0, 120000) || undefined,
-    }
-  }
-
-  function clean(value) {
-    return value.replace(/\s+/g, ' ').trim()
-  }
-
-  function sanitizeHtml(html) {
-    return html
-      .replace(/\s(?:value|data-token|data-secret|authorization)=("[^"]*"|'[^']*')/gi, '')
-      .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '<script>[removed]</script>')
-  }
-
-  function accessibleName(element) {
-    const labelledBy = element.getAttribute('aria-labelledby')
-    if (labelledBy) {
-      return labelledBy.split(/\s+/).map((id) => document.getElementById(id)?.textContent || '').join(' ')
-    }
-    return element.getAttribute('aria-label') || element.getAttribute('alt') || element.getAttribute('title') || element.labels?.[0]?.textContent || ''
-  }
-
-  function implicitRole(element) {
-    const tag = element.tagName.toLowerCase()
-    if (tag === 'button') return 'button'
-    if (tag === 'a' && element.hasAttribute('href')) return 'link'
-    if (tag === 'input') return element.type === 'checkbox' ? 'checkbox' : 'textbox'
-    if (tag === 'video') return 'video'
-    if (tag === 'img') return 'img'
-    return undefined
-  }
-
-  function uniqueSelector(element) {
-    if (element.id) return `#${CSS.escape(element.id)}`
-    const parts = []
-    let node = element
-    while (node && node !== document.documentElement && parts.length < 6) {
-      let part = node.tagName.toLowerCase()
-      const stableClass = [...node.classList].find((name) => !/^(active|selected|hover|focus|css-|jsx-)/.test(name))
-      if (stableClass) part += `.${CSS.escape(stableClass)}`
-      const siblings = node.parentElement ? [...node.parentElement.children].filter((child) => child.tagName === node.tagName) : []
-      if (siblings.length > 1) part += `:nth-of-type(${siblings.indexOf(node) + 1})`
-      parts.unshift(part)
-      node = node.parentElement
-    }
-    return parts.join(' > ')
   }
 
   function showFailure(message) {
