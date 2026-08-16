@@ -178,3 +178,44 @@ Disposable raw evidence:
 - `/tmp/lensquery-blind-20260816.pxdkju/gemini-official-baseline.json`
 
 Product consequence: LensQuery must continue to report Google media as unresolved until a supported official SynthID verifier is configured. A normal Gemini vision-model answer, logo recognition, or visual anomaly score is not a substitute for the `Verify AI` result.
+
+## Seedance 2.0/2.5 blind provenance run
+
+Date: 2026-08-16 (Asia/Tokyo)
+
+Four original videos were downloaded from ByteDance's official [Seedance 2.0](https://seed.bytedance.com/en/seedance2_0) and [Seedance 2.5](https://seed.bytedance.com/en/seedance2_5) model pages. Two recompressed derivatives and two ordinary public controls were added, copied under random neutral names, and analyzed without providing source labels to LensQuery or the selected model. A ninth derivative specifically recompressed the only original that carried C2PA.
+
+| Blind ID | Truth revealed after analysis | SHA-256 | Strict local provenance | Visual forced guess |
+| --- | --- | --- | --- | --- |
+| `ba3b696db68e.mp4` | Seedance 2.0 official original | `696b30f863fd4c980a86339f3d6e68bfb3d8f2ee1d1e3edd348dedc32fab0175` | `insufficient-evidence`; visible `AI` mark, no trusted C2PA or TC260 AIGC field | AI, 70% |
+| `67193ff5a0c2.mp4` | Seedance 2.0 official original | `6633b1c9ae89d0e4ab11692414cf705dc4f4f2918e138e74db39c78e0e395c44` | `insufficient-evidence`; visible `AI` mark, no trusted C2PA or TC260 AIGC field | AI, 70% |
+| `df6b30fb9387.mp4` | Seedance 2.5 official original | `da6df51de23de0f5e6f8ef35ef7bd7c45900f31bc832f14cca84110596eedf22` | `insufficient-evidence`; no visible disclosure, C2PA, or TC260 AIGC field | non-AI, 78% — miss |
+| `b6804896c15f.mp4` | Seedance 2.5 official original | `95b1edc0dbb0aff354761e62cefa416605c64340648d1f88cb187ee54431ddea` | `declared-ai-untrusted`; valid file binding/signature structure says `trainedAlgorithmicMedia`, `Volcengine_Ark_CN 1.0.0`, issuer 北京火山引擎科技有限公司, but the signer is outside the pinned public trust list | AI, 82% |
+| `0d561a176513.mp4` | Seedance 2.0 recompress | `4b8ce2fefc86f19bbf3daa3ca32f9b40cf70e396277022113369af9aa293d3a8` | `insufficient-evidence`; visible mark survived, machine credential absent | AI, 68% |
+| `c7c0ec084f41.mp4` | Seedance 2.5 recompress | `d920cc69bae0369c980f8ff87cf9506049d8e9630cff3c41aa73fe5e6fb91093` | `insufficient-evidence`; no visible or machine-readable source signal | non-AI, 88% — miss |
+| `4d43c5d1bf2f.mp4` | NASA scientific-visualization excerpt | `f4357b01298f2e796cd362a21fe599d8387e0c3764e296283313737aabb42759` | `insufficient-evidence`; no false AI credential result | non-AI, 95% |
+| `cc3caa36aa2a.mp4` | NOAA underwater-camera excerpt | `319929074622c5285d27cc77580feeb6ed19f3a52ed4fe8462ca92b73ebacede` | `insufficient-evidence`; no false AI credential result | non-AI, 88% |
+| `7a972c20eecc.mp4` | C2PA-bearing Seedance 2.5 sample after ordinary H.264 recompress | `88507f156f17e383619e3eab1a96f4bcd73d0cf2b0f737060b767e3a3eaf0722` | `insufficient-evidence`; the embedded C2PA was stripped | not sent to the visual guesser |
+
+The strict result on the four official originals is **0/4 verified**, **1/4 declared AI with an untrusted signer**, and **3/4 unresolved**. The two ordinary controls produced **0 false AI positives**. When forced to guess from frames, the model scored **6/8 overall**, including **4/6 AI samples** and **2/2 controls**; both misses were the same realistic Seedance 2.5 barbershop output before and after recompression. This visual score is therefore content classification, not provenance verification.
+
+### Watermark boundary found in the run
+
+- The tested Seedance 2.0 website samples had a small visible `AI` disclosure. That does not establish a guarantee for every Seedance 2.0 export path.
+- One of two tested Seedance 2.5 originals carried a file-bound C2PA AI declaration; the other did not. An ordinary H.264 recompress removed the credential from the carrier sample.
+- None of the tested originals exposed the GB 45438-2025/TC260 `AIGC` metadata field. The [mandatory Chinese labelling rules](https://www.cac.gov.cn/2025-03/14/c_1743654684782215.htm) require file metadata for covered generated/synthetic content and encourage content watermarks, but they do not say that every AI image/video contains one universal hidden pixel watermark. The [GB 45438-2025 record](https://std.samr.gov.cn//gb/search/gbDetailed?id=301E0388CB75788DE06397BE0A0AE1B4) and [TC260 practice guides](https://www.tc260.org.cn/portal/article/2/20250828165129) define specific metadata/container layouts.
+- BytePlus' official [Seedance video API documentation](https://docs.byteplus.com/en/docs/modelark/1520757) exposes a `watermark` option whose default is `false`; enabling it adds a visible `AI Generated` mark. This does not document a universal public hidden-watermark detector.
+- TikTok documents an [invisible watermark for TikTok AI tools](https://newsroom.tiktok.com/more-ways-to-spot-shape-and-understand-ai-generated-material?lang=en-150), while Volcengine's [AI MediaKit extractor](https://www.volcengine.com/docs/6448/2502424?lang=zh) states that it extracts only watermarks added by that service. Neither establishes that every Seedance export can be verified by a public universal reader.
+
+### Product implementation added from the result
+
+LensQuery now parses the TC260 `AIGC` JSON key from MP4/MOV FFprobe metadata and bounded TC260 XMP from supported media. `Label=1` is surfaced as local `declared-ai`; `Label=2/3` remain supporting declarations. Because these fields are unsigned unless separately protected, the UI and provider prompt explicitly say that they are removable/forgeable and do not become `verified-ai`. A synthetic MP4 using the exact TC260 key/value layout passed the new parser and provenance tests.
+
+Disposable raw evidence:
+
+- `/tmp/lensquery-seedance-blind-20260816.8jMd5s/results/truth.json`
+- `/tmp/lensquery-seedance-blind-20260816.8jMd5s/results/inspect-upgraded.json`
+- `/tmp/lensquery-seedance-blind-20260816.8jMd5s/results/analyze-*.json`
+- `/tmp/lensquery-seedance-blind-20260816.8jMd5s/results/contact-sheet.jpg`
+
+Product consequence: LensQuery can report a positive machine-verifiable origin only when the delivered file still carries a valid trusted credential or a matching issuer verifier returns a positive result. It may additionally expose visible marks, unsigned declarations, and visual likelihood, but it must not convert their absence into “human-made,” recover a missing original prompt exactly, or claim that it has read every proprietary watermark.

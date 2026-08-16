@@ -16,13 +16,25 @@ use crate::models::{
 
 const C2PA_TRUST_ANCHORS: &str = include_str!("../resources/c2pa/C2PA-TRUST-LIST.pem");
 const C2PA_TSA_TRUST_ANCHORS: &str = include_str!("../resources/c2pa/C2PA-TSA-TRUST-LIST.pem");
-const IMAGE_DETECTOR_COVERAGE: &str = "已在本机验证文件内嵌 C2PA Content Credentials 的文件绑定、签名和发行方信任，并自动读取 C2PA 标准提示词原料与 PNG prompt/parameters/workflow 元数据；不联网获取远程 manifest。同时读取常见 EXIF，并生成亮度拉伸、局部差分和 Alpha 通道取证图。这些变换可显示低对比度或透明度中仍存在的像素信号；已经完全压平且与背景像素完全相同的内容没有可恢复信息。厂商 SynthID 等不可见水印只在对应官方验证器可用时才能独立确认。未发现信号不证明内容由人类创作。";
-const VIDEO_DETECTOR_COVERAGE: &str = "已在本机验证视频容器中内嵌 C2PA Content Credentials 的文件绑定、签名和发行方信任，不联网获取远程 manifest；同时读取 FFprobe 容器、编码器和时间信息。画面推断仅覆盖已抽取的带时间点关键帧；厂商 SynthID 等不可见水印只在对应官方验证器可用时才能独立确认。未发现信号不证明视频不是 AI 生成。";
+const IMAGE_DETECTOR_COVERAGE: &str = "已在本机验证文件内嵌 C2PA Content Credentials 的文件绑定、签名和发行方信任，并自动读取 C2PA 标准提示词原料、PNG prompt/parameters/workflow 元数据，以及带 TC260 命名空间的 GB 45438-2025 AIGC 文件元数据；不联网获取远程 manifest。TC260 AIGC 字段是可移除、可伪造的来源声明，未单独验证 ReservedCode 完整性保护，不能替代签名凭证或厂商水印检测。同时读取常见 EXIF，并生成亮度拉伸、局部差分和 Alpha 通道取证图。这些变换可显示低对比度或透明度中仍存在的像素信号；已经完全压平且与背景像素完全相同的内容没有可恢复信息。厂商 SynthID 等不可见水印只在对应官方验证器可用时才能独立确认。未发现信号不证明内容由人类创作。";
+const VIDEO_DETECTOR_COVERAGE: &str = "已在本机验证视频容器中内嵌 C2PA Content Credentials 的文件绑定、签名和发行方信任，不联网获取远程 manifest；同时读取 FFprobe 容器、编码器、时间信息和 GB 45438-2025/TC260 AIGC 文件元数据。TC260 AIGC 字段是可移除、可伪造的来源声明，未单独验证 ReservedCode 完整性保护，不能替代签名凭证或厂商水印检测。画面推断仅覆盖已抽取的带时间点关键帧；厂商 SynthID、TikTok/字节跳动私有水印和 AI MediaKit 暗水印，只在对应官方验证器与正确水印配置可用时才能独立确认。未发现信号不证明视频不是 AI 生成。";
 const DOCUMENT_DETECTOR_COVERAGE: &str = "已自动检查文档是否包含可验证的 C2PA Content Credentials 及其标准提示词原料。普通复制文字没有跨厂商通用的公开水印；SynthID Text 等检测需要与生成时相同的私有配置或厂商验证器。文风、困惑度或所谓 AI 味只是统计推断，不作来源证明。";
 const MAX_PROMPT_CHARS: usize = 32_000;
 const MAX_PROMPT_BYTES: usize = MAX_PROMPT_CHARS * 4;
 const MAX_PROMPT_RECORDS: usize = 12;
 const MAX_PNG_METADATA_CHUNK_BYTES: usize = 4 * 1024 * 1024;
+const MAX_TC260_XMP_SCAN_BYTES: usize = 32 * 1024 * 1024;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Tc260AigcEvidence {
+    label: String,
+    content_producer: Option<String>,
+    produce_id: Option<String>,
+    reserved_code_1: Option<String>,
+    content_propagator: Option<String>,
+    propagate_id: Option<String>,
+    reserved_code_2: Option<String>,
+}
 
 struct BoundedCursor {
     inner: Cursor<Vec<u8>>,
@@ -79,11 +91,11 @@ impl Seek for BoundedCursor {
 }
 
 pub fn inspect_image(path: &str) -> Option<ImageProvenance> {
-    inspect_media(path, true)
+    inspect_media(path, true, None)
 }
 
-pub fn inspect_video(path: &str) -> Option<ImageProvenance> {
-    inspect_media(path, false)
+pub fn inspect_video(path: &str, aigc_metadata: Option<&str>) -> Option<ImageProvenance> {
+    inspect_media(path, false, aigc_metadata)
 }
 
 pub fn inspect_document(path: &str) -> Option<ImageProvenance> {
@@ -93,7 +105,7 @@ pub fn inspect_document(path: &str) -> Option<ImageProvenance> {
         None => (None, Vec::new()),
     };
     Some(ImageProvenance {
-        ai_origin_status: Some(origin_status(c2pa.as_ref()).into()),
+        ai_origin_status: Some(origin_status(c2pa.as_ref(), None).into()),
         c2pa,
         metadata: Vec::new(),
         ai_signals: Vec::new(),
@@ -105,12 +117,22 @@ pub fn inspect_document(path: &str) -> Option<ImageProvenance> {
     })
 }
 
-fn inspect_media(path: &str, include_image_forensics: bool) -> Option<ImageProvenance> {
-    let metadata = if include_image_forensics {
+fn inspect_media(
+    path: &str,
+    include_image_forensics: bool,
+    aigc_metadata: Option<&str>,
+) -> Option<ImageProvenance> {
+    let mut metadata = if include_image_forensics {
         read_exif(path)
     } else {
         Vec::new()
     };
+    let tc260_aigc = aigc_metadata
+        .and_then(parse_tc260_aigc_metadata)
+        .or_else(|| read_tc260_aigc_xmp(path));
+    if let Some(evidence) = tc260_aigc.as_ref() {
+        metadata.extend(tc260_metadata_evidence(evidence));
+    }
     let c2pa_result = read_c2pa(path);
     let (c2pa, mut prompt_evidence) = match c2pa_result {
         Some((evidence, prompts)) => (Some(evidence), prompts),
@@ -143,11 +165,24 @@ fn inspect_media(path: &str, include_image_forensics: bool) -> Option<ImageProve
             push_unique(&mut ai_signals, "C2PA 声明创建流程加入了不可见水印".into());
         }
     }
+    if let Some(evidence) = tc260_aigc.as_ref() {
+        push_unique(
+            &mut ai_signals,
+            format!(
+                "GB 45438-2025/TC260 文件元数据声明：{}",
+                tc260_label_description(&evidence.label)
+            ),
+        );
+        push_unique(
+            &mut ai_signals,
+            "TC260 AIGC 元数据未经过 LensQuery 的独立数字签名验证，仅作不受信任的来源声明".into(),
+        );
+    }
 
     let camera_metadata_present = metadata
         .iter()
         .any(|item| matches!(item.label.as_str(), "相机厂商" | "相机型号"));
-    let ai_origin_status = Some(origin_status(c2pa.as_ref()).into());
+    let ai_origin_status = Some(origin_status(c2pa.as_ref(), tc260_aigc.as_ref()).into());
     let forensic_variants = if include_image_forensics {
         generate_forensic_variants(path)
     } else {
@@ -171,43 +206,48 @@ fn inspect_media(path: &str, include_image_forensics: bool) -> Option<ImageProve
     })
 }
 
-fn origin_status(c2pa: Option<&C2paEvidence>) -> &'static str {
-    let Some(c2pa) = c2pa else {
-        return "inconclusive";
-    };
-    if c2pa.validation_state == "invalid" {
-        return "invalid-credential";
+fn origin_status(
+    c2pa: Option<&C2paEvidence>,
+    tc260_aigc: Option<&Tc260AigcEvidence>,
+) -> &'static str {
+    if let Some(c2pa) = c2pa {
+        if c2pa.validation_state == "invalid" {
+            return "invalid-credential";
+        }
+        let source_types = c2pa
+            .digital_source_types
+            .iter()
+            .map(|value| value.to_ascii_lowercase())
+            .collect::<Vec<_>>();
+        if source_types
+            .iter()
+            .any(|value| value == "trainedalgorithmicmedia")
+        {
+            return if c2pa.signer_trusted {
+                "verified-ai"
+            } else {
+                "declared-ai"
+            };
+        }
+        if source_types
+            .iter()
+            .any(|value| value == "compositewithtrainedalgorithmicmedia")
+        {
+            return if c2pa.signer_trusted {
+                "verified-ai-edited"
+            } else {
+                "declared-ai"
+            };
+        }
+        let camera_declared = source_types
+            .iter()
+            .any(|value| matches!(value.as_str(), "digitalcapture" | "computationalcapture"));
+        if c2pa.signer_trusted && camera_declared {
+            return "verified-camera";
+        }
     }
-    let source_types = c2pa
-        .digital_source_types
-        .iter()
-        .map(|value| value.to_ascii_lowercase())
-        .collect::<Vec<_>>();
-    if source_types
-        .iter()
-        .any(|value| value == "trainedalgorithmicmedia")
-    {
-        return if c2pa.signer_trusted {
-            "verified-ai"
-        } else {
-            "declared-ai"
-        };
-    }
-    if source_types
-        .iter()
-        .any(|value| value == "compositewithtrainedalgorithmicmedia")
-    {
-        return if c2pa.signer_trusted {
-            "verified-ai-edited"
-        } else {
-            "declared-ai"
-        };
-    }
-    let camera_declared = source_types
-        .iter()
-        .any(|value| matches!(value.as_str(), "digitalcapture" | "computationalcapture"));
-    if c2pa.signer_trusted && camera_declared {
-        "verified-camera"
+    if tc260_aigc.is_some_and(|evidence| evidence.label == "1") {
+        "declared-ai"
     } else {
         "inconclusive"
     }
@@ -642,6 +682,145 @@ fn push_variant(
     }
 }
 
+fn read_tc260_aigc_xmp(path: &str) -> Option<Tc260AigcEvidence> {
+    let mut file = File::open(path).ok()?;
+    let mut bytes = Vec::new();
+    Read::by_ref(&mut file)
+        .take(MAX_TC260_XMP_SCAN_BYTES as u64)
+        .read_to_end(&mut bytes)
+        .ok()?;
+    let text = String::from_utf8_lossy(&bytes);
+    if !text.contains("http://www.tc260.org.cn/ns/AIGC/1.0/") && !text.contains("TC260:AIGC") {
+        return None;
+    }
+    let value = extract_between(&text, "<TC260:AIGC>", "</TC260:AIGC>")
+        .or_else(|| extract_between(&text, "<AIGC>", "</AIGC>"))?;
+    parse_tc260_aigc_metadata(&xml_unescape(value))
+}
+
+fn parse_tc260_aigc_metadata(value: &str) -> Option<Tc260AigcEvidence> {
+    let decoded = xml_unescape(value.trim());
+    let candidate = extract_json_object(&decoded)?;
+    let parsed: serde_json::Value = serde_json::from_str(candidate).ok()?;
+    let object = parsed.get("AIGC").unwrap_or(&parsed).as_object()?;
+    let label = object.get("Label")?.as_str()?.trim();
+    if !matches!(label, "1" | "2" | "3") {
+        return None;
+    }
+    Some(Tc260AigcEvidence {
+        label: label.into(),
+        content_producer: tc260_value(object, "ContentProducer"),
+        produce_id: tc260_value(object, "ProduceID"),
+        reserved_code_1: tc260_value(object, "ReservedCode1"),
+        content_propagator: tc260_value(object, "ContentPropagator"),
+        propagate_id: tc260_value(object, "PropagateID"),
+        reserved_code_2: tc260_value(object, "ReservedCode2"),
+    })
+}
+
+fn tc260_value(object: &serde_json::Map<String, serde_json::Value>, key: &str) -> Option<String> {
+    object
+        .get(key)
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.chars().take(2_048).collect())
+}
+
+fn extract_json_object(value: &str) -> Option<&str> {
+    let start = value.find('{')?;
+    let bytes = value.as_bytes();
+    let mut depth = 0_u32;
+    let mut quoted = false;
+    let mut escaped = false;
+    for index in start..bytes.len() {
+        let byte = bytes[index];
+        if quoted {
+            if escaped {
+                escaped = false;
+            } else if byte == b'\\' {
+                escaped = true;
+            } else if byte == b'"' {
+                quoted = false;
+            }
+            continue;
+        }
+        match byte {
+            b'"' => quoted = true,
+            b'{' => depth = depth.saturating_add(1),
+            b'}' => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    return value.get(start..=index);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn extract_between<'a>(value: &'a str, start: &str, end: &str) -> Option<&'a str> {
+    let after_start = value.find(start)? + start.len();
+    let before_end = value.get(after_start..)?.find(end)? + after_start;
+    value.get(after_start..before_end)
+}
+
+fn xml_unescape(value: &str) -> String {
+    value
+        .replace("&quot;", "\"")
+        .replace("&#34;", "\"")
+        .replace("&apos;", "'")
+        .replace("&#39;", "'")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&amp;", "&")
+}
+
+fn tc260_label_description(label: &str) -> &'static str {
+    match label {
+        "1" => "属于人工智能生成合成内容（Label=1）",
+        "2" => "可能为人工智能生成合成内容（Label=2）",
+        "3" => "疑似为人工智能生成合成内容（Label=3）",
+        _ => "未知 AIGC 标签",
+    }
+}
+
+fn tc260_metadata_evidence(evidence: &Tc260AigcEvidence) -> Vec<MetadataEvidence> {
+    let mut metadata = vec![MetadataEvidence {
+        label: "TC260 AIGC 标签".into(),
+        value: tc260_label_description(&evidence.label).into(),
+    }];
+    for (label, value) in [
+        (
+            "TC260 生成合成服务提供者",
+            evidence.content_producer.as_deref(),
+        ),
+        ("TC260 内容制作编号", evidence.produce_id.as_deref()),
+        (
+            "TC260 内容传播服务提供者",
+            evidence.content_propagator.as_deref(),
+        ),
+        ("TC260 内容传播编号", evidence.propagate_id.as_deref()),
+        (
+            "TC260 生成方完整性保护字段（未验证）",
+            evidence.reserved_code_1.as_deref(),
+        ),
+        (
+            "TC260 传播方完整性保护字段（未验证）",
+            evidence.reserved_code_2.as_deref(),
+        ),
+    ] {
+        if let Some(value) = value {
+            metadata.push(MetadataEvidence {
+                label: label.into(),
+                value: value.into(),
+            });
+        }
+    }
+    metadata
+}
+
 fn read_c2pa(path: &str) -> Option<(C2paEvidence, Vec<PromptEvidence>)> {
     let trust = format!("{C2PA_TRUST_ANCHORS}\n{C2PA_TSA_TRUST_ANCHORS}");
     let settings = Settings::new()
@@ -864,51 +1043,113 @@ mod tests {
 
     #[test]
     fn only_trusted_bound_credentials_produce_verified_origin_verdicts() {
-        assert_eq!(origin_status(None), "inconclusive");
+        assert_eq!(origin_status(None, None), "inconclusive");
         assert_eq!(
-            origin_status(Some(&c2pa_evidence(
-                "trusted",
-                true,
-                &["trainedAlgorithmicMedia"]
-            ))),
+            origin_status(
+                Some(&c2pa_evidence(
+                    "trusted",
+                    true,
+                    &["trainedAlgorithmicMedia"]
+                )),
+                None
+            ),
             "verified-ai"
         );
         assert_eq!(
-            origin_status(Some(&c2pa_evidence(
-                "valid",
-                false,
-                &["trainedAlgorithmicMedia"]
-            ))),
+            origin_status(
+                Some(&c2pa_evidence("valid", false, &["trainedAlgorithmicMedia"])),
+                None
+            ),
             "declared-ai"
         );
         assert_eq!(
-            origin_status(Some(&c2pa_evidence("trusted", true, &["digitalCapture"]))),
+            origin_status(
+                Some(&c2pa_evidence("trusted", true, &["digitalCapture"])),
+                None
+            ),
             "verified-camera"
         );
         assert_eq!(
-            origin_status(Some(&c2pa_evidence(
-                "trusted",
-                true,
-                &["compositeWithTrainedAlgorithmicMedia"]
-            ))),
+            origin_status(
+                Some(&c2pa_evidence(
+                    "trusted",
+                    true,
+                    &["compositeWithTrainedAlgorithmicMedia"]
+                )),
+                None
+            ),
             "verified-ai-edited"
         );
         assert_eq!(
-            origin_status(Some(&c2pa_evidence(
-                "trusted",
-                true,
-                &["algorithmicallyEnhanced"]
-            ))),
+            origin_status(
+                Some(&c2pa_evidence(
+                    "trusted",
+                    true,
+                    &["algorithmicallyEnhanced"]
+                )),
+                None
+            ),
             "inconclusive"
         );
         assert_eq!(
-            origin_status(Some(&c2pa_evidence(
-                "invalid",
-                false,
-                &["trainedAlgorithmicMedia"]
-            ))),
+            origin_status(
+                Some(&c2pa_evidence(
+                    "invalid",
+                    false,
+                    &["trainedAlgorithmicMedia"]
+                )),
+                None
+            ),
             "invalid-credential"
         );
+    }
+
+    #[test]
+    fn parses_tc260_aigc_metadata_as_an_untrusted_declaration() {
+        let evidence = parse_tc260_aigc_metadata(
+            r#"{"AIGC":{"Label":"1","ContentProducer":"provider-100","ProduceID":"asset-200","ReservedCode1":"signature-slot","ContentPropagator":"platform-300","PropagateID":"post-400","ReservedCode2":""}}"#,
+        )
+        .expect("TC260 metadata");
+        assert_eq!(evidence.label, "1");
+        assert_eq!(evidence.content_producer.as_deref(), Some("provider-100"));
+        assert_eq!(evidence.produce_id.as_deref(), Some("asset-200"));
+        assert_eq!(origin_status(None, Some(&evidence)), "declared-ai");
+        let metadata = tc260_metadata_evidence(&evidence);
+        assert!(metadata.iter().any(|item| item.label == "TC260 AIGC 标签"));
+        assert!(metadata
+            .iter()
+            .any(|item| item.label.contains("完整性保护字段") && item.value == "signature-slot"));
+    }
+
+    #[test]
+    fn keeps_possible_or_suspected_tc260_labels_inconclusive() {
+        for label in ["2", "3"] {
+            let evidence = parse_tc260_aigc_metadata(&format!(
+                r#"{{"Label":"{label}","ContentProducer":"provider"}}"#
+            ))
+            .expect("TC260 metadata");
+            assert_eq!(origin_status(None, Some(&evidence)), "inconclusive");
+        }
+    }
+
+    #[test]
+    fn reads_tc260_xmp_namespace_and_xml_escaped_json() {
+        let path =
+            std::env::temp_dir().join(format!("lensquery-tc260-metadata-{}.jpg", Uuid::new_v4()));
+        std::fs::write(
+            &path,
+            br#"<rdf:RDF xmlns:TC260="http://www.tc260.org.cn/ns/AIGC/1.0/"><TC260:AIGC>{&quot;Label&quot;:&quot;1&quot;,&quot;ContentProducer&quot;:&quot;fixture-provider&quot;}</TC260:AIGC></rdf:RDF>"#,
+        )
+        .expect("write TC260 XMP fixture");
+
+        let evidence = read_tc260_aigc_xmp(&path.to_string_lossy()).expect("read TC260 XMP");
+        assert_eq!(evidence.label, "1");
+        assert_eq!(
+            evidence.content_producer.as_deref(),
+            Some("fixture-provider")
+        );
+
+        std::fs::remove_file(path).expect("remove TC260 XMP fixture");
     }
 
     #[test]

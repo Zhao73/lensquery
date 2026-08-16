@@ -73,7 +73,12 @@ pub async fn inspect(paths: Vec<String>) -> Result<Vec<FileEvidence>, String> {
         };
         let provenance = match kind {
             "image" => provenance::inspect_image(&path),
-            "video" => provenance::inspect_video(&path),
+            "video" => provenance::inspect_video(
+                &path,
+                video_metadata
+                    .as_ref()
+                    .and_then(|metadata| metadata.aigc_metadata.as_deref()),
+            ),
             "pdf" | "text" => provenance::inspect_document(&path),
             _ => None,
         };

@@ -68,6 +68,8 @@ struct ProbeTags {
     encoder: Option<String>,
     creation_time: Option<String>,
     handler_name: Option<String>,
+    #[serde(rename = "AIGC", alias = "aigc")]
+    aigc: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -86,7 +88,7 @@ pub async fn probe(path: &str) -> Result<VideoMetadata, String> {
             "-v",
             "error",
             "-show_entries",
-            "format=format_name,duration:format_tags=encoder,creation_time:stream=codec_type,codec_name,width,height,avg_frame_rate,duration:stream_tags=rotate,encoder,creation_time,handler_name:stream_side_data=rotation",
+            "format=format_name,duration:format_tags=encoder,creation_time,AIGC:stream=codec_type,codec_name,width,height,avg_frame_rate,duration:stream_tags=rotate,encoder,creation_time,handler_name,AIGC:stream_side_data=rotation",
             "-of",
             "json",
             path,
@@ -349,7 +351,7 @@ pub async fn prepare_youtube(url: &str, max_frames: Option<u32>) -> Result<FileE
         .and_then(|value| value.to_str())
         .unwrap_or("mp4")
         .to_ascii_lowercase();
-    let provenance = provenance::inspect_video(&source);
+    let provenance = provenance::inspect_video(&source, video_metadata.aigc_metadata.as_deref());
     Ok(FileEvidence {
         id: Uuid::new_v4().to_string(),
         name: format!("{}.{}", sanitize_title(&youtube.title), extension),
@@ -952,6 +954,12 @@ fn metadata_from_probe(probe: ProbeOutput) -> Result<VideoMetadata, String> {
                     .as_ref()
                     .and_then(|tags| tags.creation_time.clone())
             }),
+        aigc_metadata: probe
+            .format
+            .as_ref()
+            .and_then(|format| format.tags.as_ref())
+            .and_then(|tags| tags.aigc.clone())
+            .or_else(|| video.tags.as_ref().and_then(|tags| tags.aigc.clone())),
         has_audio: audio.is_some(),
         rotation: video
             .side_data_list
@@ -1007,6 +1015,33 @@ mod tests {
     fn parses_fractional_frame_rate() {
         let value = parse_rate(Some("30000/1001")).expect("valid rate");
         assert!((value - 29.970).abs() < 0.001);
+    }
+
+    #[test]
+    fn reads_tc260_aigc_from_uppercase_ffprobe_tags() {
+        let probe: ProbeOutput = serde_json::from_value(serde_json::json!({
+            "streams": [{
+                "codec_type": "video",
+                "codec_name": "h264",
+                "width": 1280,
+                "height": 720,
+                "avg_frame_rate": "24/1",
+                "duration": "5.0"
+            }],
+            "format": {
+                "duration": "5.0",
+                "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+                "tags": {
+                    "AIGC": "{\"Label\":\"1\",\"ContentProducer\":\"fixture-provider\"}"
+                }
+            }
+        }))
+        .expect("parse FFprobe fixture");
+        let metadata = metadata_from_probe(probe).expect("video metadata");
+        assert_eq!(
+            metadata.aigc_metadata.as_deref(),
+            Some("{\"Label\":\"1\",\"ContentProducer\":\"fixture-provider\"}")
+        );
     }
 
     #[test]

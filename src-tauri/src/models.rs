@@ -485,6 +485,8 @@ pub struct VideoMetadata {
     pub container_format: Option<String>,
     pub encoder: Option<String>,
     pub creation_time: Option<String>,
+    #[serde(default)]
+    pub aigc_metadata: Option<String>,
     pub has_audio: bool,
     pub rotation: Option<f64>,
 }

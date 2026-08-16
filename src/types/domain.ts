@@ -182,6 +182,7 @@ export interface VideoMetadata {
   containerFormat?: string
   encoder?: string
   creationTime?: string
+  aigcMetadata?: string
   hasAudio: boolean
   rotation?: number
 }
