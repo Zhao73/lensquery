@@ -135,3 +135,46 @@ Installed-runtime checks used `/Applications/LensQuery.app/Contents/Resources/si
 - `/tmp/lensquery-auto-video-5s.png`
 
 This is deliberately not described as a universal detector. A positive result requires a valid, file-bound credential or the corresponding issuer's official watermark verifier. A missing/stripped credential, unsupported proprietary watermark, copied text, or rewritten output remains insufficient evidence.
+
+## Mixed blind provenance run — Google SynthID, OpenAI C2PA, and ordinary controls
+
+Date: 2026-08-16 (Asia/Tokyo)
+
+Eight public/local fixtures were copied into a separate temporary directory under random neutral names. LensQuery received only one neutral path at a time, the media bytes, and its own extracted evidence. The source labels, source URLs, and ground-truth mapping were held in a different file and were not included in any provider request.
+
+| Blind ID | Ground truth revealed after completion | SHA-256 | LensQuery strict result | Prompt result |
+| --- | --- | --- | --- | --- |
+| `sample-0e4c89.webp` | Google Nano Banana image from the official naming article | `021b329bce63e5c255da7aca30316a670dad781223a6a3349bb0a12f8b831695` | `insufficient-evidence`; visible lower-right sparkle observed, but no C2PA or official SynthID result reached LensQuery | `absent` |
+| `sample-0ac45e.webp` | Google Nano Banana Pro collage from the official product article | `310e00382fd4aa1ebe75b31cbce3912671f0a7998b1785383873cb12f9c21ea0` | `insufficient-evidence`; content described correctly, no source credential exposed | `absent` |
+| `sample-d5ee69.png` | OpenAI `gpt-image 2.0` image | `632055eeb9c95e0889a374e7da294e8853a0fa4dfcdf2e33403275ebc65da586` | `verified-ai`; trusted, file-bound OpenAI C2PA | `absent` |
+| `sample-950147.mp4` | Google Veo 3 off-road video from the official model page | `79a552b9406a079682440c31f14d33a10ba8e1b8b2e96425f5de70f63350299d` | `insufficient-evidence`; six frames and audio extracted, no official watermark result reached LensQuery | `absent` |
+| `sample-bfca28.mp4` | Google Veo 3 paper/origami video from the official model page | `d9c0250a2361508968373c57b01ff76cd78a6dec1c5a8724a551d144bd7e9736` | `insufficient-evidence`; six frames extracted, visual traits kept heuristic | `absent` |
+| `sample-3d38af.jpg` | 2005 Nikon E5200 human photograph from Wikimedia Commons | `0316d13640f1985ee6a8e5b720e866176ed0c9f01e9623fcf0e4251c79975077` | `insufficient-evidence`; camera EXIF shown as supporting metadata, not proof | `absent` |
+| `sample-1b1ab1.png` | Local macOS screenshot | `3594906037a9f46503f23ea16e6eb59dbe5574bc34e9e3f7c468142065f495ab` | `insufficient-evidence`; correctly described as a screenshot, no false AI verdict | `absent` |
+| `sample-bbf5fb.mp4` | NASA edited archival video | `e697d8cfdcd6540d1f4957edfc7a9f0ae18f9bfa994c21b6e13a0ef2645d0681` | `insufficient-evidence`; six frames, audio, and transcript analyzed, no false AI verdict | `absent` |
+
+Strict local provenance coverage on this set was therefore **1/5 verified AI positives**, **0/3 false AI positives**, and **7/8 unresolved rather than guessed**. Content understanding worked across all eight files, but visual plausibility never overrode the provenance status. Exact original-prompt recovery was **0/8** because none of these delivered files contained a trusted C2PA prompt ingredient or an unsigned prompt field.
+
+### Official Google verifier control
+
+To determine whether the four Google samples had actually lost SynthID during website delivery, the same neutral files were separately uploaded one at a time to Gemini Apps' official `Verify AI` tool in temporary chats. No source labels were provided:
+
+| Blind ID | Official Gemini Apps result |
+| --- | --- |
+| `sample-0e4c89.webp` | Generated or edited with Google AI |
+| `sample-0ac45e.webp` | All or part of the collage generated or edited with Google AI |
+| `sample-950147.mp4` | SynthID detected in both visual and audio portions |
+| `sample-bfca28.mp4` | Visuals and audio generated or edited with Google AI |
+| `sample-3d38af.jpg` | No reliable Google AI signal detected |
+| `sample-bbf5fb.mp4` | No reliable Google AI signal detected |
+
+The official control therefore separated **4/4 Google AI samples** from **2/2 ordinary controls** in this run. The gap is specific: the downloaded Nano Banana and Veo files still carry detectable Google SynthID, while LensQuery has no supported public SynthID image/video detector endpoint to call. Gemini's official documentation currently exposes this verification through the signed-in Gemini Apps experience, one file at a time (up to 100 MB; video under 90 seconds), rather than through the generic Gemini multimodal API.
+
+Disposable raw evidence:
+
+- `/tmp/lensquery-blind-20260816.pxdkju/inspection.isolated.blind.json`
+- `/tmp/lensquery-blind-20260816.pxdkju/video-preparations.isolated.blind.json`
+- `/tmp/lensquery-blind-20260816.pxdkju/analysis-results.blind.json`
+- `/tmp/lensquery-blind-20260816.pxdkju/gemini-official-baseline.json`
+
+Product consequence: LensQuery must continue to report Google media as unresolved until a supported official SynthID verifier is configured. A normal Gemini vision-model answer, logo recognition, or visual anomaly score is not a substitute for the `Verify AI` result.
