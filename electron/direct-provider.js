@@ -86,7 +86,7 @@ export async function listDirectProviderModels(profile, secret, options = {}) {
   return models
 }
 
-export async function runDirectProvider({ profile, secret, request, settings, fetchImpl = globalThis.fetch, readFile = fs.readFile }) {
+export async function runDirectProvider({ profile, secret, request, settings, signal, fetchImpl = globalThis.fetch, readFile = fs.readFile }) {
   validateDirectProfile(profile, secret)
   const started = Date.now()
   const evidence = await collectEvidence(request, readFile)
@@ -104,7 +104,7 @@ export async function runDirectProvider({ profile, secret, request, settings, fe
       'content-type': 'application/json',
     },
     body: JSON.stringify(payload),
-  }, REQUEST_TIMEOUT_MS)
+  }, REQUEST_TIMEOUT_MS, signal)
   if (!response.ok) throw await responseError(response, profile.name)
   const data = await response.json().catch(() => null)
   const answer = profile.kind === 'anthropic' ? readAnthropicAnswer(data) : readOpenAiAnswer(data)
@@ -442,17 +442,27 @@ function bounded(value, limit) {
   return String(value || '').replace(/\0/g, '').slice(0, limit)
 }
 
-async function fetchWithTimeout(fetchImpl, url, options, timeoutMs) {
+async function fetchWithTimeout(fetchImpl, url, options, timeoutMs, externalSignal) {
   if (typeof fetchImpl !== 'function') throw new Error('当前 Electron 运行时不支持 fetch。')
+  if (externalSignal?.aborted) throw new Error('分析已取消。')
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  let timedOut = false
+  const abortFromCaller = () => controller.abort(externalSignal?.reason)
+  if (externalSignal?.aborted) abortFromCaller()
+  else externalSignal?.addEventListener('abort', abortFromCaller, { once: true })
+  const timer = setTimeout(() => {
+    timedOut = true
+    controller.abort()
+  }, timeoutMs)
   try {
     return await fetchImpl(url, { ...options, signal: controller.signal })
   } catch (error) {
-    if (error?.name === 'AbortError') throw new Error(`连接超时（${Math.round(timeoutMs / 1_000)} 秒）。`)
+    if (externalSignal?.aborted) throw new Error('分析已取消。')
+    if (timedOut || error?.name === 'AbortError') throw new Error(`连接超时（${Math.round(timeoutMs / 1_000)} 秒）。`)
     throw new Error(`连接失败：${error?.message || error}`)
   } finally {
     clearTimeout(timer)
+    externalSignal?.removeEventListener('abort', abortFromCaller)
   }
 }
 

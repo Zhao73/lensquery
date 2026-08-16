@@ -238,6 +238,7 @@ kbd {
 .message-content { color: var(--text); font-size: 14px; line-height: 1.75; white-space: pre-wrap; }
 .message.user .message-content { padding: 11px 14px; border-radius: 12px; background: var(--surface-subtle); }
 .message.error .message-content { padding: 11px 13px; border-radius: 9px; color: var(--danger); background: var(--danger-soft); }
+.message-cancelled { display: inline-flex; min-height: 32px; align-items: center; gap: 7px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; color: var(--text-secondary); background: var(--surface-subtle); font-size: 12px; }
 .markdown-answer { overflow-wrap: anywhere; white-space: normal; }
 .markdown-answer > :first-child { margin-top: 0; }
 .markdown-answer > :last-child { margin-bottom: 0; }
@@ -270,10 +271,15 @@ kbd {
 .message-actions button:hover { color: var(--text); background: var(--surface-hover); }
 
 .thinking { display: flex; min-height: 28px; align-items: center; gap: 5px; color: var(--text-tertiary); font-size: 12px; }
-.thinking i { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); animation: thinking 1s ease-in-out infinite alternate; }
-.thinking i:nth-child(2) { animation-delay: 160ms; }
-.thinking i:nth-child(3) { animation-delay: 320ms; }
-.thinking span { margin-left: 5px; }
+.thinking-dots { display: inline-flex; align-items: center; gap: 5px; }
+.thinking-dots i { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); animation: thinking 1s ease-in-out infinite alternate; }
+.thinking-dots i:nth-child(2) { animation-delay: 160ms; }
+.thinking-dots i:nth-child(3) { animation-delay: 320ms; }
+.thinking > span:not(.thinking-dots) { margin-left: 5px; }
+.cancel-analysis { display: inline-flex; min-height: 28px; align-items: center; gap: 5px; margin-left: 9px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 7px; color: var(--text-secondary); background: var(--surface); font-size: 11px; font-weight: 600; }
+.cancel-analysis:hover { border-color: color-mix(in srgb, var(--danger) 46%, var(--line-strong)); color: var(--danger); background: var(--danger-soft); }
+.cancel-analysis:active { transform: translateY(1px); }
+.cancel-analysis kbd { padding: 1px 4px; border: 1px solid var(--line); border-radius: 4px; color: var(--text-tertiary); background: var(--surface-subtle); font-family: inherit; font-size: 9px; font-weight: 500; }
 @keyframes thinking { to { transform: translateY(-3px); opacity: 0.35; } }
 
 .session-video-player { width: min(100%, 760px); margin: 0 auto 18px; overflow: clip; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-subtle); }

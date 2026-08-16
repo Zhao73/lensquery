@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { existsSync, promises as fs } from 'node:fs'
 import os from 'node:os'
@@ -117,10 +117,26 @@ let screenPermissionStatusAtLaunch = process.platform === 'darwin' ? 'unknown' :
 let screenPermissionUnavailableThisRun = process.platform === 'darwin'
 let screenPermissionWatchTimer
 let screenPermissionRelaunching = false
+const activeAnalyses = new Map()
 
 function debugRuntime(event, details = {}) {
   if (process.env.LENSQUERY_DEBUG !== '1') return
   process.stdout.write(`[LensQuery] ${event} ${JSON.stringify(details)}\n`)
+}
+
+function normalizedAnalysisId(value) {
+  const id = String(value || '').trim()
+  return /^[A-Za-z0-9_-]{1,160}$/.test(id) ? id : null
+}
+
+function cancelLatestActiveAnalysis() {
+  const latest = [...activeAnalyses.entries()].at(-1)
+  if (!latest) return false
+  const [analysisId, controller] = latest
+  debugRuntime('analysis-cancel-keyboard', { analysisId, activeCount: activeAnalyses.size })
+  controller.abort()
+  mainWindow?.webContents.send('lensquery://analysis-cancelled', { analysisId })
+  return true
 }
 
 function provider(id, name, kind, model, cli, vision, options = {}) {
@@ -244,6 +260,11 @@ async function createMainWindow() {
   mainWindow.on('ready-to-show', () => {
     if (process.argv.includes('--background') || launchHidden) app.dock?.hide()
     else mainWindow.show()
+  })
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown' || input.key !== 'Escape' || input.isAutoRepeat) return
+    if (!cancelLatestActiveAnalysis()) return
+    event.preventDefault()
   })
   await mainWindow.loadURL(rendererUrl())
   if (isDevelopment && process.env.LENSQUERY_OPEN_DEVTOOLS === '1') mainWindow.webContents.openDevTools({ mode: 'detach' })
@@ -604,7 +625,7 @@ function resolveSidecar() {
   throw new Error('未找到 LensQuery Rust sidecar，请先运行 npm run build:sidecar。')
 }
 
-async function invokeSidecar(method, payload = {}) {
+async function invokeSidecar(method, payload = {}, options = {}) {
   const executable = resolveSidecar()
   const request = JSON.stringify({ method, payload })
   return new Promise((resolve, reject) => {
@@ -615,30 +636,46 @@ async function invokeSidecar(method, payload = {}) {
     })
     let stdout = ''
     let stderr = ''
+    let settled = false
+    const signal = options.signal
     const timeoutMs = method === 'analyze'
       ? 300_000
       : method === 'prepareVideo' || method === 'prepareYouTubeVideo' || method === 'prepareWebVideo'
         ? 7_300_000
         : 45_000
+    const finish = (callback, value) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timeout)
+      signal?.removeEventListener('abort', abort)
+      callback(value)
+    }
+    const abort = () => {
+      debugRuntime('sidecar-abort', { method, pid: child.pid })
+      killChildTree(child)
+      finish(reject, new Error('分析已取消。'))
+    }
     const timeout = setTimeout(() => {
       killChildTree(child)
-      reject(new Error(`LensQuery sidecar ${method} 超时。`))
+      finish(reject, new Error(`LensQuery sidecar ${method} 超时。`))
     }, timeoutMs)
+    if (signal?.aborted) abort()
+    else signal?.addEventListener('abort', abort, { once: true })
     child.stdout.on('data', (chunk) => {
       stdout += String(chunk)
       if (stdout.length > 64 * 1024 * 1024) killChildTree(child)
     })
     child.stderr.on('data', (chunk) => { stderr += String(chunk).slice(0, 8_000) })
-    child.on('error', (error) => { clearTimeout(timeout); reject(error) })
+    child.on('error', (error) => finish(reject, error))
     child.on('exit', (code) => {
-      clearTimeout(timeout)
-      if (code !== 0 && !stdout) return reject(new Error(stderr.trim() || `LensQuery sidecar exit ${code}`))
+      if (settled) return
+      if (code !== 0 && !stdout) return finish(reject, new Error(stderr.trim() || `LensQuery sidecar exit ${code}`))
       try {
         const response = JSON.parse(stdout)
-        if (!response.ok) reject(new Error(response.error || 'LensQuery sidecar 返回错误。'))
-        else resolve(response.result)
+        if (!response.ok) finish(reject, new Error(response.error || 'LensQuery sidecar 返回错误。'))
+        else finish(resolve, response.result)
       } catch (error) {
-        reject(new Error(`LensQuery sidecar 返回格式错误: ${error}; ${stderr.slice(0, 500)}`))
+        finish(reject, new Error(`LensQuery sidecar 返回格式错误: ${error}; ${stderr.slice(0, 500)}`))
       }
     })
     child.stdin.end(request)
@@ -655,11 +692,42 @@ function killChildTree(child) {
     killer.unref()
     return
   }
+  const descendants = descendantProcessIds(child.pid)
+  debugRuntime('process-tree-kill', { pid: child.pid, descendants })
+  for (const pid of descendants.reverse()) {
+    try {
+      process.kill(-pid, 'SIGKILL')
+    } catch {
+      try { process.kill(pid, 'SIGKILL') } catch { /* Process already exited. */ }
+    }
+  }
   try {
     process.kill(-child.pid, 'SIGKILL')
   } catch {
     child.kill('SIGKILL')
   }
+}
+
+function descendantProcessIds(rootPid) {
+  if (!rootPid || process.platform === 'win32') return []
+  const result = spawnSync('/bin/ps', ['-axo', 'pid=,ppid='], { encoding: 'utf8' })
+  if (result.status !== 0) return []
+  const children = new Map()
+  for (const line of result.stdout.split('\n')) {
+    const [pidValue, parentValue] = line.trim().split(/\s+/).map(Number)
+    if (!Number.isInteger(pidValue) || !Number.isInteger(parentValue)) continue
+    const values = children.get(parentValue) || []
+    values.push(pidValue)
+    children.set(parentValue, values)
+  }
+  const descendants = []
+  const queue = [...(children.get(rootPid) || [])]
+  while (queue.length) {
+    const pid = queue.shift()
+    descendants.push(pid)
+    queue.push(...(children.get(pid) || []))
+  }
+  return descendants
 }
 
 async function discoverProviders() {
@@ -771,27 +839,48 @@ function registerIpc() {
   handle('testProvider', ({ profile }) => testProvider(profile))
   handle('discoverProviderModels', ({ providerId }) => discoverProviderModels(providerId))
   handle('analyze', async ({ request }) => {
+    const analysisId = normalizedAnalysisId(request.analysisId) || randomUUID()
+    const controller = new AbortController()
+    activeAnalyses.get(analysisId)?.abort()
+    activeAnalyses.set(analysisId, controller)
     const profile = state.providers.find((item) => item.id === request.providerId)
-    if (!profile) throw new Error('没有找到所选模型通道。')
-    const runtimeProfile = {
-      ...profile,
-      model: normalizeRuntimeModel(request.model, profile.model),
-    }
-    const extensionInstructions = await extensionManager.collectInstructions()
-    const enrichedRequest = { ...request, extensionInstructions }
-    if (isDirectProvider(runtimeProfile)) {
-      return runDirectProvider({
-        profile: runtimeProfile,
-        secret: decryptProviderSecret(runtimeProfile.id),
+    try {
+      if (!profile) throw new Error('没有找到所选模型通道。')
+      const runtimeProfile = {
+        ...profile,
+        model: normalizeRuntimeModel(request.model, profile.model),
+      }
+      const extensionInstructions = await extensionManager.collectInstructions()
+      if (controller.signal.aborted) throw new Error('分析已取消。')
+      const enrichedRequest = { ...request, analysisId, extensionInstructions }
+      if (isDirectProvider(runtimeProfile)) {
+        const result = await runDirectProvider({
+          profile: runtimeProfile,
+          secret: decryptProviderSecret(runtimeProfile.id),
+          request: enrichedRequest,
+          settings: state.settings,
+          signal: controller.signal,
+        })
+        return result
+      }
+      const result = await invokeSidecar('analyze', {
         request: enrichedRequest,
+        profile: runtimeProfile,
         settings: state.settings,
-      })
+      }, { signal: controller.signal })
+      return result
+    } finally {
+      if (activeAnalyses.get(analysisId) === controller) activeAnalyses.delete(analysisId)
     }
-    return invokeSidecar('analyze', {
-      request: enrichedRequest,
-      profile: runtimeProfile,
-      settings: state.settings,
-    })
+  })
+  handle('cancelAnalysis', async ({ analysisId }) => {
+    const id = normalizedAnalysisId(analysisId)
+    if (!id) throw new Error('取消分析需要有效的任务 ID。')
+    const controller = activeAnalyses.get(id)
+    debugRuntime('analysis-cancel-ipc', { analysisId: id, found: Boolean(controller), activeCount: activeAnalyses.size })
+    if (!controller) return false
+    controller.abort()
+    return true
   })
   handle('probeVideo', ({ path: sourcePath }) => invokeSidecar('probeVideo', { path: sourcePath }))
   handle('prepareVideo', ({ path: sourcePath, maxFrames }) => invokeSidecar('prepareVideo', { path: sourcePath, maxFrames }))
@@ -1085,6 +1174,8 @@ app.on('activate', showMain)
 app.on('window-all-closed', () => undefined)
 app.on('before-quit', () => {
   app.isQuitting = true
+  for (const controller of activeAnalyses.values()) controller.abort()
+  activeAnalyses.clear()
   clearInterval(queueTimer)
   clearInterval(screenPermissionWatchTimer)
   globalShortcut.unregisterAll()

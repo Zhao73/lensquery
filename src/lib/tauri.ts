@@ -396,6 +396,21 @@ export async function analyze(request: AnalysisRequest): Promise<AnalysisResult>
   }
 }
 
+export async function cancelAnalysis(analysisId: string): Promise<boolean> {
+  if (isElectronRuntime()) return invokeElectron<boolean>('cancelAnalysis', { analysisId })
+  if (isTauriRuntime()) return invoke<boolean>('cancel_analysis', { analysisId })
+  return true
+}
+
+export async function listenForAnalysisCancellation(
+  handler: (payload: { analysisId: string }) => void,
+): Promise<() => void> {
+  if (!isDesktopRuntime()) return () => undefined
+  if (isElectronRuntime()) return window.lensQueryDesktop!.on('lensquery://analysis-cancelled', handler)
+  const { listen } = await import('@tauri-apps/api/event')
+  return listen<{ analysisId: string }>('lensquery://analysis-cancelled', ({ payload }) => handler(payload))
+}
+
 export async function saveSettings(settings: AppSettings): Promise<AppSettings> {
   if (isElectronRuntime()) return invokeElectron<AppSettings>('saveSettings', { settings })
   if (isTauriRuntime()) {

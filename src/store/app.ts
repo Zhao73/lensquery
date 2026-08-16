@@ -16,7 +16,13 @@ let retainImagesEnabled = false
 
 function readSessions(): QuerySession[] {
   try {
-    return JSON.parse(localStorage.getItem(SESSION_STORAGE_KEY) ?? '[]') as QuerySession[]
+    const sessions = JSON.parse(localStorage.getItem(SESSION_STORAGE_KEY) ?? '[]') as QuerySession[]
+    return sessions.map((session) => ({
+      ...session,
+      messages: session.messages.map((message) => message.status === 'pending'
+        ? { ...message, status: 'cancelled' as const, content: '上次分析已中断。' }
+        : message),
+    }))
   } catch {
     return []
   }

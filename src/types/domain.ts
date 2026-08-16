@@ -339,6 +339,7 @@ export type ReasoningEffort = 'auto' | 'low' | 'medium' | 'high' | 'xhigh'
 export type ContextMode = 'auto' | 'compact' | 'full' | 'evidence-only'
 
 export interface AnalysisRequest {
+  analysisId?: string
   question: string
   promptId: string
   providerId: string
@@ -382,7 +383,7 @@ export interface AnalysisResult {
 }
 
 export type MessageRole = 'user' | 'assistant'
-export type MessageStatus = 'pending' | 'complete' | 'error'
+export type MessageStatus = 'pending' | 'complete' | 'error' | 'cancelled'
 
 export interface ConversationMessage {
   id: string

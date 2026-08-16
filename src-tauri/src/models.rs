@@ -670,6 +670,8 @@ pub struct VideoPreparation {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AnalysisRequest {
+    #[serde(default)]
+    pub analysis_id: Option<String>,
     pub question: String,
     pub prompt_id: String,
     pub provider_id: String,

@@ -1,4 +1,11 @@
-use std::{process::Stdio, time::Instant};
+use std::{
+    process::Stdio,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    time::Instant,
+};
 
 use chrono::Utc;
 use tokio::{
@@ -18,6 +25,7 @@ pub async fn analyze(
     request: AnalysisRequest,
     mut profile: ProviderProfile,
     settings: AppSettings,
+    cancelled: Option<Arc<AtomicBool>>,
 ) -> Result<AnalysisResult, String> {
     if let Some(model) = request
         .model
@@ -33,7 +41,7 @@ pub async fn analyze(
     let started = Instant::now();
     let answer = match profile.kind.as_str() {
         "codex-cli" | "claude-cli" | "opencode-cli" | "grok-cli" => {
-            run_cli(&profile, &request, &settings).await?
+            run_cli(&profile, &request, &settings, cancelled).await?
         }
         "openai" | "anthropic" | "compatible" => {
             return Err(format!(
@@ -58,6 +66,7 @@ async fn run_cli(
     profile: &ProviderProfile,
     request: &AnalysisRequest,
     settings: &AppSettings,
+    cancelled: Option<Arc<AtomicBool>>,
 ) -> Result<String, String> {
     let executable = cli::resolve_profile_executable(profile)?;
     let isolated_codex_home = if profile.kind == "codex-cli" {
@@ -247,16 +256,22 @@ async fn run_cli(
     }
 
     let analysis_timeout = if long_video.is_some() { 240 } else { 90 };
-    let status = match timeout(
-        std::time::Duration::from_secs(analysis_timeout),
-        child.wait(),
-    )
-    .await
-    {
-        Ok(result) => {
+    let cancellation = async {
+        loop {
+            if cancelled
+                .as_ref()
+                .is_some_and(|value| value.load(Ordering::Relaxed))
+            {
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(60)).await;
+        }
+    };
+    let status = tokio::select! {
+        result = child.wait() => {
             result.map_err(|error| format!("{} 运行失败: {error}", executable.display()))?
         }
-        Err(_) => {
+        _ = tokio::time::sleep(std::time::Duration::from_secs(analysis_timeout)) => {
             subprocess::kill_process_tree(child_pid);
             let stderr_bytes = timeout(std::time::Duration::from_secs(2), &mut stderr_task)
                 .await
@@ -275,6 +290,12 @@ async fn run_cli(
                     diagnostic
                 )
             });
+        }
+        _ = cancellation => {
+            subprocess::kill_process_tree(child_pid);
+            stdout_task.abort();
+            stderr_task.abort();
+            return Err("分析已取消。".into());
         }
     };
     let stdout_bytes = (&mut stdout_task)
@@ -1164,6 +1185,7 @@ mod tests {
     #[test]
     fn expands_prepared_video_into_frame_paths() {
         let request = AnalysisRequest {
+            analysis_id: None,
             question: "what happens?".into(),
             prompt_id: "auto-analysis".into(),
             provider_id: "codex-cli".into(),
@@ -1229,6 +1251,7 @@ mod tests {
     #[test]
     fn ignores_legacy_prompt_modes_and_respects_explicit_reasoning() {
         let mut request = AnalysisRequest {
+            analysis_id: None,
             question: "why?".into(),
             prompt_id: "auto-analysis".into(),
             provider_id: "codex-cli".into(),
@@ -1298,6 +1321,7 @@ mod tests {
             provenance: None,
         };
         let request = AnalysisRequest {
+            analysis_id: None,
             question: "summarize".into(),
             prompt_id: "auto-analysis".into(),
             provider_id: "opencode-cli".into(),
@@ -1366,6 +1390,7 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
         let request = AnalysisRequest {
+            analysis_id: None,
             question: "summary".into(),
             prompt_id: "auto-analysis".into(),
             provider_id: "codex-cli".into(),

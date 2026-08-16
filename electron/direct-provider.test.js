@@ -54,6 +54,23 @@ describe('Electron direct provider adapter', () => {
     expect(result.answer).toBe('这是一个测试结果。')
   })
 
+  it('aborts an in-flight direct API request when the user cancels', async () => {
+    const controller = new AbortController()
+    const running = runDirectProvider({
+      profile: { id: 'custom', name: 'Custom', kind: 'compatible', model: 'MODEL', baseUrl: 'https://HOST/v1', apiKeyRequired: true, secretConfigured: true },
+      secret: 'TOKEN',
+      request,
+      settings,
+      signal: controller.signal,
+      fetchImpl: async (_url, options) => new Promise((_resolve, reject) => {
+        options.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), { once: true })
+      }),
+    })
+
+    controller.abort()
+    await expect(running).rejects.toThrow('分析已取消')
+  })
+
   it('does not expose legacy prompt modes, annotations, or custom prompt text during recognition', async () => {
     let prompt = ''
     await runDirectProvider({

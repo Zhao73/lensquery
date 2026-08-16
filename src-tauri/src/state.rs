@@ -1,18 +1,23 @@
-use std::{collections::HashMap, process::Child, sync::Mutex};
+use std::{
+    collections::HashMap,
+    process::Child,
+    sync::{atomic::AtomicBool, Arc, Mutex},
+};
 
 #[cfg(target_os = "macos")]
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::AtomicBool as MacAtomicBool;
 
 use crate::models::{AppSettings, ProviderProfile};
 
 pub struct AppState {
     pub settings: Mutex<AppSettings>,
     pub providers: Mutex<HashMap<String, ProviderProfile>>,
+    pub analyses: Mutex<HashMap<String, Arc<AtomicBool>>>,
     pub speech: Mutex<Option<Child>>,
     #[cfg(target_os = "macos")]
     pub capture_frontmost_pid: Mutex<Option<i32>>,
     #[cfg(target_os = "macos")]
-    pub screen_capture_prompted: AtomicBool,
+    pub screen_capture_prompted: MacAtomicBool,
 }
 
 impl Default for AppState {
@@ -24,11 +29,12 @@ impl Default for AppState {
         Self {
             settings: Mutex::new(AppSettings::default()),
             providers: Mutex::new(providers),
+            analyses: Mutex::new(HashMap::new()),
             speech: Mutex::new(None),
             #[cfg(target_os = "macos")]
             capture_frontmost_pid: Mutex::new(None),
             #[cfg(target_os = "macos")]
-            screen_capture_prompted: AtomicBool::new(false),
+            screen_capture_prompted: MacAtomicBool::new(false),
         }
     }
 }

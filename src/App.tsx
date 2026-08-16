@@ -32,7 +32,7 @@ import {
   WarningCircle,
   X,
 } from '@phosphor-icons/react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import { ProviderLogo } from './components/ProviderLogo'
 import { SessionVideoPlayer, type VideoSeekRequest } from './components/SessionVideoPlayer'
@@ -45,6 +45,7 @@ import { providerDefaultReasoningEffort, providerSupportsReasoningEffort, reason
 import {
   analyze,
   bootstrap,
+  cancelAnalysis,
   cancelCapture,
   completeCapture,
   discoverCliProviders,
@@ -57,6 +58,7 @@ import {
   listenForCaptureRequests,
   listenForCaptureErrors,
   listenForCaptureIntent,
+  listenForAnalysisCancellation,
   listenForEvidenceDrops,
   listenForQueryEvidence,
   listenForNavigation,
@@ -263,6 +265,9 @@ function ConversationApp() {
   const [captureStatus, setCaptureStatus] = useState('')
   const [filter, setFilter] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const cancelledAnalysisIdsRef = useRef(new Set<string>())
+  const sessionsRef = useRef(sessions)
+  sessionsRef.current = sessions
 
   useEffect(() => {
     bootstrap().then(hydrate).catch((cause: unknown) => setError(String(cause)))
@@ -383,6 +388,7 @@ function ConversationApp() {
     setError('')
     try {
       const result = await analyze({
+        analysisId: pending.id,
         question,
         promptId: AUTO_ANALYSIS_PROMPT_ID,
         providerId: provider.id,
@@ -396,6 +402,10 @@ function ConversationApp() {
         analysisMode: AUTO_ANALYSIS_MODE,
         outputFormat: AUTO_OUTPUT_FORMAT,
       })
+      if (cancelledAnalysisIdsRef.current.has(pending.id)) {
+        cancelledAnalysisIdsRef.current.delete(pending.id)
+        return
+      }
       upsertSession({
         ...session,
         updatedAt: now(),
@@ -403,6 +413,7 @@ function ConversationApp() {
           ? { ...message, content: result.answer, status: 'complete' as const }
           : message),
       })
+      cancelledAnalysisIdsRef.current.delete(pending.id)
       if (settings?.notificationsEnabled && settings.resultPresentation !== 'window') {
         const body = settings.notificationPreview ? result.answer.slice(0, 240) : '分析已完成，点击 LensQuery 查看。'
         void showSystemNotification(session.title, body).catch(() => undefined)
@@ -411,6 +422,18 @@ function ConversationApp() {
         void speakText(result.answer).catch(() => undefined)
       }
     } catch (cause) {
+      if (cancelledAnalysisIdsRef.current.has(pending.id) || String(cause).includes('分析已取消')) {
+        cancelledAnalysisIdsRef.current.add(pending.id)
+        upsertSession({
+          ...session,
+          updatedAt: now(),
+          messages: session.messages.map((message) => message.id === pending.id
+            ? { ...message, content: '已取消分析。', status: 'cancelled' as const }
+            : message),
+        })
+        cancelledAnalysisIdsRef.current.delete(pending.id)
+        return
+      }
       const errorMessage = String(cause)
       upsertSession({
         ...session,
@@ -467,9 +490,59 @@ function ConversationApp() {
     `${session.title} ${session.sourceLabel} ${session.messages.map(({ content }) => content).join(' ')}`.toLowerCase().includes(filter.toLowerCase()),
   )
 
+  const markAnalysisCancelled = useCallback((session: QuerySession, analysisId: string) => {
+    const pending = session.messages.find((message) => message.id === analysisId && message.status === 'pending')
+    if (!pending) return false
+    cancelledAnalysisIdsRef.current.add(analysisId)
+    upsertSession({
+      ...session,
+      updatedAt: now(),
+      messages: session.messages.map((message) => message.id === analysisId
+        ? { ...message, content: '已取消分析。', status: 'cancelled' as const }
+        : message),
+    })
+    return true
+  }, [upsertSession])
+
+  const cancelRunningAnalysis = useCallback((session: QuerySession, analysisId: string) => {
+    if (!markAnalysisCancelled(session, analysisId)) return
+    void cancelAnalysis(analysisId).catch((cause) => setError(`停止后台任务失败：${String(cause)}`))
+  }, [markAnalysisCancelled])
+
+  function cancelSessionTasks(session: QuerySession) {
+    for (const message of session.messages) {
+      if (message.status !== 'pending') continue
+      cancelledAnalysisIdsRef.current.add(message.id)
+      void cancelAnalysis(message.id).catch(() => undefined)
+    }
+  }
+
+  useEffect(() => {
+    let disposeAnalysisCancellation: (() => void) | undefined
+    void listenForAnalysisCancellation(({ analysisId }) => {
+      const session = sessionsRef.current.find((candidate) => candidate.messages.some((message) => message.id === analysisId))
+      if (session) markAnalysisCancelled(session, analysisId)
+    }).then((dispose) => { disposeAnalysisCancellation = dispose })
+    return () => disposeAnalysisCancellation?.()
+  }, [markAnalysisCancelled])
+
+  useEffect(() => {
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || !activeSession) return
+      const pending = [...activeSession.messages].reverse().find(({ status }) => status === 'pending')
+      if (!pending) return
+      event.preventDefault()
+      event.stopImmediatePropagation()
+      cancelRunningAnalysis(activeSession, pending.id)
+    }
+    window.addEventListener('keydown', onEscape, true)
+    return () => window.removeEventListener('keydown', onEscape, true)
+  }, [activeSession, cancelRunningAnalysis])
+
   async function submitFollowUp(questionOverride?: string) {
     const requestedQuestion = questionOverride?.trim() || followUp.trim()
     if (!activeSession || !requestedQuestion) return
+    if (activeSession.messages.some(({ status }) => status === 'pending')) return
     const provider = providers.find(({ id }) => id === activeSession.providerId) ?? selectedProvider
     if (!provider?.ready) {
       setError('这个会话使用的模型当前不可用。请先检查模型设置。')
@@ -487,6 +560,7 @@ function ConversationApp() {
     upsertSession(next)
     try {
       const request: AnalysisRequest = {
+        analysisId: pending.id,
         question,
         promptId: 'follow-up',
         providerId: provider.id,
@@ -502,6 +576,10 @@ function ConversationApp() {
         annotation: activeSession.annotation,
       }
       const result = await analyze(request)
+      if (cancelledAnalysisIdsRef.current.has(pending.id)) {
+        cancelledAnalysisIdsRef.current.delete(pending.id)
+        return
+      }
       upsertSession({
         ...next,
         updatedAt: now(),
@@ -509,7 +587,20 @@ function ConversationApp() {
           ? { ...message, content: result.answer, status: 'complete' as const }
           : message),
       })
+      cancelledAnalysisIdsRef.current.delete(pending.id)
     } catch (cause) {
+      if (cancelledAnalysisIdsRef.current.has(pending.id) || String(cause).includes('分析已取消')) {
+        cancelledAnalysisIdsRef.current.add(pending.id)
+        upsertSession({
+          ...next,
+          updatedAt: now(),
+          messages: next.messages.map((message) => message.id === pending.id
+            ? { ...message, content: '已取消分析。', status: 'cancelled' as const }
+            : message),
+        })
+        cancelledAnalysisIdsRef.current.delete(pending.id)
+        return
+      }
       upsertSession({
         ...next,
         updatedAt: now(),
@@ -616,7 +707,7 @@ function ConversationApp() {
             )}
           </div>
           {sessions.length > 0 && (
-            <button type="button" className="clear-history" onClick={clearSessions}><Trash size={15} />清空本地记录</button>
+            <button type="button" className="clear-history" onClick={() => { sessions.forEach(cancelSessionTasks); clearSessions() }}><Trash size={15} />清空本地记录</button>
           )}
           <nav className="sidebar-navigation" aria-label="主导航">
             {navigation.map((item) => {
@@ -659,7 +750,8 @@ function ConversationApp() {
               onFollowUp={setFollowUp}
               onSubmit={submitFollowUp}
               onQuickAsk={(question) => { void submitFollowUp(question) }}
-              onDelete={() => removeSession(activeSession.id)}
+              onDelete={() => { cancelSessionTasks(activeSession); removeSession(activeSession.id) }}
+              onCancel={(analysisId) => cancelRunningAnalysis(activeSession, analysisId)}
               onRetry={() => {
                 const lastQuestion = [...activeSession.messages].reverse().find(({ role }) => role === 'user')?.content
                 if (lastQuestion) setFollowUp(lastQuestion)
@@ -719,6 +811,7 @@ function ConversationView(props: {
   onSubmit: () => void
   onQuickAsk: (question: string) => void
   onDelete: () => void
+  onCancel: (analysisId: string) => void
   onRetry: () => void
   onRuntimeChange: (update: SessionRuntimeUpdate) => void
 }) {
@@ -770,7 +863,9 @@ function ConversationView(props: {
           <article ref={message.id === latestMessage?.id ? latestMessageRef : undefined} key={message.id} className={`message ${message.role} ${message.status}`}>
             <div className="message-author">{message.role === 'user' ? '你' : props.provider?.name ?? 'LensQuery'}</div>
             {message.status === 'pending' ? (
-              <div className="thinking"><i /><i /><i /><span>{hasLongVideo ? '正在按章节阅读长视频并汇总完整内容' : '正在分析选择内容'}</span></div>
+              <div className="thinking"><span className="thinking-dots" aria-hidden="true"><i /><i /><i /></span><span>{hasLongVideo ? '正在按章节阅读长视频并汇总完整内容' : '正在分析选择内容'}</span><button type="button" className="cancel-analysis" onClick={() => props.onCancel(message.id)} aria-label="取消本次分析"><X size={14} />取消<kbd>Esc</kbd></button></div>
+            ) : message.status === 'cancelled' ? (
+              <div className="message-cancelled"><X size={15} />{message.content || '已取消分析。'}</div>
             ) : (
               message.role === 'assistant' ? (
                 <div className="message-content markdown-answer">

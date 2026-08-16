@@ -13,7 +13,7 @@ mod subprocess;
 mod video;
 
 use commands::{
-    analyze, bootstrap, cancel_capture, complete_capture, discover_cli_providers,
+    analyze, bootstrap, cancel_analysis, cancel_capture, complete_capture, discover_cli_providers,
     hide_result_toast, inspect_capture_target, inspect_files, open_permission_settings,
     open_result_from_toast, permission_status, prepare_video, prepare_web_video,
     prepare_youtube_video, probe_video, save_provider, save_settings, set_provider_secret,
@@ -432,6 +432,7 @@ pub fn run() {
             prepare_youtube_video,
             inspect_files,
             analyze,
+            cancel_analysis,
             show_main,
             show_notification,
             hide_result_toast,

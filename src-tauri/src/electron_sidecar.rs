@@ -134,7 +134,10 @@ async fn dispatch(request: SidecarRequest) -> Result<Value, String> {
         }
         "analyze" => {
             let payload: AnalyzePayload = decode(request.payload)?;
-            encode(providers::analyze(payload.request, payload.profile, payload.settings).await?)
+            encode(
+                providers::analyze(payload.request, payload.profile, payload.settings, None)
+                    .await?,
+            )
         }
         "inspectFiles" => {
             let payload: PathsPayload = decode(request.payload)?;

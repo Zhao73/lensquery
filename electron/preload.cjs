@@ -33,6 +33,7 @@ const invokeChannels = new Set([
   'setProviderSecret',
   'testProvider',
   'analyze',
+  'cancelAnalysis',
   'probeVideo',
   'prepareVideo',
   'prepareYouTubeVideo',
@@ -56,6 +57,7 @@ const eventChannels = new Set([
   'lensquery://navigate',
   'lensquery://pick-files',
   'lensquery://result-toast',
+  'lensquery://analysis-cancelled',
   'lensquery://extensions-changed',
 ])
 

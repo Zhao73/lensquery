@@ -132,4 +132,28 @@ describe('app store', () => {
 
     expect(useAppStore.getState().sessions[0]?.messages[0]?.content).toBe('complete answer')
   })
+
+  it('recovers a persisted pending message as interrupted instead of spinning forever', () => {
+    const session = videoSession()
+    session.messages = [{
+      id: 'analysis-pending',
+      role: 'assistant',
+      content: '',
+      status: 'pending',
+      createdAt: '2026-08-16T00:00:00.000Z',
+    }]
+    localStorage.setItem('lensquery.sessions.v1', JSON.stringify([session]))
+
+    useAppStore.getState().hydrate({
+      platform: 'darwin',
+      version: '0.1.0',
+      providers: [],
+      settings: defaultSettings,
+    })
+
+    expect(useAppStore.getState().sessions[0]?.messages[0]).toMatchObject({
+      status: 'cancelled',
+      content: '上次分析已中断。',
+    })
+  })
 })

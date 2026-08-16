@@ -1,3 +1,8 @@
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
+
 use tauri::{AppHandle, Emitter, State};
 
 #[derive(serde::Serialize)]
@@ -392,6 +397,11 @@ pub async fn analyze(
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<AnalysisResult, String> {
+    let analysis_id = request
+        .analysis_id
+        .as_deref()
+        .and_then(normalize_analysis_id)
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     let profile = state
         .providers
         .lock()
@@ -404,6 +414,12 @@ pub async fn analyze(
         .lock()
         .map_err(|_| "设置存储被锁定。".to_string())?
         .clone();
+    let cancellation = Arc::new(AtomicBool::new(false));
+    state
+        .analyses
+        .lock()
+        .map_err(|_| "分析任务存储被锁定。".to_string())?
+        .insert(analysis_id.clone(), cancellation.clone());
     let should_show_window = settings.result_presentation != "notification";
     let cleanup_paths = if settings.retain_images {
         Vec::new()
@@ -419,7 +435,10 @@ pub async fn analyze(
             })
             .collect::<Vec<_>>()
     };
-    let result = providers::analyze(request, profile, settings).await;
+    let result = providers::analyze(request, profile, settings, Some(cancellation)).await;
+    if let Ok(mut analyses) = state.analyses.lock() {
+        analyses.remove(&analysis_id);
+    }
     if !cleanup_paths.is_empty() {
         tauri::async_runtime::spawn(async move {
             // Keep the selected image available long enough for the conversation
@@ -434,6 +453,34 @@ pub async fn analyze(
         crate::show_main_window(&app);
     }
     result
+}
+
+#[tauri::command]
+pub fn cancel_analysis(analysis_id: String, state: State<'_, AppState>) -> Result<bool, String> {
+    let id = normalize_analysis_id(&analysis_id)
+        .ok_or_else(|| "取消分析需要有效的任务 ID。".to_string())?;
+    let analyses = state
+        .analyses
+        .lock()
+        .map_err(|_| "分析任务存储被锁定。".to_string())?;
+    let Some(cancellation) = analyses.get(&id) else {
+        return Ok(false);
+    };
+    cancellation.store(true, Ordering::Relaxed);
+    Ok(true)
+}
+
+fn normalize_analysis_id(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty()
+        || trimmed.len() > 160
+        || !trimmed
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
+    {
+        return None;
+    }
+    Some(trimmed.to_string())
 }
 
 #[tauri::command]
