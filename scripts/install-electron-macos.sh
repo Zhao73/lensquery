@@ -2,10 +2,12 @@
 
 set -Eeuo pipefail
 
-APP_NAME="LensQuery Electron Preview"
+APP_NAME="LensQuery"
 APP_BUNDLE_ID="com.lensquery.desktop.electron-preview"
+OLD_APP_BUNDLE_ID="com.lensquery.desktop"
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_DESTINATION="/Applications/$APP_NAME.app"
+LEGACY_PREVIEW_DESTINATION="/Applications/LensQuery Electron Preview.app"
 FINDER_EXTENSION_ID="com.lensquery.desktop.electron-preview.finder"
 BROWSER_EXTENSION_ID="filelbpgenppllkeeofajalcgbnifgmi"
 RELEASE_ROOT="$PROJECT_ROOT/release-electron"
@@ -54,8 +56,8 @@ npm run build:electron
 APP_SOURCE="$(/usr/bin/find "$RELEASE_ROOT" -maxdepth 3 -type d -name "$APP_NAME.app" -print -quit)"
 [[ -n "$APP_SOURCE" && -d "$APP_SOURCE" ]] || fail "the build completed without producing $APP_NAME.app under $RELEASE_ROOT."
 
-staging="/Applications/.LensQueryElectronPreview.install.$$"
-backup="/private/tmp/${APP_NAME// /-}.app.backup.$(date +%Y%m%d-%H%M%S)"
+staging="/Applications/.LensQueryElectron.install.$$"
+backup="/private/tmp/${APP_NAME// /-}.legacy.app.backup.$(date +%Y%m%d-%H%M%S)"
 failed_install="/private/tmp/${APP_NAME// /-}.app.failed.$(date +%Y%m%d-%H%M%S)"
 requires_sudo=0
 [[ -w /Applications ]] || requires_sudo=1
@@ -68,16 +70,30 @@ run_install_command() {
   fi
 }
 
-stop_existing_preview() {
-  local process_pattern="$APP_DESTINATION/Contents/MacOS/$APP_NAME"
-  /usr/bin/pgrep -f "$process_pattern" >/dev/null 2>&1 || return 0
-  log "Stopping the installed Electron preview"
-  /usr/bin/pkill -TERM -f "$process_pattern" 2>/dev/null || true
+stop_existing_clients() {
+  local patterns=(
+    "$APP_DESTINATION/Contents/MacOS/LensQuery"
+    "$APP_DESTINATION/Contents/MacOS/lensquery"
+    "$LEGACY_PREVIEW_DESTINATION/Contents/MacOS/LensQuery Electron Preview"
+  )
+  local running=0
+  for process_pattern in "${patterns[@]}"; do
+    if /usr/bin/pgrep -f "$process_pattern" >/dev/null 2>&1; then
+      running=1
+      /usr/bin/pkill -TERM -f "$process_pattern" 2>/dev/null || true
+    fi
+  done
+  (( running == 1 )) || return 0
+  log "Stopping installed LensQuery clients"
   for _ in 1 2 3 4 5 6 7 8; do
-    /usr/bin/pgrep -f "$process_pattern" >/dev/null 2>&1 || return 0
+    running=0
+    for process_pattern in "${patterns[@]}"; do
+      /usr/bin/pgrep -f "$process_pattern" >/dev/null 2>&1 && running=1
+    done
+    (( running == 0 )) && return 0
     /bin/sleep 0.25
   done
-  fail "quit the running Electron preview, then rerun this installer."
+  fail "quit every running LensQuery client, then rerun this installer."
 }
 
 install_bundle() {
@@ -110,11 +126,11 @@ install_bundle() {
   fi
 }
 
-log "Installing the preview beside the existing /Applications/LensQuery.app"
+log "Replacing the legacy Tauri client with the Electron client"
 if (( requires_sudo )); then
   /usr/bin/sudo -v
 fi
-stop_existing_preview
+stop_existing_clients
 install_bundle
 
 if ! /usr/bin/codesign --verify --deep --strict "$APP_DESTINATION"; then
@@ -123,7 +139,7 @@ if ! /usr/bin/codesign --verify --deep --strict "$APP_DESTINATION"; then
   fail "the installed app did not pass code-signature validation."
 fi
 
-/usr/bin/open "$APP_DESTINATION"
+/usr/bin/open "$APP_DESTINATION" --args --background
 launched=0
 for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do
   if /usr/bin/pgrep -f "$APP_DESTINATION/Contents/MacOS/$APP_NAME" >/dev/null 2>&1; then
@@ -132,7 +148,19 @@ for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do
   fi
   /bin/sleep 0.25
 done
-(( launched == 1 )) || fail "$APP_NAME was installed but did not remain running."
+if (( launched != 1 )); then
+  [[ -e "$APP_DESTINATION" ]] && run_install_command /bin/mv "$APP_DESTINATION" "$failed_install"
+  [[ -e "$backup" ]] && run_install_command /bin/mv "$backup" "$APP_DESTINATION"
+  fail "$APP_NAME was installed but did not remain running; the previous app was restored."
+fi
+
+legacy_finder_extension="$LEGACY_PREVIEW_DESTINATION/Contents/PlugIns/LensQuery Finder.appex"
+if [[ -d "$legacy_finder_extension" ]]; then
+  /usr/bin/pluginkit -r "$legacy_finder_extension" 2>/dev/null || true
+fi
+if [[ -d "$LEGACY_PREVIEW_DESTINATION" ]]; then
+  run_install_command /bin/rm -rf "$LEGACY_PREVIEW_DESTINATION"
+fi
 
 finder_extension="$APP_DESTINATION/Contents/PlugIns/LensQuery Finder.appex"
 if [[ -d "$finder_extension" ]]; then
@@ -142,11 +170,19 @@ fi
 
 "$PROJECT_ROOT/browser-extension/native-host/install-macos.sh" "$BROWSER_EXTENSION_ID" "$APP_DESTINATION"
 
+# The removed Tauri bundle used a different TCC identity. Clear every permission
+# record owned by that old identity so macOS no longer retains a second LensQuery.
+/usr/bin/tccutil reset All "$OLD_APP_BUNDLE_ID" 2>/dev/null || true
+
+if [[ -e "$backup" ]]; then
+  run_install_command /bin/rm -rf "$backup"
+fi
+
 bundle_size="$(/usr/bin/du -sh "$APP_DESTINATION" | /usr/bin/awk '{ print $1 }')"
 printf '\nInstalled: %s\n' "$APP_DESTINATION"
 printf 'Bundle size: %s\n' "$bundle_size"
-printf 'Stable Tauri app preserved: /Applications/LensQuery.app\n'
-[[ -e "$backup" ]] && printf 'Previous preview backup: %s\n' "$backup"
+printf 'Legacy Tauri client: removed\n'
+printf 'Legacy Electron preview path: removed\n'
 if [[ "$SIGNING_IDENTITY" == "-" ]]; then
   printf 'Signature: local ad-hoc (macOS may ask for screen access again after an update).\n'
 else

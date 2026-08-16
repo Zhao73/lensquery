@@ -15,13 +15,13 @@ Chrome / Edge Manifest V3 companion extension. It adds exact page context that d
 
 1. Open `chrome://extensions` or `edge://extensions`.
 2. Enable Developer mode.
-3. Choose **Load unpacked** and select either this `browser-extension` directory or the packaged directory at `/Applications/LensQuery Electron Preview.app/Contents/Resources/browser-extension`.
+3. Choose **Load unpacked** and select either this `browser-extension` directory or the packaged directory at `/Applications/LensQuery.app/Contents/Resources/browser-extension`.
 4. Confirm that the extension ID is `filelbpgenppllkeeofajalcgbnifgmi`, then install the LensQuery Native Messaging Host. `npm run install:electron:macos` already performs this host step for the packaged preview.
 
    macOS:
 
    ```bash
-   ./native-host/install-macos.sh filelbpgenppllkeeofajalcgbnifgmi "/Applications/LensQuery Electron Preview.app"
+   ./native-host/install-macos.sh filelbpgenppllkeeofajalcgbnifgmi "/Applications/LensQuery.app"
    ```
 
    Windows:

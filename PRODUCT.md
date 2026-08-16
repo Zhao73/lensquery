@@ -8,7 +8,7 @@ adaptive
 
 ## Stack
 
-Delegated by the user: Electron with a React/TypeScript renderer and a Rust native sidecar. Windows 10/11 and macOS are distributable targets, with deeper per-platform accessibility adapters implemented independently. The previous Tauri shell stays available only as a migration fallback until packaged Electron capture parity is verified.
+Delegated by the user: Electron with a React/TypeScript renderer and a Rust native sidecar. Windows 10/11 and macOS are distributable targets, with deeper per-platform accessibility adapters implemented independently. Electron is the single installed desktop client; the previous Tauri bundle is no longer installed.
 
 ## Users
 

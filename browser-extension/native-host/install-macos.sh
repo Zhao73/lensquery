@@ -5,8 +5,6 @@ set -Eeuo pipefail
 EXTENSION_ID="${1:-}"
 if [[ -n "${2:-}" ]]; then
   LENSQUERY_APP="$2"
-elif [[ -d "/Applications/LensQuery Electron Preview.app" ]]; then
-  LENSQUERY_APP="/Applications/LensQuery Electron Preview.app"
 else
   LENSQUERY_APP="/Applications/LensQuery.app"
 fi

@@ -118,11 +118,11 @@ Remaining: OCR/page rendering for scanned PDFs, speech transcription when no sub
 | Rust compile/lints/tests | `cargo clippy --all-targets -- -D warnings`, `cargo test` |
 | Electron IPC/extensions | `node --check electron/main.js`; `npm test` |
 | Rust sidecar | `npm run build:sidecar`; JSON stdin/stdout discovery + capture/file smoke |
-| Desktop smoke | `npm run dev:electron`; main, tray, overlay, click, drag, Escape; compare Tauri fallback separately |
+| Desktop smoke | `npm run dev:electron`; main, tray, transparent overlay, click, press-drag-release, Escape |
 | Windows native | GitHub Actions Windows plus physical mixed-DPI run |
 | Browser connector | load unpacked; click text/button/video; verify bounded payload and failure state |
 | Agent sessions | mocked JSON-RPC/SSE fixtures, then opt-in live provider smoke |
 
 ## Honest current boundary
 
-The repository now has the Electron client shell, Rust native sidecar, declarative plugin/Skill manager, direct API transports, native capture baseline, browser host code, file extraction, background upper-right results, and local system speech. Source/build success is separate from packaged runtime permission parity: the stable Tauri app remains installed independently until Electron capture, accessibility, notification, and shortcut behavior are proven on physical macOS and Windows. The project does not yet claim production-ready Windows packaging, installed browser Native Messaging manifests, exact macOS arbitrary-app text ranges, OCR, provider-specific file/audio uploads, or a completed Codex App Server/OpenCode session adapter. Codex Realtime audio is represented as an explicitly disabled experimental route until streaming playback is implemented.
+The repository now has the Electron client shell, Rust native sidecar, declarative plugin/Skill manager, direct API transports, native capture baseline, browser host code, file extraction, background upper-right results, and local system speech. Electron is the only installed macOS client at `/Applications/LensQuery.app`; the Tauri bundle is retained only as source for comparison. Source/build success remains separate from packaged runtime permission parity. The project does not yet claim production-ready Windows packaging, exact macOS arbitrary-app text ranges, OCR, provider-specific file/audio uploads, or a completed Codex App Server/OpenCode session adapter. Codex Realtime audio is represented as an explicitly disabled experimental route until streaming playback is implemented.

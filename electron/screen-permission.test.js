@@ -65,14 +65,14 @@ describe('macOS screen capture permission flow', () => {
     })).toBe(false)
   })
 
-  it('names the exact preview bundle instead of the old LensQuery app', () => {
+  it('names the canonical Electron application path', () => {
     const message = screenPermissionMessage({
       decision: { status: 'not-determined', granted: false, restartRequired: false },
-      applicationName: 'LensQuery Electron Preview',
-      applicationPath: '/Applications/LensQuery Electron Preview.app',
+      applicationName: 'LensQuery',
+      applicationPath: '/Applications/LensQuery.app',
     })
-    expect(message).toContain('LensQuery Electron Preview')
-    expect(message).toContain('/Applications/LensQuery Electron Preview.app')
-    expect(message).toContain('不要选旧版')
+    expect(message).toContain('LensQuery')
+    expect(message).toContain('/Applications/LensQuery.app')
+    expect(message).not.toContain('旧版')
   })
 })

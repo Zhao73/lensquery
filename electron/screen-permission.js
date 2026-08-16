@@ -33,13 +33,13 @@ export function shouldRequestScreenPermission({
 }
 
 export function screenPermissionMessage({ decision, applicationName, applicationPath }) {
-  const name = String(applicationName || 'LensQuery Electron Preview')
-  const location = String(applicationPath || '/Applications/LensQuery Electron Preview.app')
+  const name = String(applicationName || 'LensQuery')
+  const location = String(applicationPath || '/Applications/LensQuery.app')
   if (decision.restartRequired) {
     return `录屏权限已打开，${name} 正在自动重启以使权限生效。本次不会继续请求屏幕。`
   }
   if (decision.status === 'not-determined') {
-    return `请只授权“${name}”，完整路径是 ${location}。若列表中还有旧版 LensQuery，不要选旧版。打开开关后应用会自动重启。`
+    return `请授权“${name}”，完整路径是 ${location}。打开开关后应用会自动重启。`
   }
   if (decision.status === 'denied') {
     return `录屏权限已被关闭。请在“录屏与系统录音”中打开“${name}”（${location}），随后应用会自动重启。`

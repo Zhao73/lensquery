@@ -72,13 +72,13 @@ Requirements: Node.js 22+, Rust 1.88 or newer, and platform build tools.
 
 ### Electron client on macOS
 
-Build, sign, install, and launch the Electron client beside the existing stable app:
+Build, sign, install, and launch the Electron client:
 
 ```bash
 npm run install:electron:macos
 ```
 
-The preview is installed at `/Applications/LensQuery Electron Preview.app`; the installer does not replace `/Applications/LensQuery.app`. Electron includes a Chromium runtime, so its bundle is materially larger than the Tauri fallback. That is the intentional cost of using one Codex-like renderer and main-process API surface across macOS and Windows.
+The Electron client is the only installed LensQuery application at `/Applications/LensQuery.app`. The installer removes the previous Tauri bundle and the former `/Applications/LensQuery Electron Preview.app` path only after the new signed Electron bundle passes verification and remains running. Electron includes a Chromium runtime, so its bundle is materially larger than the retired Tauri client; that is the intentional cost of using one Codex-like renderer and main-process API surface across macOS and Windows.
 
 For development:
 
@@ -90,23 +90,11 @@ npm run dev:electron
 
 Closing the client window returns it to the menu bar. A left click on the menu-bar item starts recognition; Timeline, Plugins & Skills, and Settings remain available from its short right-click menu.
 
-The first actual capture on macOS requires **Privacy & Security → Screen & System Audio Recording → LensQuery**. The signed Electron process owns pixel capture, while its packaged helper has a stable certificate-backed identifier; the first shortcut can ask once, and later shortcuts do not launch a new helper identity or keep reopening the request. Enable the switch, fully quit LensQuery, and reopen it. If LensQuery is absent from the list, press `+` and choose `/Applications/LensQuery Electron Preview.app`. Accessibility permission is separate and supplies exact object/file bounds and exposed text.
+The first actual capture on macOS requires **Privacy & Security → Screen & System Audio Recording → LensQuery**. The signed Electron process owns pixel capture, while its packaged helper has a stable certificate-backed identifier; the first shortcut can ask once, and later shortcuts do not launch a new helper identity or keep reopening the request. Enable the switch; LensQuery automatically restarts so the permission takes effect. If LensQuery is absent from the list, press `+` and choose `/Applications/LensQuery.app`. Accessibility permission is separate and supplies exact object/file bounds and exposed text.
 
-### Legacy Tauri fallback on macOS
+### Tauri source-only comparison
 
-Install the [Tauri 2 prerequisites](https://v2.tauri.app/start/prerequisites/) and use the fallback installer only when comparing native-capture behavior:
-
-### Install on macOS
-
-The first Rust release build needs at least 12 GiB of free space. This command builds the `.app` and `.dmg`, installs LensQuery into `/Applications`, signs it with the first available Apple Development identity (falling back to a local ad-hoc signature), and launches the menu-bar app. A stable Apple Development signature prevents macOS from treating every local update as a different screen-capture app:
-
-```bash
-npm run install:macos
-```
-
-LensQuery starts hidden in the menu bar. Press `Command+Shift+Space` to activate the question cursor. The generated DMG remains under `src-tauri/target/release/bundle/dmg/`.
-
-The Tauri fallback uses its own `/Applications/LensQuery.app` permission identity. Its first shortcut asks once; enable that separate switch only when testing the fallback, then fully quit and reopen it.
+The Tauri source remains available for development comparison but is not installed alongside Electron.
 
 `npm run tauri dev` is the development runner; it compiles and launches a debug build but does **not** install an application into `/Applications`.
 

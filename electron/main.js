@@ -41,6 +41,7 @@ import {
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const devUrl = process.env.LENSQUERY_DEV_URL
 const isDevelopment = Boolean(devUrl)
+app.setName(isDevelopment ? 'LensQuery Development' : 'LensQuery')
 const stateFileName = 'desktop-state.json'
 const eventQueueDirectory = path.join(os.tmpdir(), 'lensquery-native-messaging')
 
@@ -369,7 +370,7 @@ async function startCapture(mode = 'element') {
   debugRuntime('capture-started', { mode, bounds: captureWindow.getBounds() })
   return {
     status: 'started',
-    message: '询问模式已开启：第一次点击高亮对象，再点一次确认；拖动直接选择区域。',
+    message: '询问模式已开启：单击选择对象；按住鼠标并拖动选择大范围区域，松开后提交。',
   }
 }
 
@@ -1039,10 +1040,12 @@ if (!app.requestSingleInstanceLock()) {
     showMain()
   })
   app.whenReady().then(async () => {
-    app.setName(isDevelopment ? 'LensQuery Development' : 'LensQuery Electron Preview')
     app.setAsDefaultProtocolClient('lensquery')
     nativeTheme.themeSource = process.env.LENSQUERY_THEME === 'dark' ? 'dark' : process.env.LENSQUERY_THEME === 'light' ? 'light' : 'system'
     state = await loadState()
+    if (!isDevelopment) {
+      app.setLoginItemSettings({ openAtLogin: state.settings.launchAtStartup, args: ['--background'] })
+    }
     screenPermissionStatusAtLaunch = process.platform === 'darwin'
       ? systemPreferences.getMediaAccessStatus('screen')
       : 'granted'

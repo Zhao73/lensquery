@@ -1,5 +1,5 @@
 appId: com.lensquery.desktop.electron-preview
-productName: LensQuery Electron Preview
+productName: LensQuery
 copyright: Copyright LensQuery contributors
 directories:
   output: release-electron

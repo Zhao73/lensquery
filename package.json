@@ -18,7 +18,7 @@
     "tauri": "tauri",
     "install:macos": "bash scripts/install-macos.sh",
     "install:electron:macos": "bash scripts/install-electron-macos.sh",
-    "install:browser:macos": "bash browser-extension/native-host/install-macos.sh filelbpgenppllkeeofajalcgbnifgmi '/Applications/LensQuery Electron Preview.app'",
+    "install:browser:macos": "bash browser-extension/native-host/install-macos.sh filelbpgenppllkeeofajalcgbnifgmi '/Applications/LensQuery.app'",
     "typecheck": "tsc -b",
     "test": "vitest run",
     "test:watch": "vitest",
