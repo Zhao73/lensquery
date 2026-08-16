@@ -81,6 +81,12 @@ Build, sign, install, and launch the Electron client:
 npm run install:electron:macos
 ```
 
+The installer uses a compact six-stage terminal interface, keeps full build output in a diagnostic log, and ends with explicit Chrome activation and GitHub actions. Press `C` to open `chrome://extensions` with the packaged connector path copied, press `S` to opt into starring the repository through an authenticated GitHub CLI, or press Enter to finish. It never stars the repository without that explicit keypress. Use `NO_COLOR=1` for plain logs, `LENSQUERY_INSTALLER_NONINTERACTIVE=1` for CI, or preview the terminal without changing the machine:
+
+```bash
+bash scripts/install-electron-macos.sh --preview-terminal
+```
+
 The Electron client is the only installed LensQuery application at `/Applications/LensQuery.app`. The installer removes the previous Tauri bundle and the former `/Applications/LensQuery Electron Preview.app` path only after the new signed Electron bundle passes verification and remains running. Electron includes a Chromium runtime, so its bundle is materially larger than the retired Tauri client; that is the intentional cost of using one Codex-like renderer and main-process API surface across macOS and Windows.
 
 For development:
