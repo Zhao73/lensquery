@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { containsAutoAnalyzedMedia, formatBytes, normalizeBrowserFiles } from './files'
+import { containsAutoAnalyzedMedia, formatBytes, normalizeBrowserFiles, supportsAiOriginAnalysis } from './files'
 
 describe('file helpers', () => {
   it('classifies supported browser files', () => {
@@ -36,5 +36,7 @@ describe('file helpers', () => {
     expect(containsAutoAnalyzedMedia([{
       id: 'pdf', name: 'brief.pdf', path: '/tmp/brief.pdf', mediaType: 'application/pdf', size: 1, kind: 'pdf',
     }])).toBe(false)
+    expect(supportsAiOriginAnalysis({ kind: 'text' })).toBe(false)
+    expect(supportsAiOriginAnalysis({ kind: 'pdf' })).toBe(false)
   })
 })

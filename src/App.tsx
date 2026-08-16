@@ -27,6 +27,7 @@ import {
   ShieldCheck,
   ShieldWarning,
   SidebarSimple,
+  Stop,
   TerminalWindow,
   Trash,
   WarningCircle,
@@ -39,7 +40,7 @@ import { SessionVideoPlayer, type VideoSeekRequest } from './components/SessionV
 import { SessionRuntimeControls, type SessionRuntimeUpdate } from './components/SessionRuntimeControls'
 import { VideoTimestampMarkdown } from './components/VideoTimestampMarkdown'
 import { AUTO_ANALYSIS_MODE, AUTO_ANALYSIS_PROMPT_ID, AUTO_ANALYSIS_QUESTION, AUTO_OUTPUT_FORMAT } from './lib/autoAnalysis'
-import { evidenceAccept, formatBytes, formatDuration, normalizeBrowserFiles } from './lib/files'
+import { evidenceAccept, formatBytes, formatDuration, normalizeBrowserFiles, supportsAiOriginAnalysis } from './lib/files'
 import { resolveSessionVideo } from './lib/media'
 import { providerDefaultReasoningEffort, providerSupportsReasoningEffort, reasoningOptions } from './lib/providerRuntime'
 import {
@@ -828,6 +829,7 @@ function ConversationView(props: {
   const hasLongVideo = isLongVideoInput(props.session.files, props.session.browserContext)
   const videoDuration = useMemo(() => resolveSessionVideo(props.session)?.durationSeconds ?? 0, [props.session])
   const latestMessage = props.session.messages.at(-1)
+  const pendingMessage = [...props.session.messages].reverse().find(({ status }) => status === 'pending')
   useEffect(() => {
     if (displayedSessionRef.current !== props.session.id) {
       displayedSessionRef.current = props.session.id
@@ -863,7 +865,7 @@ function ConversationView(props: {
           <article ref={message.id === latestMessage?.id ? latestMessageRef : undefined} key={message.id} className={`message ${message.role} ${message.status}`}>
             <div className="message-author">{message.role === 'user' ? '你' : props.provider?.name ?? 'LensQuery'}</div>
             {message.status === 'pending' ? (
-              <div className="thinking"><span className="thinking-dots" aria-hidden="true"><i /><i /><i /></span><span>{hasLongVideo ? '正在按章节阅读长视频并汇总完整内容' : '正在分析选择内容'}</span><button type="button" className="cancel-analysis" onClick={() => props.onCancel(message.id)} aria-label="取消本次分析"><X size={14} />取消<kbd>Esc</kbd></button></div>
+              <div className="thinking"><span className="thinking-dots" aria-hidden="true"><i /><i /><i /></span><span>{hasLongVideo ? '正在按章节阅读长视频并汇总完整内容' : '正在分析选择内容'}</span></div>
             ) : message.status === 'cancelled' ? (
               <div className="message-cancelled"><X size={15} />{message.content || '已取消分析。'}</div>
             ) : (
@@ -927,7 +929,14 @@ function ConversationView(props: {
               providers={props.providers}
               onChange={props.onRuntimeChange}
             />
-            <button type="button" disabled={!props.followUp.trim()} onClick={props.onSubmit} aria-label="发送追问"><PaperPlaneTilt size={18} weight="fill" /></button>
+            <button
+              type="button"
+              className={pendingMessage ? 'composer-action is-cancel' : 'composer-action'}
+              disabled={!pendingMessage && !props.followUp.trim()}
+              onClick={() => pendingMessage ? props.onCancel(pendingMessage.id) : props.onSubmit()}
+              aria-label={pendingMessage ? '取消本次分析' : '发送追问'}
+              title={pendingMessage ? '取消分析 (Esc)' : '发送追问'}
+            >{pendingMessage ? <Stop size={15} weight="fill" /> : <PaperPlaneTilt size={18} weight="fill" />}</button>
           </div>
         </div>
       </div>
@@ -1051,8 +1060,9 @@ function EvidenceStrip({ session }: { session: QuerySession }) {
   const previewUrl = capture?.previewUrl
     ?? (file?.kind === 'image' ? encodeURI(`file://${file.path}`) : undefined)
     ?? framePreview(videoFrames[0])
-  const c2pa = file?.provenance?.c2pa
-  const forensicVariants = file?.provenance?.forensicVariants ?? []
+  const mediaProvenance = file && supportsAiOriginAnalysis(file) ? file.provenance : undefined
+  const c2pa = mediaProvenance?.c2pa
+  const forensicVariants = mediaProvenance?.forensicVariants ?? []
   const videoDuration = file?.videoPreparation?.originalDurationSeconds ?? file?.video?.durationSeconds ?? browser?.media?.duration ?? 0
   const longVideo = videoDuration >= LONG_VIDEO_SECONDS || (file?.videoPreparation?.transcript?.length ?? browser?.transcript?.length ?? 0) >= 24_000
   const transcriptLabel = file?.videoPreparation?.transcriptKind === 'local-whisper' ? 'Whisper 转写' : '字幕'
@@ -1063,12 +1073,12 @@ function EvidenceStrip({ session }: { session: QuerySession }) {
         file.videoPreparation?.transcript
           ? longVideo ? `长视频 · 已读取${transcriptLabel}` : `已读取${transcriptLabel}`
           : undefined,
-        file.provenance ? aiOriginLabel(file) : undefined,
+        mediaProvenance ? aiOriginLabel(file) : undefined,
       ].filter(Boolean).join(' · ')
     : undefined
   if (!capture && !file && !browser) return null
   const browserSummary = browser?.contextMenuKind === 'selection'
-    ? '网页所选文字 · 已读取上下文 · AI 来源自动检查'
+    ? '网页所选文字 · 已读取上下文'
     : browser?.contextMenuKind === 'image'
       ? '网页图片 · 已附加目标画面'
       : browser?.contextMenuKind === 'video'
@@ -1106,17 +1116,17 @@ function EvidenceStrip({ session }: { session: QuerySession }) {
           {c2pa?.actions.length ? <div><dt>来源动作</dt><dd>{c2pa.actions.join(', ')}</dd></div> : null}
           {c2pa?.softBindings?.map((binding) => <div key={binding.algorithm}><dt>软绑定水印</dt><dd><strong>{binding.algorithm}</strong>{binding.registryIdentifier ? ` · C2PA 目录 #${binding.registryIdentifier}` : ' · 目录外算法'}{binding.bindingType ? ` · ${binding.bindingType}` : ''} · {binding.blockCount} 个绑定块{binding.description ? ` · ${binding.description}` : ''}{binding.resolutionApis.length ? ` · ${binding.resolutionApis.length} 个公开解析器` : ''}</dd></div>)}
           {c2pa?.validationWarnings.length ? <div><dt>验证警告</dt><dd>{c2pa.validationWarnings.join(' · ')}</dd></div> : null}
-          {file.provenance && <div><dt>AI 来源</dt><dd><strong>{aiOriginLabel(file)}</strong>{c2pa?.digitalSourceTypes.length ? ` · ${c2pa.digitalSourceTypes.join(', ')}${c2pa.softwareAgents.length ? ` · ${c2pa.softwareAgents.join(', ')}` : ''}` : ' · 缺少信号不证明不是 AI'}</dd></div>}
+          {mediaProvenance && <div><dt>AI 来源</dt><dd><strong>{aiOriginLabel(file)}</strong>{c2pa?.digitalSourceTypes.length ? ` · ${c2pa.digitalSourceTypes.join(', ')}${c2pa.softwareAgents.length ? ` · ${c2pa.softwareAgents.join(', ')}` : ''}` : ' · 缺少信号不证明不是 AI'}</dd></div>}
           {c2pa?.embeddedWatermarkDeclared && <div><dt>隐形水印</dt><dd>C2PA 流程声明已加入水印；像素级 SynthID 由对应发行方验证器独立确认</dd></div>}
-          {file.provenance && <div><dt>提示词</dt><dd><strong>{promptEvidenceLabel(file)}</strong></dd></div>}
-          {file.provenance?.promptEvidence?.map((prompt, index) => <div className="evidence-prompt" key={`${prompt.source}-${index}`}><dt>{prompt.trustState === 'trusted-c2pa' ? '已验证原文' : '内嵌原文'}</dt><dd><span>{prompt.source} · {prompt.trustState === 'trusted-c2pa' ? '可信 C2PA 绑定' : prompt.trustState === 'bound-untrusted-c2pa' ? 'C2PA 绑定有效，签发者未信任' : prompt.trustState === 'invalid-c2pa' ? 'C2PA 文件绑定或签名无效' : '元数据未签名'}</span><pre>{prompt.text}</pre></dd></div>)}
-          {file.provenance?.metadata.map((item) => <div key={`${item.label}-${item.value}`}><dt>{item.label}</dt><dd>{item.value}</dd></div>)}
-          {file.provenance?.watermarkCoverage && <div><dt>全球水印目录</dt><dd><strong>{file.provenance.watermarkCoverage.registeredAlgorithms} 个登记算法</strong> · {file.provenance.watermarkCoverage.registeredWatermarks} 水印 / {file.provenance.watermarkCoverage.registeredFingerprints} 指纹 · 当前媒体匹配 {file.provenance.watermarkCoverage.compatibleAlgorithms} 个 · {file.provenance.watermarkCoverage.publicResolutionApis} 个公开解析器<br /><span>{file.provenance.watermarkCoverage.caveat}</span></dd></div>}
-          {file.provenance?.watermarkCoverage?.regulatoryEvidence.map((evidence) => <div key={`${evidence.jurisdiction}-${evidence.framework}`}><dt>{evidence.jurisdiction}标识证据</dt><dd><strong>{regulatoryEvidenceLabel(evidence.status)}</strong> · {evidence.evidence}<br /><span>{evidence.caveat}</span></dd></div>)}
-          {file.provenance?.undisclosedWatermarkScan && <div><dt>未公开水印盲检</dt><dd><strong>{{ 'candidate-observed': '发现待归属信号', 'no-observable-anomaly': '未观察到异常', limited: '当前仅有限扫描' }[file.provenance.undisclosedWatermarkScan.status]}</strong> · {file.provenance.undisclosedWatermarkScan.methods.join(' · ')}{file.provenance.undisclosedWatermarkScan.observations.length ? <>{file.provenance.undisclosedWatermarkScan.observations.map((observation) => <span key={observation}><br />{observation}</span>)}</> : null}<br /><span>{file.provenance.undisclosedWatermarkScan.caveat}</span></dd></div>}
-          {file.provenance?.detectorCoverage && <div className="evidence-coverage"><dt>检测范围</dt><dd>{file.provenance.detectorCoverage}</dd></div>}
+          {mediaProvenance && <div><dt>提示词</dt><dd><strong>{promptEvidenceLabel(file)}</strong></dd></div>}
+          {mediaProvenance?.promptEvidence?.map((prompt, index) => <div className="evidence-prompt" key={`${prompt.source}-${index}`}><dt>{prompt.trustState === 'trusted-c2pa' ? '已验证原文' : '内嵌原文'}</dt><dd><span>{prompt.source} · {prompt.trustState === 'trusted-c2pa' ? '可信 C2PA 绑定' : prompt.trustState === 'bound-untrusted-c2pa' ? 'C2PA 绑定有效，签发者未信任' : prompt.trustState === 'invalid-c2pa' ? 'C2PA 文件绑定或签名无效' : '元数据未签名'}</span><pre>{prompt.text}</pre></dd></div>)}
+          {mediaProvenance?.metadata.map((item) => <div key={`${item.label}-${item.value}`}><dt>{item.label}</dt><dd>{item.value}</dd></div>)}
+          {mediaProvenance?.watermarkCoverage && <div><dt>全球水印目录</dt><dd><strong>{mediaProvenance.watermarkCoverage.registeredAlgorithms} 个登记算法</strong> · {mediaProvenance.watermarkCoverage.registeredWatermarks} 水印 / {mediaProvenance.watermarkCoverage.registeredFingerprints} 指纹 · 当前媒体匹配 {mediaProvenance.watermarkCoverage.compatibleAlgorithms} 个 · {mediaProvenance.watermarkCoverage.publicResolutionApis} 个公开解析器<br /><span>{mediaProvenance.watermarkCoverage.caveat}</span></dd></div>}
+          {mediaProvenance?.watermarkCoverage?.regulatoryEvidence.map((evidence) => <div key={`${evidence.jurisdiction}-${evidence.framework}`}><dt>{evidence.jurisdiction}标识证据</dt><dd><strong>{regulatoryEvidenceLabel(evidence.status)}</strong> · {evidence.evidence}<br /><span>{evidence.caveat}</span></dd></div>)}
+          {mediaProvenance?.undisclosedWatermarkScan && <div><dt>未公开水印盲检</dt><dd><strong>{{ 'candidate-observed': '发现待归属信号', 'no-observable-anomaly': '未观察到异常', limited: '当前仅有限扫描' }[mediaProvenance.undisclosedWatermarkScan.status]}</strong> · {mediaProvenance.undisclosedWatermarkScan.methods.join(' · ')}{mediaProvenance.undisclosedWatermarkScan.observations.length ? <>{mediaProvenance.undisclosedWatermarkScan.observations.map((observation) => <span key={observation}><br />{observation}</span>)}</> : null}<br /><span>{mediaProvenance.undisclosedWatermarkScan.caveat}</span></dd></div>}
+          {mediaProvenance?.detectorCoverage && <div className="evidence-coverage"><dt>检测范围</dt><dd>{mediaProvenance.detectorCoverage}</dd></div>}
         </dl>}
-        {browser && <dl><div><dt>网页</dt><dd>{browser.title}</dd></div>{browser.contextMenuKind && <div><dt>触发方式</dt><dd>网页右键 · {{ selection: '所选文字', image: '图片', video: '视频', audio: '音频', link: '链接', editable: '编辑区', object: '当前对象', page: '当前页面' }[browser.contextMenuKind]}</dd></div>}<div><dt>文字范围</dt><dd>{browser.selectionMode ?? '当前对象'}</dd></div>{browser.selectedText && <><div><dt>所选文字</dt><dd>{browser.selectedText}</dd></div><div><dt>AI 文本来源</dt><dd><strong>已自动检查 · 直接证据不足</strong> · 未收到对应生成器的官方水印验证结果；文风不作证明</dd></div></>}{browser.hiddenContent?.length ? <div className="evidence-hidden-content"><dt>隐藏内容</dt><dd>{browser.hiddenContent.map((item, index) => <span className={item.instructionLike ? 'injection-warning' : ''} key={`${item.reason}-${item.selector}-${index}`}><strong>{item.instructionLike ? '疑似提示注入' : item.reason}</strong>{item.text}</span>)}</dd></div> : <div><dt>隐藏内容</dt><dd>未发现可访问 DOM 中的隐藏文字</dd></div>}{browser.hiddenContentScan && <div className="evidence-coverage"><dt>扫描范围</dt><dd>{browser.hiddenContentScan.coverage}{browser.hiddenContentScan.truncated ? ' · 页面过大，结果已截断' : ''}</dd></div>}{browser.captions && <div><dt>当前字幕</dt><dd>{browser.captions}</dd></div>}{browser.transcript && <div><dt>视频转写</dt><dd>{browser.transcriptLanguage ? `${browser.transcriptLanguage} · ` : ''}{browser.transcript.slice(0, 1200)}{browser.transcript.length > 1200 ? '…' : ''}</dd></div>}<div><dt>元素</dt><dd>{browser.tagName.toLowerCase()}{browser.role ? ` · ${browser.role}` : ''}</dd></div><div><dt>地址</dt><dd>{browser.url}</dd></div>{browser.selector && <div><dt>选择器</dt><dd><code>{browser.selector}</code></dd></div>}</dl>}
+        {browser && <dl><div><dt>网页</dt><dd>{browser.title}</dd></div>{browser.contextMenuKind && <div><dt>触发方式</dt><dd>网页右键 · {{ selection: '所选文字', image: '图片', video: '视频', audio: '音频', link: '链接', editable: '编辑区', object: '当前对象', page: '当前页面' }[browser.contextMenuKind]}</dd></div>}<div><dt>文字范围</dt><dd>{browser.selectionMode ?? '当前对象'}</dd></div>{browser.selectedText && <div><dt>所选文字</dt><dd>{browser.selectedText}</dd></div>}{browser.hiddenContent?.length ? <div className="evidence-hidden-content"><dt>隐藏内容</dt><dd>{browser.hiddenContent.map((item, index) => <span className={item.instructionLike ? 'injection-warning' : ''} key={`${item.reason}-${item.selector}-${index}`}><strong>{item.instructionLike ? '疑似提示注入' : item.reason}</strong>{item.text}</span>)}</dd></div> : <div><dt>隐藏内容</dt><dd>未发现可访问 DOM 中的隐藏文字</dd></div>}{browser.hiddenContentScan && <div className="evidence-coverage"><dt>扫描范围</dt><dd>{browser.hiddenContentScan.coverage}{browser.hiddenContentScan.truncated ? ' · 页面过大，结果已截断' : ''}</dd></div>}{browser.captions && <div><dt>当前字幕</dt><dd>{browser.captions}</dd></div>}{browser.transcript && <div><dt>视频转写</dt><dd>{browser.transcriptLanguage ? `${browser.transcriptLanguage} · ` : ''}{browser.transcript.slice(0, 1200)}{browser.transcript.length > 1200 ? '…' : ''}</dd></div>}<div><dt>元素</dt><dd>{browser.tagName.toLowerCase()}{browser.role ? ` · ${browser.role}` : ''}</dd></div><div><dt>地址</dt><dd>{browser.url}</dd></div>{browser.selector && <div><dt>选择器</dt><dd><code>{browser.selector}</code></dd></div>}</dl>}
         {browser?.siteAnalysis && <dl className="site-evidence-detail">
           <div><dt>技术证据</dt><dd>{browser.siteAnalysis.technologies.length ? browser.siteAnalysis.technologies.map((technology) => <span className="technology-evidence" key={technology.name}><strong>{technology.name}</strong><small>{technology.confidence === 'high' ? '高置信' : technology.confidence === 'medium' ? '中置信' : '低置信'} · {technology.evidence.join(' · ')}</small></span>) : '未发现明确框架标记；不根据视觉外观猜测。'}</dd></div>
           <div><dt>页面结构</dt><dd>{browser.siteAnalysis.structure.headings} 个标题 · {browser.siteAnalysis.structure.landmarks} 个地标 · {browser.siteAnalysis.structure.links} 个链接 · {browser.siteAnalysis.structure.buttons} 个按钮 · {browser.siteAnalysis.structure.forms} 个表单</dd></div>

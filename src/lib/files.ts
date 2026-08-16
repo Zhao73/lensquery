@@ -49,9 +49,13 @@ export function normalizeBrowserFiles(files: FileList | File[]): FileEvidence[] 
 }
 
 export function containsAutoAnalyzedMedia(files: FileEvidence[], browserContext?: BrowserContext): boolean {
-  return files.some(({ kind }) => kind === 'image' || kind === 'video')
+  return files.some(supportsAiOriginAnalysis)
     || ['image', 'video'].includes(browserContext?.contextMenuKind ?? '')
     || browserContext?.media?.kind === 'video'
+}
+
+export function supportsAiOriginAnalysis(file: Pick<FileEvidence, 'kind'>): boolean {
+  return file.kind === 'image' || file.kind === 'video'
 }
 
 export function formatBytes(bytes: number): string {

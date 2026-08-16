@@ -25,7 +25,6 @@ const SOFT_BINDING_REGISTRY_SOURCE: &str = "https://github.com/c2pa-org/softbind
 const SOFT_BINDING_REGISTRY_COMMIT: &str = "e69956c68556788f0c3f52fef9c2ba42d9904964";
 const IMAGE_DETECTOR_COVERAGE: &str = "已在本机验证文件内嵌 C2PA Content Credentials 的文件绑定、签名和发行方信任，并自动读取 C2PA 标准提示词原料、PNG prompt/parameters/workflow 元数据，以及带 TC260 命名空间的 GB 45438-2025 AIGC 文件元数据；不联网获取远程 manifest。TC260 AIGC 字段是可移除、可伪造的来源声明，未单独验证 ReservedCode 完整性保护，不能替代签名凭证或厂商水印检测。同时读取常见 EXIF，并生成亮度拉伸、局部差分和 Alpha 通道取证图。这些变换可显示低对比度或透明度中仍存在的像素信号；已经完全压平且与背景像素完全相同的内容没有可恢复信息。厂商 SynthID 等不可见水印只在对应官方验证器可用时才能独立确认。未发现信号不证明内容由人类创作。";
 const VIDEO_DETECTOR_COVERAGE: &str = "已在本机验证视频容器中内嵌 C2PA Content Credentials 的文件绑定、签名和发行方信任，不联网获取远程 manifest；同时读取 FFprobe 容器、编码器、时间信息和 GB 45438-2025/TC260 AIGC 文件元数据。TC260 AIGC 字段是可移除、可伪造的来源声明，未单独验证 ReservedCode 完整性保护，不能替代签名凭证或厂商水印检测。画面推断仅覆盖已抽取的带时间点关键帧；厂商 SynthID、TikTok/字节跳动私有水印和 AI MediaKit 暗水印，只在对应官方验证器与正确水印配置可用时才能独立确认。未发现信号不证明视频不是 AI 生成。";
-const DOCUMENT_DETECTOR_COVERAGE: &str = "已自动检查文档是否包含可验证的 C2PA Content Credentials 及其标准提示词原料。普通复制文字没有跨厂商通用的公开水印；SynthID Text 等检测需要与生成时相同的私有配置或厂商验证器。文风、困惑度或所谓 AI 味只是统计推断，不作来源证明。";
 const MAX_PROMPT_CHARS: usize = 32_000;
 const MAX_PROMPT_BYTES: usize = MAX_PROMPT_CHARS * 4;
 const MAX_PROMPT_RECORDS: usize = 12;
@@ -127,29 +126,6 @@ pub fn inspect_image(path: &str) -> Option<ImageProvenance> {
 
 pub fn inspect_video(path: &str, aigc_metadata: Option<&str>) -> Option<ImageProvenance> {
     inspect_media(path, false, aigc_metadata)
-}
-
-pub fn inspect_document(path: &str) -> Option<ImageProvenance> {
-    let c2pa_result = read_c2pa(path);
-    let (c2pa, prompt_evidence) = match c2pa_result {
-        Some((evidence, prompts)) => (Some(evidence), prompts),
-        None => (None, Vec::new()),
-    };
-    let watermark_coverage = Some(build_watermark_coverage("application", c2pa.as_ref(), None));
-    let undisclosed_watermark_scan = Some(scan_undisclosed_watermarks(path, false, c2pa.as_ref()));
-    Some(ImageProvenance {
-        ai_origin_status: Some(origin_status(c2pa.as_ref(), None).into()),
-        c2pa,
-        metadata: Vec::new(),
-        ai_signals: Vec::new(),
-        camera_metadata_present: false,
-        forensic_variants: Vec::new(),
-        prompt_recovery_status: Some(prompt_recovery_status(&prompt_evidence).into()),
-        prompt_evidence,
-        watermark_coverage,
-        undisclosed_watermark_scan,
-        detector_coverage: DOCUMENT_DETECTOR_COVERAGE.into(),
-    })
 }
 
 fn inspect_media(

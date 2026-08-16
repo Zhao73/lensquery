@@ -209,7 +209,7 @@ describe('Electron direct provider adapter', () => {
     expect(prompt).not.toContain('possible-ai-inference')
   })
 
-  it('keeps selected-text AI authorship automatic but evidence-bound', async () => {
+  it('does not request AI-origin judgments for selected text', async () => {
     let prompt = ''
     await runDirectProvider({
       profile: { id: 'custom', name: 'Custom', kind: 'compatible', model: 'MODEL', baseUrl: 'https://HOST/v1', apiKeyRequired: true, secretConfigured: true },
@@ -231,10 +231,10 @@ describe('Electron direct provider adapter', () => {
       },
     })
 
-    expect(prompt).toContain('AI 文本来源判断')
-    expect(prompt).toContain('insufficient-evidence')
-    expect(prompt).toContain('困惑度')
-    expect(prompt).toContain('不作证明')
+    expect(prompt).toContain('一段待分析的文字')
+    expect(prompt).toContain('不要输出 AI 文本来源')
+    expect(prompt).not.toContain('AI 文本来源判断')
+    expect(prompt).not.toContain('困惑度')
   })
 
   it('passes website technology, layout, and coverage evidence without claiming source access', async () => {

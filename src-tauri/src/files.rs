@@ -79,7 +79,6 @@ pub async fn inspect(paths: Vec<String>) -> Result<Vec<FileEvidence>, String> {
                     .as_ref()
                     .and_then(|metadata| metadata.aigc_metadata.as_deref()),
             ),
-            "pdf" | "text" => provenance::inspect_document(&path),
             _ => None,
         };
         evidence.push(FileEvidence {
@@ -241,6 +240,23 @@ mod tests {
         let bounded = bounded_text(&source);
         assert_eq!(bounded.chars().count(), MAX_EXTRACTED_TEXT_CHARS);
         assert!(bounded.chars().all(|value| value == '界'));
+    }
+
+    #[tokio::test]
+    async fn text_files_do_not_receive_media_provenance() {
+        let path = std::env::temp_dir().join(format!(
+            "lensquery-text-no-provenance-{}.txt",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::write(&path, "plain text fixture").expect("write text fixture");
+
+        let evidence = inspect(vec![path.to_string_lossy().into_owned()])
+            .await
+            .expect("inspect text fixture");
+
+        assert_eq!(evidence[0].kind, "text");
+        assert!(evidence[0].provenance.is_none());
+        std::fs::remove_file(path).expect("remove text fixture");
     }
 
     #[test]
