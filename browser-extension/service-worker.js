@@ -1,8 +1,15 @@
 import {
   contextRequestFor,
+  PAGE_CONTEXT_MENU,
+  PAGE_CONTEXT_MENU_ID,
+  pageContextRequestFor,
   UNIVERSAL_CONTEXT_MENU,
   UNIVERSAL_CONTEXT_MENU_ID,
 } from './context-menu.js'
+import {
+  normalizeAnalysisUrl,
+  omniboxSuggestion,
+} from './url-analysis.js'
 
 const NATIVE_HOST = 'com.lensquery.desktop'
 const MAX_SNAPSHOT_DATA_URL_LENGTH = 650_000
@@ -11,11 +18,31 @@ chrome.runtime.onInstalled.addListener(installContextMenus)
 chrome.runtime.onStartup.addListener(installContextMenus)
 chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (info.menuItemId === UNIVERSAL_CONTEXT_MENU_ID) void handleContextMenu(contextRequestFor(info), info, tab)
+  if (info.menuItemId === PAGE_CONTEXT_MENU_ID) {
+    if (tab?.id) void handleContextMenu(pageContextRequestFor(), info, tab)
+    else void analyzeCurrentPage()
+  }
 })
 
-chrome.action.onClicked.addListener(startPicker)
+chrome.action.onClicked.addListener((tab) => {
+  void analyzeCurrentPage(tab).catch((error) => reportAnalysisError(error, tab))
+})
 chrome.commands.onCommand.addListener((command) => {
   if (command === 'ask-lensquery') void startPicker()
+})
+
+chrome.omnibox.setDefaultSuggestion({ description: '使用 LensQuery 分析当前网址' })
+chrome.omnibox.onInputChanged.addListener((text, suggest) => {
+  if (!text.trim()) {
+    suggest([])
+    return
+  }
+  chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
+    suggest([{ content: text, description: omniboxSuggestion(text, tab?.url) }])
+  }).catch(() => suggest([{ content: text, description: omniboxSuggestion(text) }]))
+})
+chrome.omnibox.onInputEntered.addListener((text, disposition) => {
+  void analyzeOmniboxUrl(text, disposition).catch((error) => reportAnalysisError(error))
 })
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -29,6 +56,66 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 function installContextMenus() {
   chrome.contextMenus.removeAll(() => {
     chrome.contextMenus.create(UNIVERSAL_CONTEXT_MENU)
+    chrome.contextMenus.create(PAGE_CONTEXT_MENU)
+  })
+}
+
+async function analyzeCurrentPage(tab) {
+  const activeTab = tab?.id ? tab : (await chrome.tabs.query({ active: true, currentWindow: true }))[0]
+  if (!activeTab?.id) return
+  await handleContextMenu(pageContextRequestFor(), { pageUrl: activeTab.url, frameId: 0 }, activeTab)
+}
+
+async function reportAnalysisError(error, tab) {
+  const activeTab = tab?.id ? tab : (await chrome.tabs.query({ active: true, currentWindow: true }))[0]
+  if (!activeTab?.id) return
+  await showPageNotice(activeTab.id, 0, `LensQuery 网址分析失败：${String(error).slice(0, 180)}`, false)
+}
+
+async function analyzeOmniboxUrl(text, disposition) {
+  const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true })
+  const targetUrl = normalizeAnalysisUrl(text, activeTab?.url)
+  if (!targetUrl) {
+    if (activeTab?.id) await showPageNotice(activeTab.id, 0, '请输入完整网址，例如 https://example.com。', false)
+    return
+  }
+
+  if (activeTab?.id && sameUrl(activeTab.url, targetUrl)) {
+    await analyzeCurrentPage(activeTab)
+    return
+  }
+
+  const targetTab = disposition === 'currentTab' && activeTab?.id
+    ? await chrome.tabs.update(activeTab.id, { url: targetUrl })
+    : await chrome.tabs.create({ url: targetUrl, active: disposition !== 'newBackgroundTab' })
+  if (!targetTab?.id) return
+  const loadedTab = await waitForTab(targetTab.id)
+  await analyzeCurrentPage(loadedTab)
+}
+
+function sameUrl(left, right) {
+  try {
+    return new URL(left).href === new URL(right).href
+  } catch {
+    return left === right
+  }
+}
+
+async function waitForTab(tabId, timeoutMs = 30_000) {
+  const current = await chrome.tabs.get(tabId)
+  if (current.status === 'complete') return current
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      chrome.tabs.onUpdated.removeListener(onUpdated)
+      reject(new Error('网页加载超时。'))
+    }, timeoutMs)
+    function onUpdated(updatedTabId, changeInfo, tab) {
+      if (updatedTabId !== tabId || changeInfo.status !== 'complete') return
+      clearTimeout(timeout)
+      chrome.tabs.onUpdated.removeListener(onUpdated)
+      resolve(tab)
+    }
+    chrome.tabs.onUpdated.addListener(onUpdated)
   })
 }
 
@@ -173,7 +260,7 @@ function fallbackContext(kind, info, tab) {
     text: selectedText,
     accessibleName: source,
     nearbyText: selectedText,
-    selectionMode: kind === 'selection' ? 'selection' : 'object',
+    selectionMode: kind === 'selection' ? 'selection' : kind === 'page' ? 'page' : 'object',
     selectedText,
     contextMenuKind: kind,
     media: mediaKind ? {

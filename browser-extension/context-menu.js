@@ -1,9 +1,16 @@
 export const UNIVERSAL_CONTEXT_MENU_ID = 'lensquery-analyze'
+export const PAGE_CONTEXT_MENU_ID = 'lensquery-analyze-current-url'
 
 export const UNIVERSAL_CONTEXT_MENU = {
   id: UNIVERSAL_CONTEXT_MENU_ID,
   title: '使用 LensQuery 识别',
   contexts: ['all'],
+}
+
+export const PAGE_CONTEXT_MENU = {
+  id: PAGE_CONTEXT_MENU_ID,
+  title: '使用 LensQuery 分析当前网址',
+  contexts: ['page', 'action'],
 }
 
 export function contextKindFor(info = {}) {
@@ -23,4 +30,8 @@ export function contextRequestFor(info = {}) {
     srcUrl: info.srcUrl,
     linkUrl: info.linkUrl,
   }
+}
+
+export function pageContextRequestFor() {
+  return { kind: 'page' }
 }

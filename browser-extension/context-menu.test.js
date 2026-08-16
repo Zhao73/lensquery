@@ -5,6 +5,8 @@ import { describe, expect, it } from 'vitest'
 import {
   contextKindFor,
   contextRequestFor,
+  PAGE_CONTEXT_MENU,
+  pageContextRequestFor,
   UNIVERSAL_CONTEXT_MENU,
 } from './context-menu.js'
 
@@ -16,6 +18,14 @@ describe('LensQuery universal browser context menu', () => {
       title: '使用 LensQuery 识别',
       contexts: ['all'],
     })
+  })
+
+  it('offers direct current-URL analysis on page and extension-action menus', () => {
+    expect(PAGE_CONTEXT_MENU).toMatchObject({
+      title: '使用 LensQuery 分析当前网址',
+      contexts: ['page', 'action'],
+    })
+    expect(pageContextRequestFor()).toEqual({ kind: 'page' })
   })
 
   it.each([
@@ -53,5 +63,10 @@ describe('LensQuery universal browser context menu', () => {
         js: ['page-context.js', 'custom-context-menu.js'],
       }),
     ]))
+  })
+
+  it('registers the lq omnibox keyword and direct-page toolbar action', () => {
+    expect(manifest.omnibox).toEqual({ keyword: 'lq' })
+    expect(manifest.action.default_title).toBe('使用 LensQuery 分析当前网址')
   })
 })
