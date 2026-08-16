@@ -208,6 +208,7 @@ describe('Electron direct provider adapter', () => {
     expect(prompt).toContain('未公开水印盲检')
     expect(prompt).toContain('发现未登记私有块')
     expect(prompt).toContain('insufficient-evidence')
+    expect(prompt).toContain('本次应输出“AI 来源判断”')
     expect(prompt).not.toContain('possible-ai-inference')
   })
 
@@ -333,6 +334,31 @@ describe('Electron direct provider adapter', () => {
     expect(prompt).toContain('长视频章节 01')
     expect(prompt).toContain('chapter topic 0')
     expect(prompt).toContain('chapter topic 24')
+    expect(prompt).toContain('默认不要添加“AI 来源判断”')
+    expect(prompt).toContain('如果没发现这类线索，完全省略所有 AI 来源相关内容')
+    expect(prompt).not.toContain('在答案中固定输出')
+  })
+
+  it('makes AI-origin analysis mandatory when the user explicitly asks for it', async () => {
+    let prompt = ''
+    await runDirectProvider({
+      profile: { id: 'custom', name: 'Custom', kind: 'compatible', model: 'MODEL', baseUrl: 'https://HOST/v1', apiKeyRequired: true, secretConfigured: true },
+      secret: 'TOKEN',
+      request: {
+        ...request,
+        promptId: 'follow-up',
+        question: '这张图片是不是 AI 生成的？检查水印和 C2PA。',
+        files: [{ name: 'photo.jpg', kind: 'image', path: '/tmp/photo.jpg', mediaType: 'image/jpeg', size: 1 }],
+      },
+      settings,
+      readFile: async () => null,
+      fetchImpl: async (_url, options) => {
+        prompt = JSON.parse(options.body).messages.at(-1).content[0].text
+        return new Response(JSON.stringify({ model: 'MODEL', choices: [{ message: { content: '已检查。' } }] }), { status: 200 })
+      },
+    })
+    expect(prompt).toContain('用户明确询问了来源')
+    expect(prompt).toContain('本次应输出“AI 来源判断”')
   })
 
   it('builds different detailed analysis routes for tutorial and entertainment videos', () => {

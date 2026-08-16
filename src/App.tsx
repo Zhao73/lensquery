@@ -100,6 +100,7 @@ import {
   setExtensionEnabled,
 } from './lib/extensions'
 import { useAppStore, type View } from './store/app'
+import { sessionHasAiOriginRelevance } from './lib/mediaRelevance'
 import type {
   AnalysisRequest,
   AppSettings,
@@ -1076,16 +1077,17 @@ function MediaQuickActions(props: {
   hasLongVideo: boolean
   onQuickAsk: (question: string) => void
 }) {
-  const origin = automaticOriginState(props.session)
+  const showAiOriginTools = sessionHasAiOriginRelevance(props.session)
+  const origin = showAiOriginTools ? automaticOriginState(props.session) : null
   const promptStatus = props.session.files.find(({ provenance }) => provenance)?.provenance?.promptRecoveryStatus
   return (
-    <div className="media-quick-actions" aria-label="媒体快速取证">
-      <span className={`automatic-origin ${origin.tone}`} title={origin.detail}>
+    <div className="media-quick-actions" aria-label="媒体快速分析">
+      {origin && <span className={`automatic-origin ${origin.tone}`} title={origin.detail}>
         {origin.tone === 'verified' ? <ShieldCheck size={15} weight="fill" /> : origin.tone === 'warning' ? <ShieldWarning size={15} /> : <Shield size={15} />}
         <span><strong>{origin.label}</strong><small>{origin.detail}</small></span>
-      </span>
+      </span>}
       <button type="button" onClick={() => props.onQuickAsk(HIDDEN_CONTENT_FOLLOW_UP)}>隐藏内容</button>
-      <button type="button" onClick={() => props.onQuickAsk(props.hasVideo ? VIDEO_PROMPT_FOLLOW_UP : IMAGE_PROMPT_FOLLOW_UP)}>{promptStatus === 'verified-exact' ? '查看原始提示词' : promptStatus === 'embedded-unverified' ? '查看内嵌提示词' : '重建提示词'}</button>
+      {showAiOriginTools && <button type="button" onClick={() => props.onQuickAsk(props.hasVideo ? VIDEO_PROMPT_FOLLOW_UP : IMAGE_PROMPT_FOLLOW_UP)}>{promptStatus === 'verified-exact' ? '查看原始提示词' : promptStatus === 'embedded-unverified' ? '查看内嵌提示词' : '重建提示词'}</button>}
       {props.hasVideo && (
         <>
           <button type="button" onClick={() => props.onQuickAsk(VIDEO_DETAILED_SUMMARY_FOLLOW_UP)}>详细总结</button>
