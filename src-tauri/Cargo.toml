@@ -30,7 +30,7 @@ tauri-plugin-clipboard-manager = "2"
 tauri-plugin-fs = "2"
 tauri-plugin-autostart = "2"
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
-tokio = { version = "1", features = ["io-util", "macros", "process", "rt", "time"] }
+tokio = { version = "1", features = ["io-util", "macros", "net", "process", "rt", "time"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 keyring = "4.1.6"
 base64 = "0.22"
@@ -39,6 +39,7 @@ c2pa = { version = "0.90.15", default-features = false, features = ["file_io", "
 kamadak-exif = "0.6"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
 flate2 = "1"
+url = "2"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-global-shortcut = "2"

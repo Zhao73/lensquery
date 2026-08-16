@@ -2,6 +2,8 @@ use std::{
     env,
     ffi::OsString,
     fs,
+    hash::{DefaultHasher, Hash, Hasher},
+    net::IpAddr,
     path::{Path, PathBuf},
     process::Stdio,
     time::Duration,
@@ -10,6 +12,7 @@ use std::{
 use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::Deserialize;
 use tokio::{process::Command, time::timeout};
+use url::Url;
 use uuid::Uuid;
 
 use crate::{
@@ -30,10 +33,14 @@ struct TranscriptEvidence {
 }
 
 #[derive(Debug, Deserialize)]
-struct YouTubeMetadata {
+struct WebVideoMetadata {
     id: String,
     title: String,
     duration: Option<f64>,
+    #[serde(default)]
+    is_live: Option<bool>,
+    #[serde(default)]
+    live_status: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -262,89 +269,114 @@ pub async fn prepare(path: &str, max_frames: Option<u32>) -> Result<VideoPrepara
 }
 
 pub async fn prepare_youtube(url: &str, max_frames: Option<u32>) -> Result<FileEvidence, String> {
-    validate_youtube_url(url)?;
+    prepare_web(url, None, max_frames).await
+}
+
+pub async fn prepare_web(
+    page_url: &str,
+    source_url: Option<&str>,
+    max_frames: Option<u32>,
+) -> Result<FileEvidence, String> {
+    validate_web_video_url(page_url)?;
+    validate_web_video_host(page_url).await?;
+    let target_url = source_url
+        .filter(|value| validate_web_video_url(value).is_ok())
+        .unwrap_or(page_url);
+    if target_url != page_url {
+        validate_web_video_host(target_url).await?;
+    }
     let executable = resolve_path_executable("yt-dlp").ok_or_else(|| {
         "没有发现 yt-dlp。请先安装 yt-dlp，或设置 LENSQUERY_YTDLP_BIN 指向其可执行文件。"
             .to_string()
     })?;
-    let metadata_output = run_ytdlp(
-        &executable,
-        &[
-            "--no-update",
-            "--no-playlist",
-            "--skip-download",
-            "--dump-single-json",
-            url,
-        ],
-        Duration::from_secs(60),
-    )
-    .await?;
-    let youtube: YouTubeMetadata = serde_json::from_slice(&metadata_output.stdout)
-        .map_err(|error| format!("无法解析 YouTube 视频信息: {error}"))?;
-    let duration = youtube.duration.unwrap_or_default();
-    if duration <= 0.0 {
-        return Err("无法确定 YouTube 视频时长。".into());
+    let mut metadata_args = vec![
+        "--no-update",
+        "--no-playlist",
+        "--skip-download",
+        "--dump-single-json",
+    ];
+    if target_url != page_url {
+        metadata_args.extend(["--referer", page_url]);
+    }
+    metadata_args.push(target_url);
+    let metadata_output = run_ytdlp(&executable, &metadata_args, Duration::from_secs(60)).await?;
+    let web_video: WebVideoMetadata = serde_json::from_slice(&metadata_output.stdout)
+        .map_err(|error| format!("无法解析网页视频信息: {error}"))?;
+    let duration = web_video.duration.unwrap_or_default();
+    if web_video.is_live == Some(true)
+        || matches!(
+            web_video.live_status.as_deref(),
+            Some("is_live" | "is_upcoming")
+        )
+    {
+        return Err("实时直播、未开始直播和没有固定结束的媒体不进入完整下载分析。".into());
     }
     if duration > 4.0 * 3_600.0 {
-        return Err("当前单个 YouTube 视频最长支持 4 小时；请先裁剪或分集。".into());
+        return Err("当前单个网页视频最长处理 4 小时；请先选择分集或较小片段。".into());
     }
-    let safe_id = youtube
+    let safe_id = web_video
         .id
         .chars()
         .filter(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
         .collect::<String>();
     if safe_id.is_empty() {
-        return Err("YouTube 视频 ID 无效。".into());
+        return Err("网页视频 ID 无效。".into());
     }
+    let cache_key = web_video_cache_key(target_url, &safe_id);
     let output_directory = env::temp_dir()
         .join("lensquery")
-        .join("youtube")
-        .join(&safe_id);
+        .join("web-video")
+        .join(cache_key);
     fs::create_dir_all(&output_directory)
-        .map_err(|error| format!("无法创建 YouTube 临时目录: {error}"))?;
+        .map_err(|error| format!("无法创建网页视频临时目录: {error}"))?;
     let mut source_path = find_downloaded_video(&output_directory);
     if source_path.is_none() {
         let output_template = output_directory.join("source.%(ext)s");
         let output_template = output_template.to_string_lossy().into_owned();
-        let download_timeout =
-            Duration::from_secs((duration * 1.5 + 600.0).clamp(900.0, 7_200.0) as u64);
-        run_ytdlp(
-            &executable,
-            &[
-                "--no-update",
-                "--no-playlist",
-                "--max-filesize",
-                "1536M",
-                "--write-subs",
-                "--write-auto-subs",
-                "--sub-langs",
-                "zh.*,en.*",
-                "--sub-format",
-                "vtt",
-                "-f",
-                "136+140/135+140/134+140/133+140/18/bv*[height<=720]+ba/b[height<=720]/b",
-                "--merge-output-format",
-                "mp4",
-                "-o",
-                &output_template,
-                url,
-            ],
-            download_timeout,
-        )
-        .await?;
+        let download_timeout = if duration > 0.0 {
+            Duration::from_secs((duration * 1.5 + 600.0).clamp(900.0, 7_200.0) as u64)
+        } else {
+            Duration::from_secs(1_800)
+        };
+        let mut download_args = vec![
+            "--no-update",
+            "--no-playlist",
+            "--max-filesize",
+            "1536M",
+            "--write-subs",
+            "--write-auto-subs",
+            "--sub-langs",
+            "zh.*,en.*",
+            "--sub-format",
+            "vtt",
+            "-f",
+            "136+140/135+140/134+140/133+140/18/bv*[height<=720]+ba/b[height<=720]/b",
+            "--merge-output-format",
+            "mp4",
+            "-o",
+            &output_template,
+        ];
+        if target_url != page_url {
+            download_args.extend(["--referer", page_url]);
+        }
+        download_args.push(target_url);
+        run_ytdlp(&executable, &download_args, download_timeout).await?;
         source_path = find_downloaded_video(&output_directory);
     }
     let source_path = source_path.ok_or_else(|| {
-        "yt-dlp 已结束，但没有生成可分析的视频文件；视频可能受地区、登录或权限限制。".to_string()
+        "yt-dlp 已结束，但没有生成可分析的视频文件；常见原因是登录、地区、DRM 或临时链接已失效。".to_string()
     })?;
     let source = source_path.to_string_lossy().into_owned();
     let preparation = prepare(&source, max_frames).await?;
     // Caching only avoids a second local transcription. A cache-write problem
     // must not discard an otherwise complete analysis result.
-    let _ = cache_youtube_whisper_transcript(&source_path, &preparation);
+    let _ = cache_web_whisper_transcript(&source_path, &preparation);
     let video_metadata = probe(&source).await?;
+    if video_metadata.duration_seconds > 4.0 * 3_600.0 {
+        return Err("网页视频下载后检测到时长超过 4 小时；请先选择分集或较小片段。".into());
+    }
     let size = fs::metadata(&source_path)
-        .map_err(|error| format!("无法读取 YouTube 临时文件: {error}"))?
+        .map_err(|error| format!("无法读取网页视频临时文件: {error}"))?
         .len();
     let extension = source_path
         .extension()
@@ -354,7 +386,7 @@ pub async fn prepare_youtube(url: &str, max_frames: Option<u32>) -> Result<FileE
     let provenance = provenance::inspect_video(&source, video_metadata.aigc_metadata.as_deref());
     Ok(FileEvidence {
         id: Uuid::new_v4().to_string(),
-        name: format!("{}.{}", sanitize_title(&youtube.title), extension),
+        name: format!("{}.{}", sanitize_title(&web_video.title), extension),
         path: source,
         media_type: video_media_type(&extension).into(),
         size,
@@ -364,12 +396,12 @@ pub async fn prepare_youtube(url: &str, max_frames: Option<u32>) -> Result<FileE
         processing_error: None,
         extracted_text: None,
         page_count: None,
-        extraction_status: Some("youtube-ready".into()),
+        extraction_status: Some("web-video-ready".into()),
         provenance,
     })
 }
 
-fn cache_youtube_whisper_transcript(
+fn cache_web_whisper_transcript(
     source_path: &Path,
     preparation: &VideoPreparation,
 ) -> Result<(), String> {
@@ -431,32 +463,109 @@ async fn run_ytdlp(
         Ok(result) => result.map_err(|error| format!("等待 yt-dlp 失败: {error}"))?,
         Err(_) => {
             subprocess::kill_process_tree(child_pid);
-            return Err("YouTube 下载或读取超时，已经停止。".into());
+            return Err("网页视频下载或读取超时，已经停止。".into());
         }
     };
     if output.status.success() {
         Ok(output)
     } else {
         Err(format!(
-            "yt-dlp 无法读取此 YouTube 视频: {}",
+            "yt-dlp 无法读取此网页视频: {}",
             bounded_stderr(&output.stderr)
         ))
     }
 }
 
-fn validate_youtube_url(value: &str) -> Result<(), String> {
-    let normalized = value.trim().to_ascii_lowercase();
-    let allowed = [
-        "https://youtube.com/",
-        "https://www.youtube.com/",
-        "https://m.youtube.com/",
-        "https://youtu.be/",
-    ];
-    if allowed.iter().any(|prefix| normalized.starts_with(prefix)) {
-        Ok(())
-    } else {
-        Err("只会从用户明确选择的 HTTPS YouTube 视频地址读取媒体。".into())
+fn validate_web_video_url(value: &str) -> Result<(), String> {
+    let parsed =
+        Url::parse(value.trim()).map_err(|_| "网页视频地址不是完整的 HTTPS URL。".to_string())?;
+    if parsed.scheme() != "https" {
+        return Err("只会从用户明确选择的 HTTPS 网页或视频地址读取媒体。".into());
     }
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return Err("网页视频地址不应包含用户名或密码。".into());
+    }
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| "网页视频地址缺少主机名。".to_string())?
+        .trim_end_matches('.')
+        .to_ascii_lowercase();
+    if host == "localhost" || host.ends_with(".localhost") || host.ends_with(".local") {
+        return Err("不会通过网页视频解析器访问本机或局域网地址。".into());
+    }
+    let ip_host = host.trim_start_matches('[').trim_end_matches(']');
+    if let Ok(ip) = ip_host.parse::<IpAddr>() {
+        if private_or_local_ip(ip) {
+            return Err("不会通过网页视频解析器访问本机或私有网络地址。".into());
+        }
+    }
+    Ok(())
+}
+
+async fn validate_web_video_host(value: &str) -> Result<(), String> {
+    let parsed =
+        Url::parse(value.trim()).map_err(|_| "网页视频地址不是完整的 HTTPS URL。".to_string())?;
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| "网页视频地址缺少主机名。".to_string())?;
+    let ip_host = host.trim_start_matches('[').trim_end_matches(']');
+    if ip_host.parse::<IpAddr>().is_ok() {
+        return Ok(());
+    }
+    let port = parsed.port_or_known_default().unwrap_or(443);
+    let addresses = tokio::net::lookup_host((host, port))
+        .await
+        .map_err(|error| format!("无法解析网页视频主机 {host}: {error}"))?
+        .collect::<Vec<_>>();
+    if addresses.is_empty() {
+        return Err(format!("网页视频主机 {host} 没有可用网络地址。"));
+    }
+    if addresses
+        .iter()
+        .any(|address| private_or_local_ip(address.ip()))
+    {
+        return Err("不会通过网页视频解析器访问解析到本机或私有网络的地址。".into());
+    }
+    Ok(())
+}
+
+fn private_or_local_ip(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(ip) => {
+            let [a, b, _, _] = ip.octets();
+            ip.is_private()
+                || ip.is_loopback()
+                || ip.is_link_local()
+                || ip.is_multicast()
+                || ip.is_unspecified()
+                || ip.is_broadcast()
+                || a == 0
+                || a >= 224
+                || (a == 100 && (64..=127).contains(&b))
+                || (a == 192 && b == 0)
+                || (a == 198 && matches!(b, 18 | 19 | 51))
+                || (a == 203 && b == 0)
+        }
+        IpAddr::V6(ip) => {
+            let segments = ip.segments();
+            ip.is_loopback()
+                || ip.is_unspecified()
+                || ip.is_multicast()
+                || (segments[0] & 0xfe00) == 0xfc00
+                || (segments[0] & 0xffc0) == 0xfe80
+                || (segments[0] == 0x2001 && segments[1] == 0x0db8)
+                || ip
+                    .to_ipv4_mapped()
+                    .is_some_and(|value| private_or_local_ip(IpAddr::V4(value)))
+        }
+    }
+}
+
+fn web_video_cache_key(url: &str, safe_id: &str) -> String {
+    let mut hasher = DefaultHasher::new();
+    url.hash(&mut hasher);
+    let id = safe_id.chars().take(48).collect::<String>();
+    format!("{id}-{:016x}", hasher.finish())
 }
 
 fn find_downloaded_video(directory: &Path) -> Option<PathBuf> {
@@ -515,7 +624,7 @@ fn sanitize_title(value: &str) -> String {
     let title = title.split_whitespace().collect::<Vec<_>>().join(" ");
     let title = title.chars().take(120).collect::<String>();
     if title.is_empty() {
-        "YouTube video".into()
+        "Web video".into()
     } else {
         title
     }
@@ -1074,11 +1183,30 @@ mod tests {
     }
 
     #[test]
-    fn accepts_only_https_youtube_video_urls() {
-        assert!(validate_youtube_url("https://www.youtube.com/watch?v=fixture").is_ok());
-        assert!(validate_youtube_url("https://youtu.be/fixture").is_ok());
-        assert!(validate_youtube_url("http://www.youtube.com/watch?v=fixture").is_err());
-        assert!(validate_youtube_url("https://example.com/video").is_err());
+    fn accepts_public_https_web_video_urls_and_rejects_local_targets() {
+        assert!(validate_web_video_url("https://www.youtube.com/watch?v=fixture").is_ok());
+        assert!(validate_web_video_url("https://example.com/video.mp4?token=fixture").is_ok());
+        assert!(validate_web_video_url("http://example.com/video").is_err());
+        assert!(validate_web_video_url("blob:https://example.com/fixture").is_err());
+        assert!(validate_web_video_url("https://localhost/video").is_err());
+        assert!(validate_web_video_url("https://127.0.0.1/video").is_err());
+        assert!(validate_web_video_url("https://10.0.0.8/video").is_err());
+        assert!(validate_web_video_url("https://[::1]/video").is_err());
+        assert!(validate_web_video_url("https://device.local/video").is_err());
+    }
+
+    #[test]
+    fn creates_stable_origin_scoped_web_video_cache_keys() {
+        let first = web_video_cache_key("https://media.example/a", "fixture");
+        assert_eq!(
+            first,
+            web_video_cache_key("https://media.example/a", "fixture")
+        );
+        assert_ne!(
+            first,
+            web_video_cache_key("https://media.example/b", "fixture")
+        );
+        assert!(first.starts_with("fixture-"));
     }
 
     #[test]
@@ -1104,7 +1232,7 @@ mod tests {
     }
 
     #[test]
-    fn caches_youtube_whisper_transcripts_beside_temporary_media() {
+    fn caches_web_video_whisper_transcripts_beside_temporary_media() {
         let directory = std::env::temp_dir().join(format!("lensquery-whisper-{}", Uuid::new_v4()));
         fs::create_dir_all(&directory).expect("create fixture directory");
         let source = directory.join("source.mp4");
@@ -1127,7 +1255,7 @@ mod tests {
             transcript_kind: Some("local-whisper".into()),
             transcription_status: Some("ready:local-whisper:base".into()),
         };
-        cache_youtube_whisper_transcript(&source, &preparation).expect("cache transcript");
+        cache_web_whisper_transcript(&source, &preparation).expect("cache transcript");
         let cached = directory.join("source.auto.whisper-base.vtt");
         assert!(cached.is_file());
         assert!(is_cached_whisper_subtitle(&cached));

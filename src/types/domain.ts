@@ -84,6 +84,7 @@ export interface BrowserContext {
   outputFormat?: OutputFormat
   hiddenContent?: HiddenContentEvidence[]
   hiddenContentScan?: HiddenContentScan
+  siteAnalysis?: BrowserSiteAnalysis
   media?: {
     kind: 'video' | 'audio'
     currentTime: number
@@ -91,6 +92,54 @@ export interface BrowserContext {
     source?: string
     paused: boolean
   }
+}
+
+export interface BrowserTechnologyEvidence {
+  name: string
+  category: 'framework' | 'platform' | 'ui' | 'analytics' | 'delivery' | 'build'
+  confidence: 'high' | 'medium' | 'low'
+  evidence: string[]
+}
+
+export interface BrowserSiteAnalysis {
+  technologies: BrowserTechnologyEvidence[]
+  scripts: string[]
+  stylesheets: string[]
+  meta: {
+    language?: string
+    doctype?: string
+    generator?: string
+    viewport?: string
+  }
+  structure: {
+    headings: number
+    landmarks: number
+    links: number
+    buttons: number
+    images: number
+    forms: number
+  }
+  accessibility: {
+    imagesWithoutAlt: number
+    buttonsWithoutName: number
+    inputsWithoutLabel: number
+  }
+  responsive: {
+    viewportConfigured: boolean
+    mediaQueries: string[]
+    gridElements: number
+    flexElements: number
+    sampledElements: number
+  }
+  selectedElementStyles?: Record<string, string>
+  resources: {
+    scripts: number
+    stylesheets: number
+    images: number
+    fonts: number
+    transferBytes?: number
+  }
+  coverage: string
 }
 
 export interface HiddenContentEvidence {
@@ -255,6 +304,7 @@ export interface ProviderProfile {
   name: string
   kind: ProviderKind
   model: string
+  reasoningEffort?: ReasoningEffort
   baseUrl?: string
   category?: 'agent' | 'cloud' | 'local' | 'custom'
   builtIn?: boolean

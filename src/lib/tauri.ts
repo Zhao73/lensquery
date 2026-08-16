@@ -62,6 +62,7 @@ const demoProviders: ProviderProfile[] = [
     name: 'OpenAI',
     kind: 'openai',
     model: 'gpt-5',
+    reasoningEffort: 'auto',
     ready: false,
     secretConfigured: false,
     capabilities: { vision: true, pdf: true, files: true, video: true, audioTranscription: true, streaming: true },
@@ -80,6 +81,7 @@ const demoProviders: ProviderProfile[] = [
     name: 'Codex CLI',
     kind: 'codex-cli',
     model: 'default',
+    reasoningEffort: 'auto',
     ready: false,
     secretConfigured: true,
     capabilities: { vision: true, pdf: false, files: false, video: true, audioTranscription: false, streaming: false },
@@ -473,6 +475,16 @@ export async function prepareYouTubeVideo(
   if (isElectronRuntime()) return invokeElectron<FileEvidence>('prepareYouTubeVideo', { url, maxFrames })
   if (isTauriRuntime()) return invoke<FileEvidence>('prepare_youtube_video', { url, maxFrames })
   throw new Error('浏览器预览不会下载或转写 YouTube 视频；请使用桌面版。')
+}
+
+export async function prepareWebVideo(
+  url: string,
+  sourceUrl?: string,
+  maxFrames = 24,
+): Promise<FileEvidence> {
+  if (isElectronRuntime()) return invokeElectron<FileEvidence>('prepareWebVideo', { url, sourceUrl, maxFrames })
+  if (isTauriRuntime()) return invoke<FileEvidence>('prepare_web_video', { url, sourceUrl, maxFrames })
+  throw new Error('浏览器预览不会下载或转写网页视频；请使用桌面版。')
 }
 
 export async function inspectEvidencePaths(paths: string[]): Promise<FileEvidence[]> {

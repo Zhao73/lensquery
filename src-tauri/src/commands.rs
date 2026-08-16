@@ -354,11 +354,19 @@ pub fn save_settings(
 
 #[tauri::command]
 pub fn save_provider(
-    profile: ProviderProfile,
+    mut profile: ProviderProfile,
     state: State<'_, AppState>,
 ) -> Result<ProviderProfile, String> {
     if profile.name.trim().is_empty() || profile.model.trim().is_empty() {
         return Err("模型名称和模型 ID 不能为空。".into());
+    }
+    let reasoning_supported = matches!(profile.kind.as_str(), "openai" | "codex-cli");
+    let reasoning_valid = profile
+        .reasoning_effort
+        .as_deref()
+        .is_some_and(|value| matches!(value, "auto" | "low" | "medium" | "high" | "xhigh"));
+    if !reasoning_supported || !reasoning_valid {
+        profile.reasoning_effort = Some("auto".into());
     }
     state
         .providers
@@ -460,6 +468,15 @@ pub async fn prepare_youtube_video(
     max_frames: Option<u32>,
 ) -> Result<crate::models::FileEvidence, String> {
     video::prepare_youtube(&url, max_frames).await
+}
+
+#[tauri::command]
+pub async fn prepare_web_video(
+    url: String,
+    source_url: Option<String>,
+    max_frames: Option<u32>,
+) -> Result<crate::models::FileEvidence, String> {
+    video::prepare_web(&url, source_url.as_deref(), max_frames).await
 }
 
 #[tauri::command]

@@ -63,6 +63,8 @@ struct PathPayload {
 struct UrlPayload {
     url: String,
     #[serde(default)]
+    source_url: Option<String>,
+    #[serde(default)]
     max_frames: Option<u32>,
 }
 
@@ -149,6 +151,17 @@ async fn dispatch(request: SidecarRequest) -> Result<Value, String> {
         "prepareYouTubeVideo" => {
             let payload: UrlPayload = decode(request.payload)?;
             encode(video::prepare_youtube(&payload.url, payload.max_frames).await?)
+        }
+        "prepareWebVideo" => {
+            let payload: UrlPayload = decode(request.payload)?;
+            encode(
+                video::prepare_web(
+                    &payload.url,
+                    payload.source_url.as_deref(),
+                    payload.max_frames,
+                )
+                .await?,
+            )
         }
         "inspectCaptureTarget" => {
             let payload: InspectTargetPayload = decode(request.payload)?;

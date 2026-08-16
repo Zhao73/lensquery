@@ -196,6 +196,48 @@ describe('Electron direct provider adapter', () => {
     expect(prompt).toContain('不作证明')
   })
 
+  it('passes website technology, layout, and coverage evidence without claiming source access', async () => {
+    let prompt = ''
+    await runDirectProvider({
+      profile: { id: 'custom', name: 'Custom', kind: 'compatible', model: 'MODEL', baseUrl: 'https://HOST/v1', apiKeyRequired: true, secretConfigured: true },
+      secret: 'TOKEN',
+      request: {
+        ...request,
+        promptId: 'website',
+        analysisMode: 'deep-dive',
+        browserContext: {
+          title: 'Fixture site',
+          url: 'https://example.test',
+          tagName: 'MAIN',
+          contextMenuKind: 'page',
+          siteAnalysis: {
+            technologies: [{ name: 'Next.js', category: 'framework', confidence: 'high', evidence: ['__NEXT_DATA__'] }],
+            scripts: ['https://example.test/_next/app.js'],
+            stylesheets: ['https://example.test/app.css'],
+            meta: { language: 'zh-CN', viewport: 'width=device-width' },
+            structure: { headings: 3, landmarks: 2, links: 12, buttons: 4, images: 5, forms: 1 },
+            accessibility: { imagesWithoutAlt: 1, buttonsWithoutName: 0, inputsWithoutLabel: 1 },
+            responsive: { viewportConfigured: true, mediaQueries: ['(max-width: 720px)'], gridElements: 2, flexElements: 8, sampledElements: 40 },
+            selectedElementStyles: { display: 'grid' },
+            resources: { scripts: 6, stylesheets: 2, images: 5, fonts: 2 },
+            coverage: '只覆盖已渲染 DOM，不包括服务端源码。',
+          },
+        },
+      },
+      settings,
+      fetchImpl: async (_url, options) => {
+        prompt = JSON.parse(options.body).messages.at(-1).content[0].text
+        return new Response(JSON.stringify({ model: 'MODEL', choices: [{ message: { content: '已分析。' } }] }), { status: 200 })
+      },
+    })
+
+    expect(prompt).toContain('网站前端技术证据')
+    expect(prompt).toContain('Next.js[framework/high]')
+    expect(prompt).toContain('可访问性快检')
+    expect(prompt).toContain('不得声称已获得服务端源码')
+    expect(prompt).toContain('只覆盖已渲染 DOM')
+  })
+
   it('uses Anthropic Messages headers and response blocks', async () => {
     let headers
     const result = await runDirectProvider({

@@ -116,6 +116,7 @@ function provider(id, name, kind, model, cli, vision, options = {}) {
     name,
     kind,
     model,
+    reasoningEffort: options.reasoningEffort || 'auto',
     baseUrl: options.baseUrl,
     category: options.category || (cli ? 'agent' : 'cloud'),
     builtIn: true,
@@ -613,7 +614,7 @@ async function invokeSidecar(method, payload = {}) {
     let stderr = ''
     const timeoutMs = method === 'analyze'
       ? 300_000
-      : method === 'prepareVideo' || method === 'prepareYouTubeVideo'
+      : method === 'prepareVideo' || method === 'prepareYouTubeVideo' || method === 'prepareWebVideo'
         ? 7_300_000
         : 45_000
     const timeout = setTimeout(() => {
@@ -792,6 +793,7 @@ function registerIpc() {
   handle('probeVideo', ({ path: sourcePath }) => invokeSidecar('probeVideo', { path: sourcePath }))
   handle('prepareVideo', ({ path: sourcePath, maxFrames }) => invokeSidecar('prepareVideo', { path: sourcePath, maxFrames }))
   handle('prepareYouTubeVideo', ({ url, maxFrames }) => invokeSidecar('prepareYouTubeVideo', { url, maxFrames }))
+  handle('prepareWebVideo', ({ url, sourceUrl, maxFrames }) => invokeSidecar('prepareWebVideo', { url, sourceUrl, maxFrames }))
   handle('openLocalPath', async ({ path: sourcePath }) => {
     if (typeof sourcePath !== 'string' || !path.isAbsolute(sourcePath) || !existsSync(sourcePath)) {
       throw new Error('视频文件已被移动或删除。')
@@ -912,6 +914,11 @@ function sanitizeProvider(input) {
   const name = String(input.name || '').trim().slice(0, 120)
   const model = String(input.model || '').trim().slice(0, 240)
   if (!name || !model) throw new Error('提供商名称和模型 ID 不能为空。')
+  const requestedReasoningEffort = String(input.reasoningEffort || 'auto')
+  const reasoningEffort = (kind === 'openai' || kind === 'codex-cli')
+    && ['auto', 'low', 'medium', 'high', 'xhigh'].includes(requestedReasoningEffort)
+    ? requestedReasoningEffort
+    : 'auto'
   const direct = ['openai', 'anthropic', 'compatible'].includes(kind)
   const apiKeyRequired = direct ? input.apiKeyRequired !== false : false
   const secretConfigured = Boolean(state.secrets[id])
@@ -922,6 +929,7 @@ function sanitizeProvider(input) {
     name,
     kind,
     model,
+    reasoningEffort,
     models: normalizeProviderModels(input.models, model),
     baseUrl: direct ? normalizeProviderBaseUrl(input.baseUrl) : undefined,
     category: direct ? (input.category === 'local' ? 'local' : input.category === 'custom' ? 'custom' : 'cloud') : 'agent',

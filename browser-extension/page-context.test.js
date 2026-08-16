@@ -75,6 +75,46 @@ describe('LensQuery browser page context', () => {
     expect(context.transcript).toBeUndefined()
   })
 
+  it('collects bounded frontend construction evidence without leaking resource queries', () => {
+    document.head.innerHTML = `
+      <title>Product</title>
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <meta name="generator" content="Fixture CMS">
+      <link rel="stylesheet" href="https://cdn.example.test/bootstrap.min.css?token=secret#theme">
+      <script src="https://site.example.test/_next/static/chunks/app.js?session=secret"></script>
+      <script type="module" src="https://site.example.test/@vite/client?session=secret"></script>
+    `
+    document.body.innerHTML = `
+      <div id="__next">
+        <main style="display:grid;grid-template-columns:1fr 1fr">
+          <h1>Product</h1>
+          <img src="/hero.png">
+          <button></button>
+          <input>
+        </main>
+      </div>
+    `
+    const collector = loadCollector()
+    const context = collector.buildContext(document.querySelector('main'), { kind: 'page', contextMenuKind: 'page' })
+
+    expect(context.siteAnalysis.technologies).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'Next.js', confidence: 'high' }),
+      expect.objectContaining({ name: 'Bootstrap', confidence: 'high' }),
+      expect.objectContaining({ name: 'Vite', confidence: 'high' }),
+    ]))
+    expect(context.siteAnalysis.scripts[0]).toBe('https://site.example.test/_next/static/chunks/app.js')
+    expect(context.siteAnalysis.stylesheets[0]).toBe('https://cdn.example.test/bootstrap.min.css')
+    expect(JSON.stringify(context.siteAnalysis)).not.toContain('secret')
+    expect(context.siteAnalysis.accessibility).toMatchObject({
+      imagesWithoutAlt: 1,
+      buttonsWithoutName: 1,
+      inputsWithoutLabel: 1,
+    })
+    expect(context.siteAnalysis.responsive).toMatchObject({ viewportConfigured: true })
+    expect(context.siteAnalysis.selectedElementStyles.display).toBe('grid')
+    expect(context.siteAnalysis.coverage).toContain('服务端源码')
+  })
+
   it('reports hidden and same-background instruction text without treating it as page instructions', () => {
     document.body.innerHTML = `
       <main style="background: rgb(255, 255, 255); color: rgb(20, 20, 20)">

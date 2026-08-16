@@ -200,6 +200,38 @@ fn validate_context(context: &BrowserContext) -> Result<(), String> {
         || context.hidden_content_scan.as_ref().is_some_and(|scan| {
             scan.scanned_elements > 6_000 || scan.coverage.chars().count() > 4_000
         })
+        || context.site_analysis.as_ref().is_some_and(|site| {
+            site.technologies.len() > 32
+                || site.scripts.len() > 32
+                || site.stylesheets.len() > 32
+                || site.responsive.media_queries.len() > 24
+                || site.selected_element_styles.len() > 24
+                || site.coverage.chars().count() > 4_000
+                || site.technologies.iter().any(|technology| {
+                    technology.name.chars().count() > 160
+                        || technology.category.chars().count() > 32
+                        || technology.confidence.chars().count() > 16
+                        || technology.evidence.len() > 6
+                        || technology
+                            .evidence
+                            .iter()
+                            .any(|value| value.chars().count() > 500)
+                })
+                || site
+                    .scripts
+                    .iter()
+                    .chain(site.stylesheets.iter())
+                    .any(|value| value.chars().count() > 2_048)
+                || site
+                    .responsive
+                    .media_queries
+                    .iter()
+                    .any(|value| value.chars().count() > 500)
+                || site
+                    .selected_element_styles
+                    .iter()
+                    .any(|(key, value)| key.chars().count() > 80 || value.chars().count() > 500)
+        })
     {
         return Err("浏览器上下文超出边界。".into());
     }
@@ -312,6 +344,7 @@ mod tests {
             output_format: None,
             hidden_content: vec![],
             hidden_content_scan: None,
+            site_analysis: None,
             media: None,
         };
         assert!(validate_context(&context).is_err());

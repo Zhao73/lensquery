@@ -183,6 +183,155 @@
     }
   }
 
+  function safeResourceUrl(value) {
+    if (!value) return ''
+    try {
+      const url = new URL(value, location.href)
+      if (!['http:', 'https:'].includes(url.protocol)) return ''
+      url.username = ''
+      url.password = ''
+      url.search = ''
+      url.hash = ''
+      return url.href.slice(0, 2_048)
+    } catch {
+      return ''
+    }
+  }
+
+  function collectSiteAnalysis(selected) {
+    const scripts = [...document.scripts]
+      .map((node) => safeResourceUrl(node.src))
+      .filter(Boolean)
+      .filter((value, index, values) => values.indexOf(value) === index)
+      .slice(0, 32)
+    const stylesheets = [...document.querySelectorAll('link[rel~="stylesheet"][href]')]
+      .map((node) => safeResourceUrl(node.href))
+      .filter(Boolean)
+      .filter((value, index, values) => values.indexOf(value) === index)
+      .slice(0, 32)
+    const generator = clean(document.querySelector('meta[name="generator" i]')?.content || '').slice(0, 240)
+    const viewport = clean(document.querySelector('meta[name="viewport" i]')?.content || '').slice(0, 500)
+    const resourceText = `${scripts.join(' ')} ${stylesheets.join(' ')}`.toLowerCase()
+    const technologies = []
+    const addTechnology = (name, category, confidence, evidence) => {
+      const values = evidence.map(clean).filter(Boolean).slice(0, 6)
+      if (!values.length || technologies.some((item) => item.name === name)) return
+      technologies.push({ name, category, confidence, evidence: values })
+    }
+
+    if (document.querySelector('#__next, script#__NEXT_DATA__') || resourceText.includes('/_next/')) addTechnology('Next.js', 'framework', 'high', ['发现 #__next / __NEXT_DATA__ 或 /_next/ 资源'])
+    if (document.querySelector('#__nuxt, [data-n-head]') || resourceText.includes('/_nuxt/')) addTechnology('Nuxt', 'framework', 'high', ['发现 #__nuxt、data-n-head 或 /_nuxt/ 资源'])
+    if (document.querySelector('[ng-version]')) addTechnology('Angular', 'framework', 'high', [`ng-version=${document.querySelector('[ng-version]')?.getAttribute('ng-version') || 'present'}`])
+    if (document.querySelector('[data-v-app], [data-vue-meta]') || /(?:^|[/.-])vue(?:[.-]|$)/.test(resourceText)) addTechnology('Vue', 'framework', document.querySelector('[data-v-app], [data-vue-meta]') ? 'high' : 'medium', ['发现 Vue DOM 标记或明确命名资源'])
+    if (document.querySelector('[data-reactroot], [data-reactid]') || /(?:^|[/.-])react(?:[.-]|$)/.test(resourceText)) addTechnology('React', 'framework', document.querySelector('[data-reactroot], [data-reactid]') ? 'high' : 'medium', ['发现 React DOM 标记或明确命名资源'])
+    if (document.querySelector('[data-sveltekit-preload-data], [data-svelte-h]') || resourceText.includes('/_app/immutable/')) addTechnology('SvelteKit / Svelte', 'framework', 'high', ['发现 SvelteKit / Svelte 标记或 _app/immutable 资源'])
+    if (document.querySelector('astro-island, astro-slot') || resourceText.includes('/_astro/')) addTechnology('Astro', 'framework', 'high', ['发现 Astro island 或 /_astro/ 资源'])
+    if (resourceText.includes('/@vite/client') || resourceText.includes('/@vite/') || document.querySelector('script[type="module"][src*="vite"]')) addTechnology('Vite', 'build', 'high', ['发现 @vite 客户端路径或明确命名的 Vite 模块资源'])
+    if (resourceText.includes('/wp-content/') || /wordpress/i.test(generator)) addTechnology('WordPress', 'platform', 'high', ['发现 wp-content 资源或 WordPress generator'])
+    if (resourceText.includes('cdn.shopify.com') || /shopify/i.test(generator) || globalThis.Shopify) addTechnology('Shopify', 'platform', 'high', ['发现 Shopify CDN、generator 或页面运行时'])
+    if (document.querySelector('[data-wf-page], [data-wf-site]') || /webflow/i.test(generator)) addTechnology('Webflow', 'platform', 'high', ['发现 Webflow data-wf 标记或 generator'])
+    if (/bootstrap(?:\.min)?\.(?:css|js)/.test(resourceText)) addTechnology('Bootstrap', 'ui', 'high', ['发现明确命名的 Bootstrap CSS / JavaScript'])
+    if (/tailwind(?:\.min)?\.(?:css|js)/.test(resourceText)) addTechnology('Tailwind CSS', 'ui', 'medium', ['发现明确命名的 Tailwind 资源；未据类名猜测'])
+    if (document.querySelector('style[data-emotion], [class*="Mui"]')) addTechnology('Emotion / Material UI', 'ui', 'medium', ['发现 data-emotion 或 Mui 类名'])
+    if (/googletagmanager\.com|google-analytics\.com/.test(resourceText)) addTechnology('Google Analytics / Tag Manager', 'analytics', 'high', ['发现 Google Analytics / Tag Manager 资源'])
+    if (/plausible\.io\/js/.test(resourceText)) addTechnology('Plausible Analytics', 'analytics', 'high', ['发现 plausible.io 脚本'])
+    if (resourceText.includes('/cdn-cgi/')) addTechnology('Cloudflare edge features', 'delivery', 'medium', ['发现 /cdn-cgi/ 资源；仅证明使用 Cloudflare 功能，不证明完整托管平台'])
+
+    const mediaQueries = []
+    for (const sheet of [...document.styleSheets].slice(0, 64)) {
+      try {
+        for (const rule of [...(sheet.cssRules || [])].slice(0, 2_000)) {
+          const condition = clean(rule.conditionText || '')
+          if (condition && !mediaQueries.includes(condition)) mediaQueries.push(condition.slice(0, 500))
+          if (mediaQueries.length >= 24) break
+        }
+      } catch {
+        // Cross-origin stylesheets do not expose cssRules.
+      }
+      if (mediaQueries.length >= 24) break
+    }
+
+    const sampledElements = [...document.querySelectorAll('body *')].slice(0, 2_000)
+    let gridElements = 0
+    let flexElements = 0
+    for (const element of sampledElements) {
+      const display = getComputedStyle(element).display
+      if (display.includes('grid')) gridElements += 1
+      if (display.includes('flex')) flexElements += 1
+    }
+    const selectedStyle = selected instanceof Element ? getComputedStyle(selected) : undefined
+    const selectedElementStyles = selectedStyle ? {
+      display: selectedStyle.display,
+      position: selectedStyle.position,
+      width: selectedStyle.width,
+      height: selectedStyle.height,
+      color: selectedStyle.color,
+      backgroundColor: selectedStyle.backgroundColor,
+      fontFamily: selectedStyle.fontFamily.slice(0, 500),
+      fontSize: selectedStyle.fontSize,
+      fontWeight: selectedStyle.fontWeight,
+      lineHeight: selectedStyle.lineHeight,
+      padding: selectedStyle.padding,
+      margin: selectedStyle.margin,
+      gap: selectedStyle.gap,
+      gridTemplateColumns: selectedStyle.gridTemplateColumns.slice(0, 500),
+      flexDirection: selectedStyle.flexDirection,
+    } : undefined
+
+    let transferBytes
+    try {
+      const entries = globalThis.performance?.getEntriesByType?.('resource') || []
+      const total = entries.reduce((sum, entry) => sum + (Number(entry.transferSize) || 0), 0)
+      if (total > 0) transferBytes = total
+    } catch {
+      // Resource Timing can be unavailable or privacy-restricted.
+    }
+
+    const allImages = [...document.images]
+    const allButtons = [...document.querySelectorAll('button, [role="button"]')]
+    const allInputs = [...document.querySelectorAll('input:not([type="hidden"]), textarea, select')]
+    return {
+      technologies: technologies.slice(0, 32),
+      scripts,
+      stylesheets,
+      meta: {
+        language: clean(document.documentElement.lang || '').slice(0, 80) || undefined,
+        doctype: document.doctype?.name ? `<!DOCTYPE ${document.doctype.name}>` : undefined,
+        generator: generator || undefined,
+        viewport: viewport || undefined,
+      },
+      structure: {
+        headings: document.querySelectorAll('h1, h2, h3, h4, h5, h6').length,
+        landmarks: document.querySelectorAll('main, nav, header, footer, aside, [role="main"], [role="navigation"], [role="banner"], [role="contentinfo"]').length,
+        links: document.querySelectorAll('a[href]').length,
+        buttons: allButtons.length,
+        images: allImages.length,
+        forms: document.forms.length,
+      },
+      accessibility: {
+        imagesWithoutAlt: allImages.filter((image) => !image.hasAttribute('alt')).length,
+        buttonsWithoutName: allButtons.filter((button) => !clean(accessibleName(button) || button.textContent)).length,
+        inputsWithoutLabel: allInputs.filter((input) => !clean(accessibleName(input) || input.getAttribute('placeholder'))).length,
+      },
+      responsive: {
+        viewportConfigured: Boolean(viewport),
+        mediaQueries,
+        gridElements,
+        flexElements,
+        sampledElements: sampledElements.length,
+      },
+      selectedElementStyles,
+      resources: {
+        scripts: document.scripts.length,
+        stylesheets: document.querySelectorAll('link[rel~="stylesheet"][href], style').length,
+        images: allImages.length,
+        fonts: document.fonts?.size || 0,
+        transferBytes,
+      },
+      coverage: '基于当前已渲染 DOM、可见资源 URL、同源可读 CSS 规则、Resource Timing 与选中元素计算样式。技术栈条目保留证据和置信度；不包括服务端源码、构建配置、跨域 CSS 内容、closed Shadow DOM 或未加载路由。',
+    }
+  }
+
   function elementText(element) {
     return clean(
       element?.innerText
@@ -571,6 +720,7 @@
       outputFormat: media ? 'summary' : 'adaptive',
       hiddenContent: hidden.items,
       hiddenContentScan: hidden.scan,
+      siteAnalysis: collectSiteAnalysis(element),
       media: media ? {
         kind: media.tagName.toLowerCase(),
         currentTime: Number(media.currentTime || 0),
@@ -582,7 +732,7 @@
     }
   }
 
-  const api = { buildContext, enrichContext, findTarget, textForScope }
+  const api = { buildContext, collectSiteAnalysis, enrichContext, findTarget, textForScope }
   window.__lensQueryPageContext = api
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {

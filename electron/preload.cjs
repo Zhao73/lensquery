@@ -36,6 +36,7 @@ const invokeChannels = new Set([
   'probeVideo',
   'prepareVideo',
   'prepareYouTubeVideo',
+  'prepareWebVideo',
   'openLocalPath',
   'inspectFiles',
   'pickEvidenceFiles',

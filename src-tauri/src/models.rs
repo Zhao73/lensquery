@@ -56,6 +56,8 @@ pub struct ProviderProfile {
     pub name: String,
     pub kind: String,
     pub model: String,
+    #[serde(default)]
+    pub reasoning_effort: Option<String>,
     pub base_url: Option<String>,
     pub ready: bool,
     pub secret_configured: bool,
@@ -114,6 +116,7 @@ impl ProviderProfile {
                 name: "OpenAI".into(),
                 kind: "openai".into(),
                 model: "gpt-5".into(),
+                reasoning_effort: Some("auto".into()),
                 base_url: Some("https://api.openai.com/v1".into()),
                 ready: false,
                 secret_configured: false,
@@ -134,6 +137,7 @@ impl ProviderProfile {
                 name: "Anthropic".into(),
                 kind: "anthropic".into(),
                 model: "claude-sonnet-4-5".into(),
+                reasoning_effort: Some("auto".into()),
                 base_url: Some("https://api.anthropic.com".into()),
                 ready: false,
                 secret_configured: false,
@@ -154,6 +158,7 @@ impl ProviderProfile {
                 name: "Codex CLI".into(),
                 kind: "codex-cli".into(),
                 model: "default".into(),
+                reasoning_effort: Some("auto".into()),
                 base_url: None,
                 ready: false,
                 secret_configured: false,
@@ -174,6 +179,7 @@ impl ProviderProfile {
                 name: "Claude Code".into(),
                 kind: "claude-cli".into(),
                 model: "default".into(),
+                reasoning_effort: Some("auto".into()),
                 base_url: None,
                 ready: false,
                 secret_configured: false,
@@ -194,6 +200,7 @@ impl ProviderProfile {
                 name: "OpenCode".into(),
                 kind: "opencode-cli".into(),
                 model: "default".into(),
+                reasoning_effort: Some("auto".into()),
                 base_url: None,
                 ready: false,
                 secret_configured: false,
@@ -214,6 +221,7 @@ impl ProviderProfile {
                 name: "Grok CLI".into(),
                 kind: "grok-cli".into(),
                 model: "grok-build".into(),
+                reasoning_effort: Some("auto".into()),
                 base_url: None,
                 ready: false,
                 secret_configured: false,
@@ -342,7 +350,87 @@ pub struct BrowserContext {
     pub hidden_content: Vec<HiddenContentEvidence>,
     #[serde(default)]
     pub hidden_content_scan: Option<HiddenContentScan>,
+    #[serde(default)]
+    pub site_analysis: Option<BrowserSiteAnalysis>,
     pub media: Option<BrowserMediaContext>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserTechnologyEvidence {
+    pub name: String,
+    pub category: String,
+    pub confidence: String,
+    #[serde(default)]
+    pub evidence: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserSiteAnalysis {
+    #[serde(default)]
+    pub technologies: Vec<BrowserTechnologyEvidence>,
+    #[serde(default)]
+    pub scripts: Vec<String>,
+    #[serde(default)]
+    pub stylesheets: Vec<String>,
+    pub meta: BrowserSiteMeta,
+    pub structure: BrowserSiteStructure,
+    pub accessibility: BrowserSiteAccessibility,
+    pub responsive: BrowserSiteResponsive,
+    #[serde(default)]
+    pub selected_element_styles: std::collections::HashMap<String, String>,
+    pub resources: BrowserSiteResources,
+    pub coverage: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserSiteMeta {
+    pub language: Option<String>,
+    pub doctype: Option<String>,
+    pub generator: Option<String>,
+    pub viewport: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserSiteStructure {
+    pub headings: u32,
+    pub landmarks: u32,
+    pub links: u32,
+    pub buttons: u32,
+    pub images: u32,
+    pub forms: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserSiteAccessibility {
+    pub images_without_alt: u32,
+    pub buttons_without_name: u32,
+    pub inputs_without_label: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserSiteResponsive {
+    pub viewport_configured: bool,
+    #[serde(default)]
+    pub media_queries: Vec<String>,
+    pub grid_elements: u32,
+    pub flex_elements: u32,
+    pub sampled_elements: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserSiteResources {
+    pub scripts: u32,
+    pub stylesheets: u32,
+    pub images: u32,
+    pub fonts: u32,
+    pub transfer_bytes: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

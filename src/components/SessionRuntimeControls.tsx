@@ -12,17 +12,10 @@ import type {
   QuerySession,
   ReasoningEffort,
 } from '../types/domain'
+import { providerDefaultReasoningEffort, providerSupportsReasoningEffort, reasoningOptions } from '../lib/providerRuntime'
 import { ProviderLogo } from './ProviderLogo'
 
 export type SessionRuntimeUpdate = Pick<QuerySession, 'providerId' | 'model' | 'reasoningEffort' | 'contextMode'>
-
-const reasoningOptions: Array<{ value: ReasoningEffort; label: string }> = [
-  { value: 'auto', label: '自动' },
-  { value: 'low', label: '低' },
-  { value: 'medium', label: '中' },
-  { value: 'high', label: '高' },
-  { value: 'xhigh', label: '极高' },
-]
 
 const contextOptions: Array<{ value: ContextMode; label: string }> = [
   { value: 'auto', label: '自动（最近 12 条）' },
@@ -41,7 +34,10 @@ export function SessionRuntimeControls(props: {
   const rootRef = useRef<HTMLDivElement>(null)
   const provider = props.provider
   const model = props.session.model ?? provider?.model ?? 'default'
-  const reasoning = props.session.reasoningEffort ?? 'auto'
+  const supportsReasoning = providerSupportsReasoningEffort(provider)
+  const reasoning = supportsReasoning
+    ? (props.session.reasoningEffort ?? providerDefaultReasoningEffort(provider))
+    : 'auto'
   const contextMode = props.session.contextMode ?? 'auto'
   const readyProviders = props.providers.filter((item) => item.ready || item.id === props.session.providerId)
   const contextCharacters = props.session.messages
@@ -101,7 +97,11 @@ export function SessionRuntimeControls(props: {
               value={props.session.providerId}
               onChange={(event) => {
                 const nextProvider = props.providers.find(({ id }) => id === event.target.value)
-                update({ providerId: event.target.value, model: nextProvider?.model ?? 'default' })
+                update({
+                  providerId: event.target.value,
+                  model: nextProvider?.model ?? 'default',
+                  reasoningEffort: providerDefaultReasoningEffort(nextProvider),
+                })
               }}
             >
               {readyProviders.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
@@ -126,7 +126,7 @@ export function SessionRuntimeControls(props: {
           </label>
           <label>
             <span><Brain size={15} /><i>思考强度</i></span>
-            <select aria-label="思考强度" value={reasoning} onChange={(event) => update({ reasoningEffort: event.target.value as ReasoningEffort })}>
+            <select aria-label="思考强度" disabled={!supportsReasoning} value={reasoning} onChange={(event) => update({ reasoningEffort: event.target.value as ReasoningEffort })}>
               {reasoningOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
             </select>
           </label>
@@ -136,7 +136,7 @@ export function SessionRuntimeControls(props: {
               {contextOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
             </select>
           </label>
-          <footer>证据文件与选区始终保留；「上下文」只控制历史对话。超长完整会话会在安全上限处截断。</footer>
+          <footer>{supportsReasoning ? '思考强度从下一条请求开始生效。' : '当前适配器未单独传递思考强度，由模型自身决定。'} 证据文件与选区始终保留；「上下文」只控制历史对话。</footer>
         </section>
       )}
     </div>

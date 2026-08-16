@@ -39,7 +39,7 @@ Canonical tokens live in `src/index.css`.
 - Settings use ruled groups rather than decorative cards.
 - Extensions use two quiet tabs (Plugins and Skills), a compact reviewed-source block, one install source row, a list with enable/audit/remove actions, and an explicit capability boundary. It is not an app-store gallery; the reviewed block is evidence-first rather than promotional.
 - Providers use one search field and restrained category filters over a flat, scannable directory. Built-ins, local endpoints, and custom profiles share the same row grammar instead of separate dashboards.
-- Each provider row uses the real vendor/product mark, an inline model selector, a small evidence-based discovery status, and one refresh action. Missing or partial catalogs remain visibly distinct from verified model lists; generic terminal/sparkle tiles are not used as provider identities.
+- Each provider row uses the real vendor/product mark, an inline exact-model selector, a quiet default-reasoning selector where the adapter actually forwards it, a small evidence-based discovery status, and one refresh action. Unsupported adapters show “model decides” instead of an active but ineffective effort control. Missing or partial catalogs remain visibly distinct from verified model lists; generic terminal/sparkle tiles are not used as provider identities.
 
 ## Components
 
