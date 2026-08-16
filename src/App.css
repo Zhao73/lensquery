@@ -108,50 +108,61 @@ kbd {
   background: color-mix(in srgb, var(--surface) 65%, transparent);
 }
 
-.sidebar-section-label { display: flex; align-items: center; justify-content: space-between; padding: 8px 16px 5px; color: var(--text-tertiary); font-size: 10px; }
+.sidebar-section-label { display: flex; min-height: 31px; align-items: center; justify-content: space-between; padding: 5px 10px 3px 16px; color: var(--text-tertiary); font-size: 10px; }
 .sidebar-section-label small { font-size: 9px; }
+.sidebar-section-actions { display: flex; align-items: center; gap: 5px; }
+.sidebar-section-menu-trigger,
+.session-row-menu-trigger,
+.conversation-actions-trigger {
+  display: inline-grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  color: var(--text-tertiary);
+  background: transparent;
+}
+.sidebar-section-menu-trigger:hover,
+.sidebar-section-menu-trigger[aria-expanded="true"],
+.session-row-menu-trigger:hover,
+.session-row-menu-trigger[aria-expanded="true"],
+.conversation-actions-trigger:hover,
+.conversation-actions-trigger[aria-expanded="true"] { color: var(--text); background: var(--surface-hover); }
 
 .search-box:focus-within { border-color: var(--focus); background: var(--surface); }
 .search-box input { min-width: 0; flex: 1; border: 0; outline: 0; color: var(--text); background: transparent; font-size: 13px; }
 
 .session-list { min-height: 0; flex: 1; overflow: auto; padding: 4px 8px 12px; }
+.session-row-shell { position: relative; border-radius: 8px; color: var(--text-secondary); }
+.session-row-shell:hover { background: var(--surface-hover); }
+.session-row-shell.selected { color: var(--text); background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent); }
 .session-row {
   display: grid;
   width: 100%;
   grid-template-columns: 24px minmax(0, 1fr);
   align-items: start;
   gap: 8px;
-  padding: 10px;
+  padding: 10px 40px 10px 10px;
   border: 0;
   border-radius: 8px;
-  color: var(--text-secondary);
+  color: inherit;
   background: transparent;
   text-align: left;
 }
-.session-row:hover { background: var(--surface-hover); }
-.session-row.selected { color: var(--text); background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent); }
 .session-row > svg { margin-top: 1px; }
 .session-row span { min-width: 0; }
 .session-row strong,
 .session-row small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .session-row strong { color: inherit; font-size: 13px; font-weight: 600; }
 .session-row small { margin-top: 4px; color: var(--text-tertiary); font-size: 11px; }
+.session-row-menu-trigger { position: absolute; z-index: 1; top: 7px; right: 6px; opacity: 0; }
+.session-row-shell:hover .session-row-menu-trigger,
+.session-row-shell.selected .session-row-menu-trigger,
+.session-row-shell:focus-within .session-row-menu-trigger { opacity: 1; }
 
 .sidebar-empty { padding: 22px 12px; color: var(--text-tertiary); font-size: 12px; text-align: center; }
-.clear-history {
-  display: flex;
-  min-height: 39px;
-  align-items: center;
-  gap: 7px;
-  margin: 0 8px 8px;
-  padding: 0 10px;
-  border: 0;
-  border-radius: 7px;
-  color: var(--text-tertiary);
-  background: transparent;
-  font-size: 12px;
-}
-.clear-history:hover { color: var(--danger); background: var(--danger-soft); }
 .sidebar-navigation { display: grid; gap: 2px; padding: 7px 8px 10px; border-top: 1px solid var(--line); }
 .sidebar-nav-item { display: flex; width: 100%; min-height: 34px; align-items: center; gap: 9px; padding: 0 10px; border: 0; border-radius: 7px; color: var(--text-secondary); background: transparent; font-size: 12px; text-align: left; }
 .sidebar-nav-item:hover { color: var(--text); background: var(--surface-hover); }
@@ -230,6 +241,56 @@ kbd {
 .conversation-titlebar > div { min-width: 0; }
 .conversation-titlebar h1 { overflow: hidden; margin: 0; color: var(--text); font-size: 19px; font-weight: 650; letter-spacing: -0.015em; text-overflow: ellipsis; white-space: nowrap; }
 .conversation-titlebar p { display: flex; align-items: center; gap: 7px; margin: 7px 0 0; overflow: hidden; color: var(--text-tertiary); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.conversation-actions-trigger { flex: 0 0 auto; margin-top: -5px; }
+
+.history-action-menu {
+  position: fixed;
+  z-index: 60;
+  width: 188px;
+  padding: 4px;
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  background: var(--surface);
+  box-shadow: 0 14px 38px rgb(15 23 42 / 0.20);
+}
+.history-action-menu button {
+  display: flex;
+  width: 100%;
+  min-height: 34px;
+  align-items: center;
+  gap: 9px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--text-secondary);
+  background: transparent;
+  font-size: 12px;
+  text-align: left;
+}
+.history-action-menu button:hover,
+.history-action-menu button:focus-visible { background: var(--surface-hover); }
+.history-action-menu button.danger { color: var(--danger); }
+.history-action-menu button.danger:hover,
+.history-action-menu button.danger:focus-visible { background: var(--danger-soft); }
+
+.delete-history-dialog {
+  width: min(408px, calc(100vw - 32px));
+  margin: auto;
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  color: var(--text);
+  background: var(--surface);
+  box-shadow: 0 24px 70px rgb(10 16 28 / 0.28);
+}
+.delete-history-dialog::backdrop { background: rgb(12 17 25 / 0.42); }
+.delete-history-copy { padding: 21px 22px 18px; }
+.delete-history-copy h2 { margin: 0; font-size: 16px; font-weight: 680; letter-spacing: -0.012em; }
+.delete-history-copy p { margin: 9px 0 0; color: var(--text-secondary); font-size: 12px; line-height: 1.65; overflow-wrap: anywhere; }
+.delete-history-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 14px; border-top: 1px solid var(--line); }
+.delete-history-actions button { min-width: 72px; min-height: 34px; padding: 0 13px; }
+.delete-confirm-button { display: inline-flex; align-items: center; justify-content: center; border: 1px solid #b3261e; border-radius: 8px; color: #fff; background: #b3261e; font-size: 12px; font-weight: 650; }
+.delete-confirm-button:hover { border-color: #971d17; background: #971d17; }
 
 .message-stream { min-height: 0; overflow-y: auto; padding: 26px clamp(24px, 8vw, 116px) 22px; scroll-behavior: smooth; scroll-padding-top: 24px; }
 .message { width: min(100%, 760px); margin: 0 auto 30px; }

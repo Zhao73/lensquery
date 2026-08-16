@@ -30,7 +30,7 @@ Canonical tokens live in `src/index.css`.
 ## Layout
 
 - Main window: 268px persistent sidebar plus a flexible workbench canvas. Below 820px the sidebar becomes a temporary drawer.
-- Sidebar: wordmark, new conversation, direct recognition action, search, recent local sessions, and bottom navigation for conversations, models, extensions, and settings.
+- Sidebar: wordmark, new conversation, direct recognition action, search, recent local sessions, and bottom navigation for conversations, models, extensions, and settings. Following the Codex history pattern, a session row reveals a three-dot action on hover, selection, or keyboard focus; right-click opens the same menu. Single-session deletion and the recent-section clear-all action always name the local impact and require confirmation.
 - Top bar: 52px with the current surface name, resident status, current provider, and a direct recognition action.
 - Conversation: source/title bar, centered message stream, persistent follow-up dock.
 - The follow-up dock exposes one quiet `provider · model` control. Its anchored menu contains provider, editable model ID, reasoning effort, and conversation-context scope; it does not navigate away from the conversation.
@@ -45,7 +45,7 @@ Canonical tokens live in `src/index.css`.
 
 - Controls use 7–12px corner radii according to size; no pills except tiny status semantics.
 - Borders communicate containment; a soft shadow is used only for the floating follow-up composer and drawers.
-- Session rows are flat and selected with a quiet blue field.
+- Session rows are flat and selected with a quiet blue field. Destructive history controls stay in the contextual three-dot menu rather than occupying a permanent row or title-bar trash icon.
 - Loading stays inline in the pending assistant message.
 - While a request is running, the composer send control changes in place to a Codex-style stop control; activating it or pressing Escape cancels the same task. The interface does not add a second competing cancel action beside the loading text.
 - Errors name the failed action and remain in the owning conversation or top status strip.

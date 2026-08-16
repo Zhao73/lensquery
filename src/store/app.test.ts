@@ -156,4 +156,28 @@ describe('app store', () => {
       content: '上次分析已中断。',
     })
   })
+
+  it('deletes one recent session, persists the removal, and selects the next session', () => {
+    useAppStore.getState().hydrate({
+      platform: 'darwin',
+      version: '0.1.0',
+      providers: [],
+      settings: defaultSettings,
+    })
+    const older = videoSession()
+    older.id = 'older-session'
+    older.updatedAt = '2026-08-15T00:00:00.000Z'
+    const newer = videoSession()
+    newer.id = 'newer-session'
+    newer.updatedAt = '2026-08-16T00:00:00.000Z'
+    useAppStore.getState().upsertSession(older)
+    useAppStore.getState().upsertSession(newer)
+
+    useAppStore.getState().removeSession('newer-session')
+
+    expect(useAppStore.getState().sessions.map(({ id }) => id)).toEqual(['older-session'])
+    expect(useAppStore.getState().activeSessionId).toBe('older-session')
+    const persisted = JSON.parse(localStorage.getItem('lensquery.sessions.v1') ?? '[]') as QuerySession[]
+    expect(persisted.map(({ id }) => id)).toEqual(['older-session'])
+  })
 })

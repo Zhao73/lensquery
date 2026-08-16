@@ -36,6 +36,11 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import { ProviderLogo } from './components/ProviderLogo'
+import {
+  DeleteHistoryDialog,
+  HistoryActionMenu,
+  HistoryMenuTrigger,
+} from './components/HistoryActions'
 import { SessionVideoPlayer, type VideoSeekRequest } from './components/SessionVideoPlayer'
 import { SessionRuntimeControls, type SessionRuntimeUpdate } from './components/SessionRuntimeControls'
 import { VideoTimestampMarkdown } from './components/VideoTimestampMarkdown'
@@ -43,6 +48,7 @@ import { AUTO_ANALYSIS_MODE, AUTO_ANALYSIS_PROMPT_ID, AUTO_ANALYSIS_QUESTION, AU
 import { isRegionDrag } from './lib/captureSelection'
 import { evidenceAccept, formatBytes, formatDuration, normalizeBrowserFiles, supportsAiOriginAnalysis } from './lib/files'
 import { resolveSessionVideo } from './lib/media'
+import { fitHistoryMenuPosition, type HistoryDeleteTarget, type HistoryMenuState } from './lib/historyActions'
 import { providerDefaultReasoningEffort, providerSupportsReasoningEffort, reasoningOptions } from './lib/providerRuntime'
 import {
   analyze,
@@ -266,7 +272,10 @@ function ConversationApp() {
   const [error, setError] = useState('')
   const [captureStatus, setCaptureStatus] = useState('')
   const [filter, setFilter] = useState('')
+  const [historyMenu, setHistoryMenu] = useState<HistoryMenuState | null>(null)
+  const [deleteHistoryTarget, setDeleteHistoryTarget] = useState<HistoryDeleteTarget | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const historyMenuReturnFocusRef = useRef<HTMLButtonElement | null>(null)
   const cancelledAnalysisIdsRef = useRef(new Set<string>())
   const sessionsRef = useRef(sessions)
   sessionsRef.current = sessions
@@ -299,6 +308,31 @@ function ConversationApp() {
     window.addEventListener('keydown', closeOnEscape)
     return () => window.removeEventListener('keydown', closeOnEscape)
   }, [isNarrow, sidebarOpen])
+
+  useEffect(() => {
+    if (!historyMenu) return
+    const closeForOutsidePointer = (event: PointerEvent) => {
+      const target = event.target
+      if (target instanceof Element && (target.closest('.history-action-menu') || target.closest('[data-history-menu-trigger]'))) return
+      setHistoryMenu(null)
+    }
+    const closeForEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      setHistoryMenu(null)
+      historyMenuReturnFocusRef.current?.focus()
+    }
+    const closeForViewportChange = () => setHistoryMenu(null)
+    document.addEventListener('pointerdown', closeForOutsidePointer, true)
+    document.addEventListener('scroll', closeForViewportChange, true)
+    window.addEventListener('resize', closeForViewportChange)
+    window.addEventListener('keydown', closeForEscape)
+    return () => {
+      document.removeEventListener('pointerdown', closeForOutsidePointer, true)
+      document.removeEventListener('scroll', closeForViewportChange, true)
+      window.removeEventListener('resize', closeForViewportChange)
+      window.removeEventListener('keydown', closeForEscape)
+    }
+  }, [historyMenu])
 
   const selectedProvider = useMemo(
     () => providers.find(({ id, ready: isReady }) => id === settings?.defaultProviderId && isReady)
@@ -519,6 +553,51 @@ function ConversationApp() {
     }
   }
 
+  function openHistoryMenu(
+    target: HistoryDeleteTarget,
+    origin: string,
+    point: { x: number; y: number },
+    returnFocus?: HTMLButtonElement | null,
+  ) {
+    historyMenuReturnFocusRef.current = returnFocus ?? null
+    setHistoryMenu({ target, origin, ...fitHistoryMenuPosition(point.x, point.y) })
+  }
+
+  function openHistoryMenuFromButton(target: HistoryDeleteTarget, origin: string, event: React.MouseEvent<HTMLButtonElement>) {
+    event.stopPropagation()
+    if (historyMenu?.origin === origin) {
+      setHistoryMenu(null)
+      return
+    }
+    const bounds = event.currentTarget.getBoundingClientRect()
+    openHistoryMenu(target, origin, { x: bounds.right, y: bounds.bottom + 4 }, event.currentTarget)
+  }
+
+  function requestHistoryDeletion(target: HistoryDeleteTarget) {
+    setHistoryMenu(null)
+    setDeleteHistoryTarget(target)
+  }
+
+  function cancelHistoryDeletion() {
+    setDeleteHistoryTarget(null)
+    window.requestAnimationFrame(() => historyMenuReturnFocusRef.current?.focus())
+  }
+
+  function confirmHistoryDeletion(target: HistoryDeleteTarget) {
+    if (target.kind === 'all') {
+      sessionsRef.current.forEach(cancelSessionTasks)
+      clearSessions()
+    } else {
+      const session = sessionsRef.current.find(({ id }) => id === target.id)
+      if (session) cancelSessionTasks(session)
+      removeSession(target.id)
+    }
+    setDeleteHistoryTarget(null)
+    window.requestAnimationFrame(() => {
+      document.querySelector<HTMLButtonElement>('.session-row, .new-session-button')?.focus()
+    })
+  }
+
   useEffect(() => {
     let disposeAnalysisCancellation: (() => void) | undefined
     void listenForAnalysisCancellation(({ analysisId }) => {
@@ -689,28 +768,57 @@ function ConversationApp() {
               <input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="搜索会话" aria-label="搜索会话" />
             </div>
           </div>
-          <div className="sidebar-section-label"><span>最近会话</span><small>{visibleSessions.length}</small></div>
+          <div className="sidebar-section-label">
+            <span>最近会话</span>
+            <span className="sidebar-section-actions">
+              <small>{visibleSessions.length}</small>
+              {sessions.length > 0 && (
+                <HistoryMenuTrigger
+                  label="管理最近会话"
+                  expanded={historyMenu?.origin === 'all'}
+                  className="sidebar-section-menu-trigger"
+                  onClick={(event) => openHistoryMenuFromButton({ kind: 'all', count: sessions.length }, 'all', event)}
+                />
+              )}
+            </span>
+          </div>
           <div className="session-list">
             {visibleSessions.length ? visibleSessions.map((session) => (
-              <button
-                type="button"
-                className={session.id === activeSessionId ? 'session-row selected' : 'session-row'}
+              <div
+                className={session.id === activeSessionId ? 'session-row-shell selected' : 'session-row-shell'}
                 key={session.id}
-                onClick={() => {
-                  setActiveSession(session.id)
-                  if (isNarrow) setSidebarOpen(false)
+                onContextMenu={(event) => {
+                  event.preventDefault()
+                  openHistoryMenu(
+                    { kind: 'session', id: session.id, title: session.title },
+                    `row:${session.id}`,
+                    { x: event.clientX, y: event.clientY },
+                    event.currentTarget.querySelector<HTMLButtonElement>('.session-row-menu-trigger'),
+                  )
                 }}
               >
-                <SourceIcon kind={session.sourceKind} />
-                <span><strong>{session.title}</strong><small>{relativeTime(session.updatedAt)} · {session.sourceLabel}</small></span>
-              </button>
+                <button
+                  type="button"
+                  className="session-row"
+                  onClick={() => {
+                    setActiveSession(session.id)
+                    if (isNarrow) setSidebarOpen(false)
+                  }}
+                >
+                  <SourceIcon kind={session.sourceKind} />
+                  <span><strong>{session.title}</strong><small>{relativeTime(session.updatedAt)} · {session.sourceLabel}</small></span>
+                </button>
+                <HistoryMenuTrigger
+                  label={`管理会话：${session.title}`}
+                  expanded={historyMenu?.origin === `row:${session.id}`}
+                  className="session-row-menu-trigger"
+                  onClick={(event) => openHistoryMenuFromButton({ kind: 'session', id: session.id, title: session.title }, `row:${session.id}`, event)}
+                />
+              </div>
             )) : (
               <div className="sidebar-empty">按快捷键开始第一条查询。</div>
             )}
           </div>
-          {sessions.length > 0 && (
-            <button type="button" className="clear-history" onClick={() => { sessions.forEach(cancelSessionTasks); clearSessions() }}><Trash size={15} />清空本地记录</button>
-          )}
           <nav className="sidebar-navigation" aria-label="主导航">
             {navigation.map((item) => {
               const Icon = item.icon
@@ -752,7 +860,8 @@ function ConversationApp() {
               onFollowUp={setFollowUp}
               onSubmit={submitFollowUp}
               onQuickAsk={(question) => { void submitFollowUp(question) }}
-              onDelete={() => { cancelSessionTasks(activeSession); removeSession(activeSession.id) }}
+              onOpenActions={(event) => openHistoryMenuFromButton({ kind: 'session', id: activeSession.id, title: activeSession.title }, `header:${activeSession.id}`, event)}
+              actionsExpanded={historyMenu?.origin === `header:${activeSession.id}`}
               onCancel={(analysisId) => cancelRunningAnalysis(activeSession, analysisId)}
               onRetry={() => {
                 const lastQuestion = [...activeSession.messages].reverse().find(({ role }) => role === 'user')?.content
@@ -800,6 +909,14 @@ function ConversationApp() {
           event.currentTarget.value = ''
         }}
       />
+      {historyMenu && <HistoryActionMenu state={historyMenu} onRequestDelete={requestHistoryDeletion} />}
+      {deleteHistoryTarget && (
+        <DeleteHistoryDialog
+          target={deleteHistoryTarget}
+          onCancel={cancelHistoryDeletion}
+          onConfirm={confirmHistoryDeletion}
+        />
+      )}
     </div>
   )
 }
@@ -812,7 +929,8 @@ function ConversationView(props: {
   onFollowUp: (value: string) => void
   onSubmit: () => void
   onQuickAsk: (question: string) => void
-  onDelete: () => void
+  onOpenActions: (event: React.MouseEvent<HTMLButtonElement>) => void
+  actionsExpanded: boolean
   onCancel: (analysisId: string) => void
   onRetry: () => void
   onRuntimeChange: (update: SessionRuntimeUpdate) => void
@@ -848,7 +966,12 @@ function ConversationView(props: {
           <h1>{props.session.title}</h1>
           <p><SourceIcon kind={props.session.sourceKind} />{props.session.sourceLabel}<span>·</span>自动扫描<span>·</span>智能回复<span>·</span>{props.provider?.name ?? '模型'}<span>·</span>{formatFullTime(props.session.createdAt)}</p>
         </div>
-        <button type="button" className="icon-button" onClick={props.onDelete} aria-label="删除会话"><Trash size={18} /></button>
+        <HistoryMenuTrigger
+          label="会话操作"
+          expanded={props.actionsExpanded}
+          className="conversation-actions-trigger"
+          onClick={props.onOpenActions}
+        />
       </header>
       <div className="message-stream" ref={streamRef}>
         {hasVideo && <SessionVideoPlayer key={props.session.id} session={props.session} seekRequest={videoSeekRequest} />}
