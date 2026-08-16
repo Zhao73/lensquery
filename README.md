@@ -167,3 +167,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). Security reports belong in a private Git
 ## License
 
 [MIT](LICENSE)
+
+### Global and undisclosed watermark coverage
+
+LensQuery pins the official C2PA soft-binding algorithm directory and displays its 48 registered algorithms, media compatibility, declared `c2pa.soft-binding` algorithms, and available public resolvers. It also runs a bounded, separate blind-signal layer for private container chunks, marker strings, transparent-pixel payloads, bit planes, and forensic derivatives. Blind candidates never become an AI-origin verdict without attribution. EU and Chinese marking evidence are presented as separate technical layers rather than a universal compliance badge. The architecture, impossibility boundary, current registry counts, and Seedance 2.0/2.5 blind-control experiment are documented in [`docs/GLOBAL_WATERMARK_RESEARCH.md`](docs/GLOBAL_WATERMARK_RESEARCH.md).

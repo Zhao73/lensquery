@@ -219,3 +219,11 @@ Disposable raw evidence:
 - `/tmp/lensquery-seedance-blind-20260816.8jMd5s/results/contact-sheet.jpg`
 
 Product consequence: LensQuery can report a positive machine-verifiable origin only when the delivered file still carries a valid trusted credential or a matching issuer verifier returns a positive result. It may additionally expose visible marks, unsigned declarations, and visual likelihood, but it must not convert their absence into “human-made,” recover a missing original prompt exactly, or claim that it has read every proprietary watermark.
+
+## Global directory and undisclosed-signal blind run — 2026-08-16
+
+LensQuery now pins the official C2PA soft-binding registry at `e69956c68556788f0c3f52fef9c2ba42d9904964`: 48 algorithms, 39 watermarks, 9 fingerprints, 27 decoded-image matches, 22 decoded-video matches, and 6 entries publishing resolution APIs across 4 unique endpoints. The client displays directory awareness separately from decoder success and does not contact resolvers without future explicit opt-in.
+
+A new blind layer scans private PNG chunks, bounded watermark-related markers, top-level MP4 UUID boxes, non-zero RGB hidden below full transparency, least-significant-bit balance, contrast stretch, and local background differences. Its statuses are `candidate-observed`, `no-observable-anomaly`, and `limited`; none alters `aiOriginStatus`.
+
+The fixed-pattern discovery run used 5 official Seedance 2.0 videos, 4 official Seedance 2.5 videos, 5 NASA controls, five frames per video, 5,000 same-size random-subset permutations, and H.264 CRF 28 re-encoding. Seedance 2.0 returned coherence `0.00858`, `p=0.1236`; Seedance 2.5 returned `0.00248`, `p=0.3791`; NASA controls returned `0.01022`, `p=0.1040`. No group passed the predeclared `p<0.01` and null-p99 gate. Therefore no robust fixed spatial or decoded-LSB watermark was discovered in this sample; all tested Seedance files remain `insufficient-evidence`, not “watermark absent.” Full protocol: [`GLOBAL_WATERMARK_RESEARCH.md`](GLOBAL_WATERMARK_RESEARCH.md).

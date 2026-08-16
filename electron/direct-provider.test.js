@@ -108,7 +108,38 @@ describe('Electron direct provider adapter', () => {
               digitalSourceTypes: ['trainedAlgorithmicMedia'],
               softwareAgents: ['gpt-image'],
               actions: ['c2pa.created'],
+              softBindings: [{
+                algorithm: 'com.aiwatermark.pixelseal.1',
+                registryIdentifier: 31,
+                bindingType: 'watermark',
+                blockCount: 1,
+                resolutionApis: ['https://aiwatermark.com/api/v1'],
+              }],
               validationWarnings: [],
+            },
+            watermarkCoverage: {
+              registrySource: 'https://github.com/c2pa-org/softbinding-algorithm-list',
+              registryCommit: 'REGISTRY_COMMIT',
+              registeredAlgorithms: 48,
+              registeredWatermarks: 39,
+              registeredFingerprints: 9,
+              compatibleAlgorithms: 27,
+              publicResolutionApis: 4,
+              locallyChecked: ['C2PA', 'TC260', '盲检'],
+              regulatoryEvidence: [{
+                jurisdiction: '欧盟',
+                framework: 'AI Act Article 50',
+                status: 'two-layer-evidence-observed',
+                evidence: '双层证据已观察',
+                caveat: '不是法律结论',
+              }],
+              caveat: '目录已知不等于解码成功',
+            },
+            undisclosedWatermarkScan: {
+              status: 'candidate-observed',
+              methods: ['容器扫描'],
+              observations: ['发现未登记私有块'],
+              caveat: '候选不是 AI 来源证明',
             },
           },
         }],
@@ -128,6 +159,11 @@ describe('Electron direct provider adapter', () => {
     expect(prompt).toContain('a cobalt reading lens on a quiet desktop')
     expect(prompt).toContain('提示词恢复状态：verified-exact')
     expect(prompt).toContain('取证增强图')
+    expect(prompt).toContain('com.aiwatermark.pixelseal.1#31')
+    expect(prompt).toContain('全球水印目录覆盖')
+    expect(prompt).toContain('目录已知不等于解码成功')
+    expect(prompt).toContain('未公开水印盲检')
+    expect(prompt).toContain('发现未登记私有块')
     expect(prompt).toContain('insufficient-evidence')
     expect(prompt).not.toContain('possible-ai-inference')
   })

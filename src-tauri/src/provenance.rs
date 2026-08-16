@@ -1,7 +1,9 @@
 use std::{
+    collections::BTreeSet,
     fs::File,
     io::{BufReader, Cursor, Read, Seek, SeekFrom, Write},
     path::Path,
+    sync::OnceLock,
 };
 
 use c2pa::{Context, Ingredient, Manifest, Reader, Relationship, Settings, ValidationState};
@@ -12,10 +14,15 @@ use uuid::Uuid;
 
 use crate::models::{
     C2paEvidence, ForensicVariant, ImageProvenance, MetadataEvidence, PromptEvidence,
+    RegulatoryMarkEvidence, SoftBindingEvidence, UndisclosedWatermarkScan, WatermarkCoverage,
 };
 
 const C2PA_TRUST_ANCHORS: &str = include_str!("../resources/c2pa/C2PA-TRUST-LIST.pem");
 const C2PA_TSA_TRUST_ANCHORS: &str = include_str!("../resources/c2pa/C2PA-TSA-TRUST-LIST.pem");
+const SOFT_BINDING_ALGORITHM_LIST: &str =
+    include_str!("../resources/c2pa/softbinding-algorithm-list.json");
+const SOFT_BINDING_REGISTRY_SOURCE: &str = "https://github.com/c2pa-org/softbinding-algorithm-list";
+const SOFT_BINDING_REGISTRY_COMMIT: &str = "e69956c68556788f0c3f52fef9c2ba42d9904964";
 const IMAGE_DETECTOR_COVERAGE: &str = "已在本机验证文件内嵌 C2PA Content Credentials 的文件绑定、签名和发行方信任，并自动读取 C2PA 标准提示词原料、PNG prompt/parameters/workflow 元数据，以及带 TC260 命名空间的 GB 45438-2025 AIGC 文件元数据；不联网获取远程 manifest。TC260 AIGC 字段是可移除、可伪造的来源声明，未单独验证 ReservedCode 完整性保护，不能替代签名凭证或厂商水印检测。同时读取常见 EXIF，并生成亮度拉伸、局部差分和 Alpha 通道取证图。这些变换可显示低对比度或透明度中仍存在的像素信号；已经完全压平且与背景像素完全相同的内容没有可恢复信息。厂商 SynthID 等不可见水印只在对应官方验证器可用时才能独立确认。未发现信号不证明内容由人类创作。";
 const VIDEO_DETECTOR_COVERAGE: &str = "已在本机验证视频容器中内嵌 C2PA Content Credentials 的文件绑定、签名和发行方信任，不联网获取远程 manifest；同时读取 FFprobe 容器、编码器、时间信息和 GB 45438-2025/TC260 AIGC 文件元数据。TC260 AIGC 字段是可移除、可伪造的来源声明，未单独验证 ReservedCode 完整性保护，不能替代签名凭证或厂商水印检测。画面推断仅覆盖已抽取的带时间点关键帧；厂商 SynthID、TikTok/字节跳动私有水印和 AI MediaKit 暗水印，只在对应官方验证器与正确水印配置可用时才能独立确认。未发现信号不证明视频不是 AI 生成。";
 const DOCUMENT_DETECTOR_COVERAGE: &str = "已自动检查文档是否包含可验证的 C2PA Content Credentials 及其标准提示词原料。普通复制文字没有跨厂商通用的公开水印；SynthID Text 等检测需要与生成时相同的私有配置或厂商验证器。文风、困惑度或所谓 AI 味只是统计推断，不作来源证明。";
@@ -24,6 +31,30 @@ const MAX_PROMPT_BYTES: usize = MAX_PROMPT_CHARS * 4;
 const MAX_PROMPT_RECORDS: usize = 12;
 const MAX_PNG_METADATA_CHUNK_BYTES: usize = 4 * 1024 * 1024;
 const MAX_TC260_XMP_SCAN_BYTES: usize = 32 * 1024 * 1024;
+const MAX_WATERMARK_STRING_SCAN_BYTES: usize = 16 * 1024 * 1024;
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SoftBindingRegistryEntry {
+    identifier: u16,
+    alg: String,
+    #[serde(rename = "type")]
+    binding_type: String,
+    #[serde(default)]
+    decoded_media_types: Vec<String>,
+    #[serde(default)]
+    encoded_media_types: Vec<String>,
+    entry_metadata: SoftBindingRegistryMetadata,
+    #[serde(default)]
+    soft_binding_resolution_apis: Vec<String>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SoftBindingRegistryMetadata {
+    description: String,
+    informational_url: String,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Tc260AigcEvidence {
@@ -104,6 +135,8 @@ pub fn inspect_document(path: &str) -> Option<ImageProvenance> {
         Some((evidence, prompts)) => (Some(evidence), prompts),
         None => (None, Vec::new()),
     };
+    let watermark_coverage = Some(build_watermark_coverage("application", c2pa.as_ref(), None));
+    let undisclosed_watermark_scan = Some(scan_undisclosed_watermarks(path, false, c2pa.as_ref()));
     Some(ImageProvenance {
         ai_origin_status: Some(origin_status(c2pa.as_ref(), None).into()),
         c2pa,
@@ -113,6 +146,8 @@ pub fn inspect_document(path: &str) -> Option<ImageProvenance> {
         forensic_variants: Vec::new(),
         prompt_recovery_status: Some(prompt_recovery_status(&prompt_evidence).into()),
         prompt_evidence,
+        watermark_coverage,
+        undisclosed_watermark_scan,
         detector_coverage: DOCUMENT_DETECTOR_COVERAGE.into(),
     })
 }
@@ -188,6 +223,20 @@ fn inspect_media(
     } else {
         Vec::new()
     };
+    let watermark_coverage = Some(build_watermark_coverage(
+        if include_image_forensics {
+            "image"
+        } else {
+            "video"
+        },
+        c2pa.as_ref(),
+        tc260_aigc.as_ref(),
+    ));
+    let undisclosed_watermark_scan = Some(scan_undisclosed_watermarks(
+        path,
+        include_image_forensics,
+        c2pa.as_ref(),
+    ));
     Some(ImageProvenance {
         c2pa,
         metadata,
@@ -197,6 +246,8 @@ fn inspect_media(
         forensic_variants,
         prompt_recovery_status: Some(prompt_recovery_status(&prompt_evidence).into()),
         prompt_evidence,
+        watermark_coverage,
+        undisclosed_watermark_scan,
         detector_coverage: if include_image_forensics {
             IMAGE_DETECTOR_COVERAGE
         } else {
@@ -820,6 +871,354 @@ fn tc260_metadata_evidence(evidence: &Tc260AigcEvidence) -> Vec<MetadataEvidence
     metadata
 }
 
+fn soft_binding_registry() -> &'static [SoftBindingRegistryEntry] {
+    static REGISTRY: OnceLock<Vec<SoftBindingRegistryEntry>> = OnceLock::new();
+    REGISTRY
+        .get_or_init(|| serde_json::from_str(SOFT_BINDING_ALGORITHM_LIST).unwrap_or_default())
+        .as_slice()
+}
+
+fn build_watermark_coverage(
+    media_kind: &str,
+    c2pa: Option<&C2paEvidence>,
+    tc260_aigc: Option<&Tc260AigcEvidence>,
+) -> WatermarkCoverage {
+    let registry = soft_binding_registry();
+    let compatible_algorithms = registry
+        .iter()
+        .filter(|entry| {
+            entry
+                .decoded_media_types
+                .iter()
+                .any(|value| value == media_kind)
+                || entry.encoded_media_types.iter().any(|value| {
+                    value
+                        .split_once('/')
+                        .is_some_and(|(top_level, _)| top_level == media_kind)
+                })
+        })
+        .count();
+    let resolution_apis = registry
+        .iter()
+        .flat_map(|entry| entry.soft_binding_resolution_apis.iter().cloned())
+        .collect::<BTreeSet<_>>();
+    let watermark_declared = c2pa.is_some_and(|evidence| {
+        evidence.embedded_watermark_declared
+            || evidence
+                .soft_bindings
+                .iter()
+                .any(|binding| binding.binding_type.as_deref() == Some("watermark"))
+    });
+    let signed_metadata = c2pa.is_some_and(|evidence| evidence.validation_state != "invalid");
+    let eu_status = match (signed_metadata, watermark_declared) {
+        (true, true) => "two-layer-evidence-observed",
+        (true, false) => "signed-metadata-only",
+        (false, true) => "watermark-declaration-only",
+        (false, false) => "not-observed",
+    };
+    let eu_evidence = match eu_status {
+        "two-layer-evidence-observed" => {
+            "观察到有效 C2PA 文件绑定，并在签名流程中观察到水印动作或软绑定算法声明。"
+        }
+        "signed-metadata-only" => "观察到有效 C2PA 文件绑定，未观察到水印动作或软绑定算法声明。",
+        "watermark-declaration-only" => "观察到水印声明，但没有同时建立有效的签名元数据层。",
+        _ => "没有观察到可验证的 C2PA 元数据或已声明的软绑定水印算法。",
+    };
+    let (cn_status, cn_evidence) = match tc260_aigc {
+        Some(evidence) => (
+            "tc260-metadata-observed",
+            format!(
+                "观察到 GB 45438-2025/TC260 AIGC Label={}（{}）。",
+                evidence.label,
+                tc260_label_description(&evidence.label)
+            ),
+        ),
+        None => (
+            "not-observed",
+            "没有观察到 LensQuery 当前支持的 TC260 AIGC JSON/XMP/容器字段。".into(),
+        ),
+    };
+    WatermarkCoverage {
+        registry_source: SOFT_BINDING_REGISTRY_SOURCE.into(),
+        registry_commit: SOFT_BINDING_REGISTRY_COMMIT.into(),
+        registered_algorithms: registry.len(),
+        registered_watermarks: registry
+            .iter()
+            .filter(|entry| entry.binding_type == "watermark")
+            .count(),
+        registered_fingerprints: registry
+            .iter()
+            .filter(|entry| entry.binding_type == "fingerprint")
+            .count(),
+        compatible_algorithms,
+        public_resolution_apis: resolution_apis.len(),
+        locally_checked: vec![
+            "C2PA 文件绑定、签名与信任链".into(),
+            "C2PA 软绑定算法标识".into(),
+            "GB 45438-2025/TC260 AIGC 文件元数据".into(),
+            "容器私有块、可见字符串与图像透明像素盲检".into(),
+        ],
+        regulatory_evidence: vec![
+            RegulatoryMarkEvidence {
+                jurisdiction: "欧盟".into(),
+                framework: "AI Act Article 50 / AI-generated content Code of Practice".into(),
+                status: eu_status.into(),
+                evidence: eu_evidence.into(),
+                caveat: "这是技术证据覆盖状态，不是对主体、地域、例外条款或最终合规性的法律判断。".into(),
+            },
+            RegulatoryMarkEvidence {
+                jurisdiction: "中国".into(),
+                framework: "GB 45438-2025 / TC260 AIGC 标识".into(),
+                status: cn_status.into(),
+                evidence: cn_evidence,
+                caveat: "TC260 字段可被移除或伪造；ReservedCode 尚未由 LensQuery 独立验签。".into(),
+            },
+        ],
+        caveat: "目录覆盖表示 LensQuery 知道这些算法标识，不等于本机拥有全部私有解码密钥或厂商模型。远程解析器默认不调用，避免把文件静默上传给第三方。".into(),
+    }
+}
+
+fn soft_binding_evidence(value: &serde_json::Value) -> Option<SoftBindingEvidence> {
+    let algorithm = value
+        .get("alg")
+        .or_else(|| value.get("algorithm"))
+        .and_then(serde_json::Value::as_str)?
+        .to_string();
+    let block_count = value
+        .get("blocks")
+        .and_then(serde_json::Value::as_array)
+        .map_or(0, Vec::len);
+    let entry = soft_binding_registry()
+        .iter()
+        .find(|entry| entry.alg == algorithm);
+    Some(match entry {
+        Some(entry) => SoftBindingEvidence {
+            algorithm,
+            registry_identifier: Some(entry.identifier),
+            binding_type: Some(entry.binding_type.clone()),
+            block_count,
+            description: Some(entry.entry_metadata.description.clone()),
+            informational_url: Some(entry.entry_metadata.informational_url.clone()),
+            resolution_apis: entry.soft_binding_resolution_apis.clone(),
+        },
+        None => SoftBindingEvidence {
+            algorithm,
+            registry_identifier: None,
+            binding_type: None,
+            block_count,
+            description: None,
+            informational_url: None,
+            resolution_apis: Vec::new(),
+        },
+    })
+}
+
+fn scan_undisclosed_watermarks(
+    path: &str,
+    inspect_pixels: bool,
+    c2pa: Option<&C2paEvidence>,
+) -> UndisclosedWatermarkScan {
+    let mut methods = vec!["容器私有块与厂商标记扫描".into()];
+    let mut observations = Vec::new();
+
+    if let Some(tokens) = watermark_marker_tokens(path) {
+        for token in tokens {
+            if token == "soft-binding" && c2pa.is_some() {
+                continue;
+            }
+            push_unique(
+                &mut observations,
+                format!("文件字节中观察到水印/来源标记：{token}"),
+            );
+        }
+    }
+    for chunk in unknown_png_chunks(path) {
+        push_unique(
+            &mut observations,
+            format!("PNG 中观察到未登记的私有数据块：{chunk}"),
+        );
+    }
+    let uuid_boxes = top_level_mp4_uuid_boxes(path);
+    if uuid_boxes > 0 && c2pa.is_none() {
+        observations.push(format!(
+            "视频容器中观察到 {uuid_boxes} 个顶层 UUID 私有块，当前未归属到 C2PA；需要对应格式解析器确认"
+        ));
+    }
+
+    if inspect_pixels {
+        methods.extend([
+            "透明像素隐藏 RGB 扫描".into(),
+            "RGB 最低位平面平衡检查".into(),
+            "亮度拉伸与局部背景差分".into(),
+        ]);
+        if let Some(observation) = hidden_rgb_under_transparency(path) {
+            observations.push(observation);
+        }
+    } else {
+        methods.push("像素/音频载荷需要对应解码器或批量对照样本".into());
+    }
+
+    let status = if observations.is_empty() {
+        if inspect_pixels {
+            "no-observable-anomaly"
+        } else {
+            "limited"
+        }
+    } else {
+        "candidate-observed"
+    };
+    UndisclosedWatermarkScan {
+        status: status.into(),
+        methods,
+        observations,
+        caveat: "盲检候选只表示文件中有需进一步归属的结构或像素信号，不证明它是 AI 水印。秘密、加密、已剥离或低于当前检测阈值的信号仍可能存在；确证需要算法标识、密钥、厂商解码器或跨样本统计验证。".into(),
+    }
+}
+
+fn watermark_marker_tokens(path: &str) -> Option<Vec<String>> {
+    let mut file = File::open(path).ok()?;
+    let length = file.metadata().ok()?.len();
+    let half_limit = (MAX_WATERMARK_STRING_SCAN_BYTES / 2) as u64;
+    let head_size = length.min(half_limit) as usize;
+    let mut bytes = vec![0_u8; head_size];
+    file.read_exact(&mut bytes).ok()?;
+    if length > half_limit {
+        let tail_size = (length - half_limit).min(half_limit) as usize;
+        file.seek(SeekFrom::End(-(tail_size as i64))).ok()?;
+        let mut tail = vec![0_u8; tail_size];
+        file.read_exact(&mut tail).ok()?;
+        bytes.extend_from_slice(&tail);
+    }
+    let searchable = String::from_utf8_lossy(&bytes).to_ascii_lowercase();
+    let mut matches = Vec::new();
+    for token in [
+        "synthid",
+        "trustmark",
+        "videoseal",
+        "pixelseal",
+        "audioseal",
+        "invismark",
+        "invisible_watermark",
+        "watermark_payload",
+        "soft-binding",
+    ] {
+        if searchable.contains(token) {
+            matches.push(token.to_string());
+        }
+    }
+    Some(matches)
+}
+
+fn unknown_png_chunks(path: &str) -> Vec<String> {
+    let Ok(mut file) = File::open(path) else {
+        return Vec::new();
+    };
+    let mut signature = [0_u8; 8];
+    if file.read_exact(&mut signature).is_err() || signature != *b"\x89PNG\r\n\x1a\n" {
+        return Vec::new();
+    }
+    const KNOWN: &[&str] = &[
+        "IHDR", "PLTE", "IDAT", "IEND", "tRNS", "cHRM", "gAMA", "iCCP", "sBIT", "sRGB", "cICP",
+        "mDCv", "cLLi", "eXIf", "tEXt", "zTXt", "iTXt", "bKGD", "hIST", "pHYs", "sPLT", "tIME",
+        "acTL", "fcTL", "fdAT", "dSIG", "caBX",
+    ];
+    let mut unknown = Vec::new();
+    for _ in 0..4_096 {
+        let mut length_bytes = [0_u8; 4];
+        let mut kind = [0_u8; 4];
+        if file.read_exact(&mut length_bytes).is_err() || file.read_exact(&mut kind).is_err() {
+            break;
+        }
+        let length = u32::from_be_bytes(length_bytes) as u64;
+        let name = String::from_utf8_lossy(&kind).into_owned();
+        if !KNOWN.contains(&name.as_str()) && kind.iter().all(u8::is_ascii_alphabetic) {
+            push_unique(&mut unknown, format!("{name} ({length} bytes)"));
+        }
+        if file
+            .seek(SeekFrom::Current((length.saturating_add(4)) as i64))
+            .is_err()
+        {
+            break;
+        }
+        if kind == *b"IEND" {
+            break;
+        }
+    }
+    unknown
+}
+
+fn top_level_mp4_uuid_boxes(path: &str) -> usize {
+    let Ok(mut file) = File::open(path) else {
+        return 0;
+    };
+    let Ok(file_length) = file.metadata().map(|metadata| metadata.len()) else {
+        return 0;
+    };
+    let mut position = 0_u64;
+    let mut count = 0;
+    for _ in 0..4_096 {
+        if position.saturating_add(8) > file_length || file.seek(SeekFrom::Start(position)).is_err()
+        {
+            break;
+        }
+        let mut header = [0_u8; 8];
+        if file.read_exact(&mut header).is_err() {
+            break;
+        }
+        let size32 = u32::from_be_bytes(header[..4].try_into().unwrap_or([0; 4]));
+        let mut header_size = 8_u64;
+        let size = if size32 == 1 {
+            let mut extended = [0_u8; 8];
+            if file.read_exact(&mut extended).is_err() {
+                break;
+            }
+            header_size = 16;
+            u64::from_be_bytes(extended)
+        } else if size32 == 0 {
+            file_length.saturating_sub(position)
+        } else {
+            size32 as u64
+        };
+        if &header[4..8] == b"uuid" {
+            count += 1;
+        }
+        if size < header_size || position.saturating_add(size) > file_length {
+            break;
+        }
+        position = position.saturating_add(size);
+    }
+    count
+}
+
+fn hidden_rgb_under_transparency(path: &str) -> Option<String> {
+    let mut reader = ImageReader::open(path)
+        .and_then(|reader| reader.with_guessed_format())
+        .ok()?;
+    let mut limits = Limits::default();
+    limits.max_image_width = Some(16_384);
+    limits.max_image_height = Some(16_384);
+    limits.max_alloc = Some(512 * 1024 * 1024);
+    reader.limits(limits);
+    let source = reader.decode().ok()?.thumbnail(2_048, 2_048).to_rgba8();
+    let mut transparent = 0_u64;
+    let mut hidden_rgb = 0_u64;
+    for pixel in source.pixels() {
+        if pixel[3] == 0 {
+            transparent += 1;
+            if pixel[0] != 0 || pixel[1] != 0 || pixel[2] != 0 {
+                hidden_rgb += 1;
+            }
+        }
+    }
+    (hidden_rgb >= 64 && hidden_rgb.saturating_mul(100) >= transparent.saturating_mul(10)).then(
+        || {
+            format!(
+                "透明像素中有 {hidden_rgb}/{transparent} 个位置保留非零 RGB；可能是抗锯齿残留、编辑痕迹或隐藏载荷，需查看 Alpha 取证图确认"
+            )
+        },
+    )
+}
+
 fn read_c2pa(path: &str) -> Option<(C2paEvidence, Vec<PromptEvidence>)> {
     let trust = format!("{C2PA_TRUST_ANCHORS}\n{C2PA_TSA_TRUST_ANCHORS}");
     let settings = Settings::new()
@@ -833,13 +1232,25 @@ fn read_c2pa(path: &str) -> Option<(C2paEvidence, Vec<PromptEvidence>)> {
     let mut actions = Vec::new();
     let mut digital_source_types = Vec::new();
     let mut software_agents = Vec::new();
+    let mut soft_bindings = Vec::new();
     for assertion in manifest.assertions() {
-        if !assertion.label().starts_with("c2pa.actions") {
-            continue;
-        }
         let Ok(value) = assertion.value() else {
             continue;
         };
+        if assertion.label().starts_with("c2pa.soft-binding") {
+            if let Some(evidence) = soft_binding_evidence(value) {
+                if !soft_bindings
+                    .iter()
+                    .any(|existing: &SoftBindingEvidence| existing.algorithm == evidence.algorithm)
+                {
+                    soft_bindings.push(evidence);
+                }
+            }
+            continue;
+        }
+        if !assertion.label().starts_with("c2pa.actions") {
+            continue;
+        }
         let Some(items) = value.get("actions").and_then(|value| value.as_array()) else {
             continue;
         };
@@ -891,7 +1302,10 @@ fn read_c2pa(path: &str) -> Option<(C2paEvidence, Vec<PromptEvidence>)> {
         .any(|value| value.eq_ignore_ascii_case("trainedAlgorithmicMedia"));
     let embedded_watermark_declared = actions
         .iter()
-        .any(|value| value.to_ascii_lowercase().contains("watermarked"));
+        .any(|value| value.to_ascii_lowercase().contains("watermarked"))
+        || soft_bindings
+            .iter()
+            .any(|binding| binding.binding_type.as_deref() == Some("watermark"));
 
     Some((
         C2paEvidence {
@@ -912,6 +1326,7 @@ fn read_c2pa(path: &str) -> Option<(C2paEvidence, Vec<PromptEvidence>)> {
             software_agents,
             ai_generated_declared,
             embedded_watermark_declared,
+            soft_bindings,
             validation_warnings,
         },
         prompt_evidence,
@@ -1012,6 +1427,7 @@ mod tests {
             software_agents: vec![],
             ai_generated_declared: digital_source_types.contains(&"trainedAlgorithmicMedia"),
             embedded_watermark_declared: false,
+            soft_bindings: vec![],
             validation_warnings: vec![],
         }
     }
@@ -1033,6 +1449,73 @@ mod tests {
             software_agent_name(&value).as_deref(),
             Some("gpt-image 2.0")
         );
+    }
+
+    #[test]
+    fn loads_pinned_c2pa_soft_binding_registry_snapshot() {
+        let registry = soft_binding_registry();
+        assert_eq!(registry.len(), 48);
+        assert_eq!(
+            registry
+                .iter()
+                .filter(|entry| entry.binding_type == "watermark")
+                .count(),
+            39
+        );
+        assert_eq!(
+            registry
+                .iter()
+                .filter(|entry| entry.binding_type == "fingerprint")
+                .count(),
+            9
+        );
+        assert_eq!(
+            registry
+                .iter()
+                .filter(|entry| !entry.soft_binding_resolution_apis.is_empty())
+                .count(),
+            6
+        );
+        assert_eq!(
+            build_watermark_coverage("image", None, None).compatible_algorithms,
+            27
+        );
+        let mut identifiers = registry
+            .iter()
+            .map(|entry| entry.identifier)
+            .collect::<Vec<_>>();
+        identifiers.sort_unstable();
+        identifiers.dedup();
+        assert_eq!(identifiers.len(), registry.len());
+    }
+
+    #[test]
+    fn resolves_declared_soft_binding_without_exposing_payload_bytes() {
+        let evidence = soft_binding_evidence(&serde_json::json!({
+            "alg": "com.aiwatermark.videoseal.1",
+            "blocks": [
+                {"scope": {"start": 0, "length": 10}, "value": "hidden-binding-one"},
+                {"scope": {"start": 10, "length": 10}, "value": "hidden-binding-two"}
+            ]
+        }))
+        .expect("soft binding evidence");
+        assert_eq!(evidence.registry_identifier, Some(30));
+        assert_eq!(evidence.binding_type.as_deref(), Some("watermark"));
+        assert_eq!(evidence.block_count, 2);
+        assert_eq!(evidence.resolution_apis.len(), 1);
+        assert!(!format!("{evidence:?}").contains("hidden-binding"));
+    }
+
+    #[test]
+    fn treats_unregistered_soft_binding_as_a_declaration_not_a_decoder_result() {
+        let evidence = soft_binding_evidence(&serde_json::json!({
+            "alg": "example.invalid.secret-watermark",
+            "blocks": []
+        }))
+        .expect("unregistered soft binding evidence");
+        assert_eq!(evidence.registry_identifier, None);
+        assert_eq!(evidence.binding_type, None);
+        assert!(evidence.resolution_apis.is_empty());
     }
 
     #[test]
@@ -1184,6 +1667,53 @@ mod tests {
             let _ = std::fs::remove_dir_all(parent);
         }
         let _ = std::fs::remove_dir_all(fixture_directory);
+    }
+
+    #[test]
+    fn blind_scan_surfaces_private_png_chunks_without_claiming_ai_origin() {
+        let path =
+            std::env::temp_dir().join(format!("lensquery-private-chunk-{}.png", Uuid::new_v4()));
+        let data = b"opaque fixture payload";
+        let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
+        png.extend_from_slice(&(data.len() as u32).to_be_bytes());
+        png.extend_from_slice(b"wMkr");
+        png.extend_from_slice(data);
+        png.extend_from_slice(&[0; 4]);
+        png.extend_from_slice(&0_u32.to_be_bytes());
+        png.extend_from_slice(b"IEND");
+        png.extend_from_slice(&[0; 4]);
+        std::fs::write(&path, png).expect("write private chunk fixture");
+
+        let scan = scan_undisclosed_watermarks(&path.to_string_lossy(), false, None);
+        assert_eq!(scan.status, "candidate-observed");
+        assert!(scan.observations.iter().any(|item| item.contains("wMkr")));
+        assert!(scan.caveat.contains("不证明它是 AI 水印"));
+
+        std::fs::remove_file(path).expect("remove private chunk fixture");
+    }
+
+    #[test]
+    fn blind_scan_finds_rgb_payload_below_full_transparency() {
+        let path = std::env::temp_dir().join(format!(
+            "lensquery-hidden-transparent-rgb-{}.png",
+            Uuid::new_v4()
+        ));
+        let mut fixture = image::RgbaImage::from_pixel(64, 64, image::Rgba([0, 0, 0, 0]));
+        for x in 8..56 {
+            for y in 8..56 {
+                fixture.put_pixel(x, y, image::Rgba([25, 180, 90, 0]));
+            }
+        }
+        fixture.save(&path).expect("save hidden RGB fixture");
+
+        let scan = scan_undisclosed_watermarks(&path.to_string_lossy(), true, None);
+        assert_eq!(scan.status, "candidate-observed");
+        assert!(scan
+            .observations
+            .iter()
+            .any(|item| item.contains("透明像素")));
+
+        std::fs::remove_file(path).expect("remove hidden RGB fixture");
     }
 
     #[test]

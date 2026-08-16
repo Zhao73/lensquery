@@ -132,6 +132,8 @@ export interface ImageProvenance {
   forensicVariants?: ForensicVariant[]
   promptEvidence?: PromptEvidence[]
   promptRecoveryStatus?: 'verified-exact' | 'embedded-unverified' | 'absent'
+  watermarkCoverage?: WatermarkCoverage
+  undisclosedWatermarkScan?: UndisclosedWatermarkScan
   detectorCoverage: string
 }
 
@@ -164,7 +166,46 @@ export interface C2paEvidence {
   softwareAgents: string[]
   aiGeneratedDeclared: boolean
   embeddedWatermarkDeclared: boolean
+  softBindings: SoftBindingEvidence[]
   validationWarnings: string[]
+}
+
+export interface SoftBindingEvidence {
+  algorithm: string
+  registryIdentifier?: number
+  bindingType?: 'watermark' | 'fingerprint' | string
+  blockCount: number
+  description?: string
+  informationalUrl?: string
+  resolutionApis: string[]
+}
+
+export interface WatermarkCoverage {
+  registrySource: string
+  registryCommit: string
+  registeredAlgorithms: number
+  registeredWatermarks: number
+  registeredFingerprints: number
+  compatibleAlgorithms: number
+  publicResolutionApis: number
+  locallyChecked: string[]
+  regulatoryEvidence: RegulatoryMarkEvidence[]
+  caveat: string
+}
+
+export interface RegulatoryMarkEvidence {
+  jurisdiction: string
+  framework: string
+  status: string
+  evidence: string
+  caveat: string
+}
+
+export interface UndisclosedWatermarkScan {
+  status: 'candidate-observed' | 'no-observable-anomaly' | 'limited'
+  methods: string[]
+  observations: string[]
+  caveat: string
 }
 
 export interface MetadataEvidence {

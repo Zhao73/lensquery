@@ -978,6 +978,16 @@ function promptEvidenceLabel(file?: FileEvidence) {
   }
 }
 
+function regulatoryEvidenceLabel(status: string) {
+  return ({
+    'two-layer-evidence-observed': '签名元数据与水印声明均已观察',
+    'signed-metadata-only': '仅观察到签名元数据',
+    'watermark-declaration-only': '仅观察到水印声明',
+    'tc260-metadata-observed': '已观察到 TC260 文件标识',
+    'not-observed': '未观察到对应标识',
+  } as Record<string, string>)[status] ?? status
+}
+
 function EvidenceStrip({ session }: { session: QuerySession }) {
   const capture = session.captures[0]
   const file = session.files[0]
@@ -1040,12 +1050,16 @@ function EvidenceStrip({ session }: { session: QuerySession }) {
           {c2pa && <div><dt>内容凭证</dt><dd><strong>{c2pa.signerTrusted ? '可信签名已验证' : c2pa.validationState === 'valid' ? '文件绑定有效' : '验证未通过'}</strong>{c2pa.issuer ? ` · ${c2pa.issuer}` : ''}{c2pa.claimGenerator ? ` · ${c2pa.claimGenerator}` : ''}</dd></div>}
           {c2pa && <div><dt>签发详情</dt><dd>{[c2pa.commonName, c2pa.signedAt].filter(Boolean).join(' · ') || '未提供签名者名称或时间'}</dd></div>}
           {c2pa?.actions.length ? <div><dt>来源动作</dt><dd>{c2pa.actions.join(', ')}</dd></div> : null}
+          {c2pa?.softBindings?.map((binding) => <div key={binding.algorithm}><dt>软绑定水印</dt><dd><strong>{binding.algorithm}</strong>{binding.registryIdentifier ? ` · C2PA 目录 #${binding.registryIdentifier}` : ' · 目录外算法'}{binding.bindingType ? ` · ${binding.bindingType}` : ''} · {binding.blockCount} 个绑定块{binding.description ? ` · ${binding.description}` : ''}{binding.resolutionApis.length ? ` · ${binding.resolutionApis.length} 个公开解析器` : ''}</dd></div>)}
           {c2pa?.validationWarnings.length ? <div><dt>验证警告</dt><dd>{c2pa.validationWarnings.join(' · ')}</dd></div> : null}
           {file.provenance && <div><dt>AI 来源</dt><dd><strong>{aiOriginLabel(file)}</strong>{c2pa?.digitalSourceTypes.length ? ` · ${c2pa.digitalSourceTypes.join(', ')}${c2pa.softwareAgents.length ? ` · ${c2pa.softwareAgents.join(', ')}` : ''}` : ' · 缺少信号不证明不是 AI'}</dd></div>}
           {c2pa?.embeddedWatermarkDeclared && <div><dt>隐形水印</dt><dd>C2PA 流程声明已加入水印；像素级 SynthID 由对应发行方验证器独立确认</dd></div>}
           {file.provenance && <div><dt>提示词</dt><dd><strong>{promptEvidenceLabel(file)}</strong></dd></div>}
           {file.provenance?.promptEvidence?.map((prompt, index) => <div className="evidence-prompt" key={`${prompt.source}-${index}`}><dt>{prompt.trustState === 'trusted-c2pa' ? '已验证原文' : '内嵌原文'}</dt><dd><span>{prompt.source} · {prompt.trustState === 'trusted-c2pa' ? '可信 C2PA 绑定' : prompt.trustState === 'bound-untrusted-c2pa' ? 'C2PA 绑定有效，签发者未信任' : prompt.trustState === 'invalid-c2pa' ? 'C2PA 文件绑定或签名无效' : '元数据未签名'}</span><pre>{prompt.text}</pre></dd></div>)}
           {file.provenance?.metadata.map((item) => <div key={`${item.label}-${item.value}`}><dt>{item.label}</dt><dd>{item.value}</dd></div>)}
+          {file.provenance?.watermarkCoverage && <div><dt>全球水印目录</dt><dd><strong>{file.provenance.watermarkCoverage.registeredAlgorithms} 个登记算法</strong> · {file.provenance.watermarkCoverage.registeredWatermarks} 水印 / {file.provenance.watermarkCoverage.registeredFingerprints} 指纹 · 当前媒体匹配 {file.provenance.watermarkCoverage.compatibleAlgorithms} 个 · {file.provenance.watermarkCoverage.publicResolutionApis} 个公开解析器<br /><span>{file.provenance.watermarkCoverage.caveat}</span></dd></div>}
+          {file.provenance?.watermarkCoverage?.regulatoryEvidence.map((evidence) => <div key={`${evidence.jurisdiction}-${evidence.framework}`}><dt>{evidence.jurisdiction}标识证据</dt><dd><strong>{regulatoryEvidenceLabel(evidence.status)}</strong> · {evidence.evidence}<br /><span>{evidence.caveat}</span></dd></div>)}
+          {file.provenance?.undisclosedWatermarkScan && <div><dt>未公开水印盲检</dt><dd><strong>{{ 'candidate-observed': '发现待归属信号', 'no-observable-anomaly': '未观察到异常', limited: '当前仅有限扫描' }[file.provenance.undisclosedWatermarkScan.status]}</strong> · {file.provenance.undisclosedWatermarkScan.methods.join(' · ')}{file.provenance.undisclosedWatermarkScan.observations.length ? <>{file.provenance.undisclosedWatermarkScan.observations.map((observation) => <span key={observation}><br />{observation}</span>)}</> : null}<br /><span>{file.provenance.undisclosedWatermarkScan.caveat}</span></dd></div>}
           {file.provenance?.detectorCoverage && <div className="evidence-coverage"><dt>检测范围</dt><dd>{file.provenance.detectorCoverage}</dd></div>}
         </dl>}
         {browser && <dl><div><dt>网页</dt><dd>{browser.title}</dd></div>{browser.contextMenuKind && <div><dt>触发方式</dt><dd>网页右键 · {{ selection: '所选文字', image: '图片', video: '视频', audio: '音频', link: '链接', editable: '编辑区', object: '当前对象', page: '当前页面' }[browser.contextMenuKind]}</dd></div>}<div><dt>文字范围</dt><dd>{browser.selectionMode ?? '当前对象'}</dd></div>{browser.selectedText && <><div><dt>所选文字</dt><dd>{browser.selectedText}</dd></div><div><dt>AI 文本来源</dt><dd><strong>已自动检查 · 直接证据不足</strong> · 未收到对应生成器的官方水印验证结果；文风不作证明</dd></div></>}{browser.hiddenContent?.length ? <div className="evidence-hidden-content"><dt>隐藏内容</dt><dd>{browser.hiddenContent.map((item, index) => <span className={item.instructionLike ? 'injection-warning' : ''} key={`${item.reason}-${item.selector}-${index}`}><strong>{item.instructionLike ? '疑似提示注入' : item.reason}</strong>{item.text}</span>)}</dd></div> : <div><dt>隐藏内容</dt><dd>未发现可访问 DOM 中的隐藏文字</dd></div>}{browser.hiddenContentScan && <div className="evidence-coverage"><dt>扫描范围</dt><dd>{browser.hiddenContentScan.coverage}{browser.hiddenContentScan.truncated ? ' · 页面过大，结果已截断' : ''}</dd></div>}{browser.captions && <div><dt>当前字幕</dt><dd>{browser.captions}</dd></div>}{browser.transcript && <div><dt>视频转写</dt><dd>{browser.transcriptLanguage ? `${browser.transcriptLanguage} · ` : ''}{browser.transcript.slice(0, 1200)}{browser.transcript.length > 1200 ? '…' : ''}</dd></div>}<div><dt>元素</dt><dd>{browser.tagName.toLowerCase()}{browser.role ? ` · ${browser.role}` : ''}</dd></div><div><dt>地址</dt><dd>{browser.url}</dd></div>{browser.selector && <div><dt>选择器</dt><dd><code>{browser.selector}</code></dd></div>}</dl>}

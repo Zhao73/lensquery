@@ -421,6 +421,10 @@ pub struct ImageProvenance {
     pub prompt_evidence: Vec<PromptEvidence>,
     #[serde(default)]
     pub prompt_recovery_status: Option<String>,
+    #[serde(default)]
+    pub watermark_coverage: Option<WatermarkCoverage>,
+    #[serde(default)]
+    pub undisclosed_watermark_scan: Option<UndisclosedWatermarkScan>,
     pub detector_coverage: String,
 }
 
@@ -453,7 +457,60 @@ pub struct C2paEvidence {
     pub ai_generated_declared: bool,
     pub embedded_watermark_declared: bool,
     #[serde(default)]
+    pub soft_bindings: Vec<SoftBindingEvidence>,
+    #[serde(default)]
     pub validation_warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SoftBindingEvidence {
+    pub algorithm: String,
+    pub registry_identifier: Option<u16>,
+    pub binding_type: Option<String>,
+    pub block_count: usize,
+    pub description: Option<String>,
+    pub informational_url: Option<String>,
+    #[serde(default)]
+    pub resolution_apis: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WatermarkCoverage {
+    pub registry_source: String,
+    pub registry_commit: String,
+    pub registered_algorithms: usize,
+    pub registered_watermarks: usize,
+    pub registered_fingerprints: usize,
+    pub compatible_algorithms: usize,
+    pub public_resolution_apis: usize,
+    #[serde(default)]
+    pub locally_checked: Vec<String>,
+    #[serde(default)]
+    pub regulatory_evidence: Vec<RegulatoryMarkEvidence>,
+    pub caveat: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RegulatoryMarkEvidence {
+    pub jurisdiction: String,
+    pub framework: String,
+    pub status: String,
+    pub evidence: String,
+    pub caveat: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UndisclosedWatermarkScan {
+    pub status: String,
+    #[serde(default)]
+    pub methods: Vec<String>,
+    #[serde(default)]
+    pub observations: Vec<String>,
+    pub caveat: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
