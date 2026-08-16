@@ -183,6 +183,23 @@ fn validate_context(context: &BrowserContext) -> Result<(), String> {
             .snapshot_data_url
             .as_ref()
             .is_some_and(|value| value.len() > MAX_SNAPSHOT_DATA_URL_CHARS)
+        || context.hidden_content.len() > 64
+        || context.hidden_content.iter().any(|item| {
+            item.text.chars().count() > 2_000
+                || item
+                    .selector
+                    .as_ref()
+                    .is_some_and(|value| value.chars().count() > 2_000)
+        })
+        || context
+            .hidden_content
+            .iter()
+            .map(|item| item.text.chars().count())
+            .sum::<usize>()
+            > 24_000
+        || context.hidden_content_scan.as_ref().is_some_and(|scan| {
+            scan.scanned_elements > 6_000 || scan.coverage.chars().count() > 4_000
+        })
     {
         return Err("浏览器上下文超出边界。".into());
     }
@@ -293,6 +310,8 @@ mod tests {
             annotation: None,
             analysis_mode: None,
             output_format: None,
+            hidden_content: vec![],
+            hidden_content_scan: None,
             media: None,
         };
         assert!(validate_context(&context).is_err());

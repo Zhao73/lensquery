@@ -41,7 +41,7 @@ Raw local envelopes from the acceptance run:
 
 ## Installed Electron runtime
 
-The packaged client was installed at `/Applications/LensQuery Electron Preview.app` (333 MB, Apple Development signature) without replacing `/Applications/LensQuery.app`. The final acceptance used the installed file picker, Rust sidecar, detected Codex CLI, persisted Electron conversation, rendered evidence card, and client-visible answer rather than only invoking the sidecar from a terminal.
+The packaged client is installed at `/Applications/LensQuery.app`; the previous Tauri bundle and former `/Applications/LensQuery Electron Preview.app` path have been removed. The final acceptance used the installed file picker, Rust sidecar, detected Codex CLI, persisted Electron conversation, rendered evidence card, and client-visible answer rather than only invoking the sidecar from a terminal.
 
 An initial packaged run exposed a separate runtime defect: a GUI launched from an existing Codex process inherited the parent's Codex thread/session environment and reused the user's multi-gigabyte Codex history databases. The child CLI repeatedly logged `state db discrepancy ... falling_back` and timed out before model completion. The final implementation:
 
@@ -74,3 +74,37 @@ The timings above are computed from the installed client's persisted message/ses
 - No signal found never proves that an image is human-made: metadata may be stripped and proprietary watermarks may be absent, degraded, or unsupported.
 
 The C2PA trust-list snapshot and its source commit are recorded in `src-tauri/resources/c2pa/README.md` and should be refreshed as part of each release.
+
+## Strict provenance and hidden-content rerun — 2026-08-16
+
+This rerun tests the fixed media-forensics output contract: a visual model is not allowed to promote style into a provenance verdict. Only a trusted, asset-bound C2PA AI source type or an issuer's independently verified watermark can produce a verified-AI result.
+
+| Fixture | SHA-256 | Local result |
+| --- | --- | --- |
+| Original OpenAI-generated PNG | `632055eeb9c95e0889a374e7da294e8853a0fa4dfcdf2e33403275ebc65da586` | `verified-ai`; trusted OpenAI signer; `trainedAlgorithmicMedia`; `gpt-image 2.0`; no validation warnings |
+| Same PNG with its C2PA chunk preserved but one pixel sample changed | `bdb4a567d27cbefd2f5e12fdf8334611c4521e8c3976d606daca8bda4a6628bb` | `invalid-credential`; asset binding fails with `assertion.dataHash.mismatch` and is not accepted as verified |
+| Same AI image decoded and re-encoded without Content Credentials | `ea9ca17224280b707de990ddb1a47043553000172aaebe013934004a34414e84` | `inconclusive`; the application does not infer a verified source from the unchanged-looking artwork |
+| Ordinary reference JPEG without a provenance credential | `6017d8c75b7a5e110101f308309b15d78e41f4761970f302c8228c953d9b6b46` | `inconclusive`; no false “human” or “AI” result |
+| Near-white hidden-instruction PNG | `d1e0c384f1739b7c4c5dbfc1f7cc02ade9867204114332b9fbb5de492a5d738e` | `inconclusive` for origin; global stretch and local difference expose the real low-contrast characters |
+
+The real OpenAI fixture produced the following verified fields through the same Rust sidecar used by Electron:
+
+- issuer `OpenAI OpCo, LLC`;
+- signer `OpenAI Media Service`;
+- validation state `trusted` with asset binding and no warnings;
+- `digitalSourceType=trainedAlgorithmicMedia`;
+- `softwareAgent=gpt-image 2.0`;
+- action `c2pa.watermarked.unbound`, reported only as a workflow declaration rather than an independent pixel-watermark result.
+
+The final Codex CLI run returned `verified AI-generated` from those fields in 56.574 seconds and explicitly excluded the artwork's style from the verdict. The hidden-content run returned `insufficient evidence` for AI origin, exposed the near-background instruction using both generated forensic views, labeled it suspected prompt injection instead of obeying it, and completed in 47.869 seconds.
+
+Disposable request/result envelopes are kept outside the repository:
+
+- `/tmp/lensquery-forensics-acceptance.json`
+- `/tmp/lensquery-ai-analyze-request.json`
+- `/tmp/lensquery-ai-analyze-result.json`
+- `/tmp/lensquery-ai-tampered-inspection.json`
+- `/tmp/lensquery-hidden-analyze-request.json`
+- `/tmp/lensquery-hidden-analyze-result.json`
+
+This rerun also confirms the negative boundary: re-encoding can strip provenance, proprietary watermarks need their issuer's verifier, and exact same-value flattened pixels have no remaining signal to recover. In all three cases LensQuery must report the gap rather than guess.

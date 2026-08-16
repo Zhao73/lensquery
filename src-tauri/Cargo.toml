@@ -37,6 +37,7 @@ base64 = "0.22"
 pdf-extract = "0.12"
 c2pa = { version = "0.90.15", default-features = false, features = ["file_io", "rust_native_crypto"] }
 kamadak-exif = "0.6"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-global-shortcut = "2"

@@ -14,7 +14,7 @@ use uuid::Uuid;
 
 use crate::{
     models::{FileEvidence, VideoFrame, VideoMetadata, VideoPreparation},
-    subprocess,
+    provenance, subprocess,
 };
 
 const DEFAULT_MAX_FRAMES: u32 = 12;
@@ -46,6 +46,8 @@ struct ProbeOutput {
 #[derive(Debug, Deserialize)]
 struct ProbeFormat {
     duration: Option<String>,
+    format_name: Option<String>,
+    tags: Option<ProbeTags>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -63,6 +65,9 @@ struct ProbeStream {
 #[derive(Debug, Deserialize)]
 struct ProbeTags {
     rotate: Option<String>,
+    encoder: Option<String>,
+    creation_time: Option<String>,
+    handler_name: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -81,7 +86,7 @@ pub async fn probe(path: &str) -> Result<VideoMetadata, String> {
             "-v",
             "error",
             "-show_entries",
-            "format=duration:stream=codec_type,codec_name,width,height,avg_frame_rate,duration:stream_tags=rotate:stream_side_data=rotation",
+            "format=format_name,duration:format_tags=encoder,creation_time:stream=codec_type,codec_name,width,height,avg_frame_rate,duration:stream_tags=rotate,encoder,creation_time,handler_name:stream_side_data=rotation",
             "-of",
             "json",
             path,
@@ -344,6 +349,7 @@ pub async fn prepare_youtube(url: &str, max_frames: Option<u32>) -> Result<FileE
         .and_then(|value| value.to_str())
         .unwrap_or("mp4")
         .to_ascii_lowercase();
+    let provenance = provenance::inspect_video(&source);
     Ok(FileEvidence {
         id: Uuid::new_v4().to_string(),
         name: format!("{}.{}", sanitize_title(&youtube.title), extension),
@@ -357,7 +363,7 @@ pub async fn prepare_youtube(url: &str, max_frames: Option<u32>) -> Result<FileE
         extracted_text: None,
         page_count: None,
         extraction_status: Some("youtube-ready".into()),
-        provenance: None,
+        provenance,
     })
 }
 
@@ -919,6 +925,33 @@ fn metadata_from_probe(probe: ProbeOutput) -> Result<VideoMetadata, String> {
         frame_rate: parse_rate(video.avg_frame_rate.as_deref()),
         video_codec: video.codec_name.clone(),
         audio_codec: audio.and_then(|stream| stream.codec_name.clone()),
+        container_format: probe
+            .format
+            .as_ref()
+            .and_then(|format| format.format_name.clone()),
+        encoder: probe
+            .format
+            .as_ref()
+            .and_then(|format| format.tags.as_ref())
+            .and_then(|tags| tags.encoder.clone())
+            .or_else(|| video.tags.as_ref().and_then(|tags| tags.encoder.clone()))
+            .or_else(|| {
+                video
+                    .tags
+                    .as_ref()
+                    .and_then(|tags| tags.handler_name.clone())
+            }),
+        creation_time: probe
+            .format
+            .as_ref()
+            .and_then(|format| format.tags.as_ref())
+            .and_then(|tags| tags.creation_time.clone())
+            .or_else(|| {
+                video
+                    .tags
+                    .as_ref()
+                    .and_then(|tags| tags.creation_time.clone())
+            }),
         has_audio: audio.is_some(),
         rotation: video
             .side_data_list

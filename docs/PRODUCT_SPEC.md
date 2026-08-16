@@ -32,7 +32,9 @@
 | VIDEO-03 | Analyze long and short clips consistently | Sampling adapts to duration; videos ≥20 minutes produce at most 12 chronological transcript chapters and every chapter appears in the final synthesis |
 | VIDEO-04 | Use available subtitle/audio evidence | A same-name VTT/SRT track is preferred; otherwise an available local Whisper CLI produces a labeled time-coded transcript without uploading audio |
 | VIDEO-05 | Analyze an explicitly selected YouTube video | Page captions are preferred; otherwise bounded local yt-dlp + Whisper preparation accepts only HTTPS YouTube, rejects playlists/non-YouTube URLs, and reports dependency/access failures |
-| IMAGE-01 | Inspect image provenance locally | C2PA validation, signer trust, AI source type, watermark declarations, EXIF, visible labels, and visual inference remain distinct |
+| IMAGE-01 | Inspect image provenance locally | C2PA asset binding, signature/trust, exact source type, watermark declarations, EXIF, forensic derivatives, and visual inference remain distinct; missing signals resolve to inconclusive |
+| IMAGE-02 | Expose hidden pixel signals without inventing content | Bounded luminance stretch, local background difference, and meaningful Alpha views are shown and attached; exact same-value flattened pixels are declared unrecoverable |
+| WEB-01 | Audit explicitly selected page context for hidden text | Accessible hidden/transparent/clipped/off-screen/low-contrast DOM text is bounded, quoted, and instruction-like content is labeled as untrusted prompt injection |
 | AI-01 | Configure multiple provider profiles | Profiles preserve endpoint/model settings without storing raw secrets in JSON |
 | AI-02 | Stream a multimodal answer | Partial output is visible and cancellation stops the request |
 | AI-03 | Switch model before retry | Evidence and question stay intact while profile changes |
@@ -95,7 +97,7 @@ Every adapter implements:
 - **Troubleshoot** Read visible error evidence, list the most likely root cause, then the smallest verification steps.
 - **Summarize file** Summarize scope, important facts, decisions, dates, and missing information.
 - **Analyze video** Reconstruct the sequence from timestamped frames and transcript, summarize the content, identify important moments, and produce a customer-ready answer when requested. For long videos, cover the whole supplied chapter ledger, key facts/data/entities/examples, and facts-versus-opinion boundaries.
-- **Check image origin** Prefer trusted C2PA claims over visual-style guesses, treat EXIF as supporting metadata only, and state the coverage boundary for proprietary invisible watermarks.
+- **Check media origin** Call content AI-generated only when a trusted, asset-bound C2PA `trainedAlgorithmicMedia` claim or an issuer's official watermark verifier supports it. Keep AI editing/compositing distinct, treat metadata/style as supporting evidence only, and return insufficient evidence when no direct signal exists.
 - **Custom** Preserve the evidence and let the user type the instruction.
 
 ## Non-goals for the first release

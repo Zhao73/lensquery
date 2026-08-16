@@ -8,7 +8,7 @@ The release is successful when a Windows user can leave LensQuery in the tray, p
 
 ### M0 — Repository and contracts: complete
 
-- Electron, Rust sidecar, React, TypeScript, Vite, tests, CI, MIT license; legacy Tauri shell retained as a capture fallback.
+- Electron, Rust sidecar, React, TypeScript, Vite, tests, CI, MIT license; legacy Tauri shell retained source-only for comparison.
 - Provider-independent capture, browser context, file, video, request, result, and session contracts.
 - Local discovery for Codex, Claude Code, OpenCode, and Grok executables.
 
@@ -41,7 +41,7 @@ Remaining: multi-monitor mixed-DPI test matrix, protected/elevated-surface error
 - Searchable local timeline, source metadata, answer states, semantic Markdown, copy/read-aloud/retry, deletion, and clear history.
 - Same-session follow-up with transcript context.
 - Inline per-session provider/model, reasoning-effort, and automatic/compact/full/evidence-only history controls.
-- Six analysis modes, six output contracts, and optional annotations.
+- Seven analysis modes including fixed AI-provenance/hidden-content forensics, six output contracts, and optional annotations.
 - Plain Windows/macOS/Codex-like workbench styling with system typography and one action color.
 - Persistent coding-agent-style sidebar, centered new-conversation composer, provider chip, and dedicated Plugins/Skills capability view.
 
@@ -98,9 +98,9 @@ Remaining: wire the host automatically after a fixed store extension ID exists, 
 - Text and machine-readable PDFs are extracted locally with bounded content and page metadata.
 - Video selection automatically runs FFprobe/FFmpeg and prepares bounded timestamped frames plus an audio derivative.
 - Same-name VTT/SRT subtitles are normalized into bounded time-coded evidence; YouTube right-click analysis can fetch a caption track already published by the active page.
-- Images are checked locally with the official C2PA Rust SDK plus a release-pinned official trust-list snapshot, and common EXIF fields remain separate from visual inference.
+- Images and supported video containers are checked locally with the official C2PA Rust SDK plus a release-pinned official trust-list snapshot. Exact source types, common EXIF/container fields, bounded image forensic derivatives, and visual inference remain separate. Browser evidence includes a bounded hidden-DOM audit with prompt-injection labeling.
 
-Remaining: OCR/page rendering for scanned PDFs, speech transcription when no subtitle track exists, issuer-specific invisible-watermark verification, Explorer/Finder shell integration, outbound derivative preview, a bundled FFmpeg sidecar, and cleanup policies.
+Remaining: OCR/page rendering for scanned PDFs, bundled cross-platform OCR, issuer-specific invisible-watermark verifier adapters where official APIs exist, physical Windows Explorer verification, a bundled FFmpeg sidecar, and derivative cleanup policies.
 
 ### M8 — Distribution
 

@@ -1,6 +1,6 @@
 export type CaptureMode = 'region' | 'element'
 
-export type AnalysisMode = 'identify' | 'explain' | 'how-to' | 'deep-dive' | 'customer-reply' | 'code'
+export type AnalysisMode = 'identify' | 'explain' | 'how-to' | 'deep-dive' | 'media-forensics' | 'customer-reply' | 'code'
 export type OutputFormat = 'adaptive' | 'summary' | 'steps' | 'report' | 'customer-reply' | 'markdown'
 export type TextScope = 'object' | 'selection' | 'word' | 'paragraph' | 'page' | 'screen'
 export type ExtensionKind = 'plugin' | 'skill'
@@ -82,6 +82,8 @@ export interface BrowserContext {
   annotation?: string
   analysisMode?: AnalysisMode
   outputFormat?: OutputFormat
+  hiddenContent?: HiddenContentEvidence[]
+  hiddenContentScan?: HiddenContentScan
   media?: {
     kind: 'video' | 'audio'
     currentTime: number
@@ -89,6 +91,19 @@ export interface BrowserContext {
     source?: string
     paused: boolean
   }
+}
+
+export interface HiddenContentEvidence {
+  text: string
+  reason: 'display-none' | 'visibility-hidden' | 'transparent' | 'low-contrast' | 'offscreen' | 'clipped' | 'tiny-text' | 'aria-hidden' | 'html-hidden'
+  selector?: string
+  instructionLike: boolean
+}
+
+export interface HiddenContentScan {
+  scannedElements: number
+  truncated: boolean
+  coverage: string
 }
 
 export interface FileEvidence {
@@ -113,7 +128,17 @@ export interface ImageProvenance {
   metadata: MetadataEvidence[]
   aiSignals: string[]
   cameraMetadataPresent: boolean
+  aiOriginStatus?: 'verified-ai' | 'verified-ai-edited' | 'declared-ai' | 'verified-camera' | 'invalid-credential' | 'inconclusive'
+  forensicVariants?: ForensicVariant[]
   detectorCoverage: string
+}
+
+export interface ForensicVariant {
+  kind: 'contrast-stretch' | 'local-difference' | 'alpha-channel'
+  label: string
+  path: string
+  previewUrl?: string
+  purpose: string
 }
 
 export interface C2paEvidence {
@@ -144,6 +169,9 @@ export interface VideoMetadata {
   frameRate?: number
   videoCodec?: string
   audioCodec?: string
+  containerFormat?: string
+  encoder?: string
+  creationTime?: string
   hasAudio: boolean
   rotation?: number
 }

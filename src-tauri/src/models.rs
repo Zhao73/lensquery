@@ -338,7 +338,28 @@ pub struct BrowserContext {
     pub analysis_mode: Option<String>,
     #[serde(default)]
     pub output_format: Option<String>,
+    #[serde(default)]
+    pub hidden_content: Vec<HiddenContentEvidence>,
+    #[serde(default)]
+    pub hidden_content_scan: Option<HiddenContentScan>,
     pub media: Option<BrowserMediaContext>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HiddenContentEvidence {
+    pub text: String,
+    pub reason: String,
+    pub selector: Option<String>,
+    pub instruction_like: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HiddenContentScan {
+    pub scanned_elements: u32,
+    pub truncated: bool,
+    pub coverage: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -392,7 +413,21 @@ pub struct ImageProvenance {
     #[serde(default)]
     pub ai_signals: Vec<String>,
     pub camera_metadata_present: bool,
+    #[serde(default)]
+    pub ai_origin_status: Option<String>,
+    #[serde(default)]
+    pub forensic_variants: Vec<ForensicVariant>,
     pub detector_coverage: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ForensicVariant {
+    pub kind: String,
+    pub label: String,
+    pub path: String,
+    pub preview_url: Option<String>,
+    pub purpose: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -433,6 +468,9 @@ pub struct VideoMetadata {
     pub frame_rate: Option<f64>,
     pub video_codec: Option<String>,
     pub audio_codec: Option<String>,
+    pub container_format: Option<String>,
+    pub encoder: Option<String>,
+    pub creation_time: Option<String>,
     pub has_audio: bool,
     pub rotation: Option<f64>,
 }

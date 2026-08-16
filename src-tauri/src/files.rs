@@ -71,10 +71,10 @@ pub async fn inspect(paths: Vec<String>) -> Result<Vec<FileEvidence>, String> {
             },
             _ => (None, None, Some("not-needed".into())),
         };
-        let provenance = if kind == "image" {
-            provenance::inspect_image(&path)
-        } else {
-            None
+        let provenance = match kind {
+            "image" => provenance::inspect_image(&path),
+            "video" => provenance::inspect_video(&path),
+            _ => None,
         };
         evidence.push(FileEvidence {
             id: Uuid::new_v4().to_string(),

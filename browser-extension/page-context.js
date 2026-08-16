@@ -1,10 +1,177 @@
 (() => {
   const MAX_TRANSCRIPT_CHARS = 240_000
+  const MAX_HIDDEN_CONTENT_ITEMS = 64
+  const MAX_HIDDEN_CONTENT_CHARS = 24_000
+  const MAX_SCANNED_ELEMENTS = 6_000
 
   if (window.__lensQueryPageContext) return
 
   function clean(value) {
     return String(value || '').replace(/\s+/g, ' ').trim()
+  }
+
+  function directText(element) {
+    if (!element?.childNodes) return ''
+    return clean([...element.childNodes]
+      .filter((node) => node.nodeType === Node.TEXT_NODE)
+      .map((node) => node.textContent || '')
+      .join(' '))
+  }
+
+  function instructionLikeText(value) {
+    const text = clean(value)
+    return [
+      /\b(ignore|disregard|override|forget)\b.{0,100}\b(previous|prior|system|developer|instruction|rules?)\b/i,
+      /\bdo\s+not\s+(tell|reveal|mention|disclose)\b/i,
+      /\b(agree|side)\s+with\s+(me|my|the user)\b/i,
+      /\bsystem\s+prompt\b/i,
+      /(忽略|无视|覆盖|忘记).{0,40}(之前|以上|系统|开发者|指令|规则)/,
+      /(不要|不得).{0,20}(说出|透露|提及|告诉)/,
+      /(赞同|同意).{0,12}(我|用户).{0,12}(意见|观点)/,
+      /系统提示词|开发者指令/,
+      /(以前|上記).{0,20}(指示|命令).{0,12}無視/,
+      /(言わない|公開しない).{0,20}(指示|内容)/,
+    ].some((pattern) => pattern.test(text))
+  }
+
+  function redactSecretLikeText(value) {
+    return String(value || '')
+      .replace(/\b(Bearer\s+)[A-Za-z0-9._~+/-]{12,}/gi, '$1[REDACTED]')
+      .replace(/\bsk-[A-Za-z0-9_-]{16,}\b/g, '[REDACTED API KEY]')
+      .replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g, '[REDACTED JWT]')
+      .replace(/\b(password|passwd|token|secret|api[_ -]?key)\s*[:=]\s*[^\s"'<>]{6,}/gi, '$1=[REDACTED]')
+  }
+
+  function colorTuple(value) {
+    const match = String(value || '').match(/rgba?\(([^)]+)\)/i)
+    if (!match) return undefined
+    const parts = match[1].split(/[\s,/]+/).filter(Boolean).map(Number)
+    if (parts.length < 3 || parts.slice(0, 3).some((part) => !Number.isFinite(part))) return undefined
+    return [parts[0], parts[1], parts[2], Number.isFinite(parts[3]) ? parts[3] : 1]
+  }
+
+  function relativeLuminance(color) {
+    const channels = color.slice(0, 3).map((value) => {
+      const channel = Math.max(0, Math.min(255, value)) / 255
+      return channel <= 0.03928 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4
+    })
+    return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2]
+  }
+
+  function contrastRatio(left, right) {
+    const first = relativeLuminance(left)
+    const second = relativeLuminance(right)
+    return (Math.max(first, second) + 0.05) / (Math.min(first, second) + 0.05)
+  }
+
+  function effectiveBackground(element) {
+    let node = element
+    while (node instanceof Element) {
+      const color = colorTuple(getComputedStyle(node).backgroundColor)
+      if (color && color[3] >= 0.95) return color
+      node = node.parentElement
+    }
+    return [255, 255, 255, 1]
+  }
+
+  function hiddenReason(element) {
+    let node = element
+    let effectiveOpacity = 1
+    while (node instanceof Element) {
+      const style = getComputedStyle(node)
+      if (node.hasAttribute('hidden')) return 'html-hidden'
+      if (node.getAttribute('aria-hidden') === 'true') return 'aria-hidden'
+      if (style.display === 'none') return 'display-none'
+      if (['hidden', 'collapse'].includes(style.visibility)) return 'visibility-hidden'
+      const opacity = Number.parseFloat(style.opacity || '1')
+      if (Number.isFinite(opacity)) effectiveOpacity *= Math.max(0, Math.min(1, opacity))
+      if (effectiveOpacity <= 0.05) return 'transparent'
+      if (style.contentVisibility === 'hidden') return 'visibility-hidden'
+      node = node.parentElement
+    }
+
+    const style = getComputedStyle(element)
+    const foreground = colorTuple(style.color)
+    if (foreground && foreground[3] * effectiveOpacity <= 0.05) return 'transparent'
+    const fontSize = Number.parseFloat(style.fontSize || '16')
+    if (Number.isFinite(fontSize) && fontSize <= 1) return 'tiny-text'
+    const clip = `${style.clip || ''} ${style.clipPath || ''}`.toLowerCase()
+    if (clip.includes('rect(0') || clip.includes('inset(50%') || clip.includes('inset(100%')) return 'clipped'
+    if (['absolute', 'fixed'].includes(style.position)) {
+      const rect = element.getBoundingClientRect?.()
+      if (rect && (rect.right < -1 || rect.bottom < -1 || rect.left > innerWidth + 1 || rect.top > innerHeight + 1)) return 'offscreen'
+    }
+    if (foreground) {
+      const background = effectiveBackground(element)
+      const alpha = Math.max(0, Math.min(1, foreground[3] * effectiveOpacity))
+      const rendered = [
+        foreground[0] * alpha + background[0] * (1 - alpha),
+        foreground[1] * alpha + background[1] * (1 - alpha),
+        foreground[2] * alpha + background[2] * (1 - alpha),
+        1,
+      ]
+      if (contrastRatio(rendered, background) <= 1.25) return 'low-contrast'
+    }
+    return undefined
+  }
+
+  function collectHiddenContent() {
+    const root = document.body || document.documentElement
+    if (!root) return { items: [], scan: { scannedElements: 0, truncated: false, coverage: '页面无可扫描 DOM。' } }
+    const candidates = []
+    const stack = [root]
+    while (stack.length && candidates.length < MAX_SCANNED_ELEMENTS) {
+      const element = stack.pop()
+      if (!(element instanceof Element)) continue
+      candidates.push(element)
+      const children = [...element.children]
+      if (element.shadowRoot) children.push(...element.shadowRoot.children)
+      for (let index = children.length - 1; index >= 0; index -= 1) stack.push(children[index])
+    }
+    const findings = []
+    const seen = new Set()
+    let characters = 0
+    let scannedElements = 0
+    let truncated = stack.length > 0
+    for (const element of candidates) {
+      scannedElements += 1
+      if (/^(SCRIPT|STYLE|NOSCRIPT|TEMPLATE|INPUT|TEXTAREA|SELECT|OPTION)$/i.test(element.tagName || '')) continue
+      const text = directText(element)
+      if (!text) continue
+      const reason = hiddenReason(element)
+      if (!reason) continue
+      const normalized = redactSecretLikeText(text.slice(0, 2_000))
+      const key = `${reason}:${normalized}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      const finding = {
+        text: normalized,
+        reason,
+        selector: uniqueSelector(element),
+        instructionLike: instructionLikeText(normalized),
+      }
+      if (findings.length >= MAX_HIDDEN_CONTENT_ITEMS || characters + normalized.length > MAX_HIDDEN_CONTENT_CHARS) {
+        truncated = true
+        if (!finding.instructionLike) continue
+        for (let index = findings.length - 1; index >= 0 && (findings.length >= MAX_HIDDEN_CONTENT_ITEMS || characters + normalized.length > MAX_HIDDEN_CONTENT_CHARS); index -= 1) {
+          if (findings[index].instructionLike) continue
+          characters -= findings[index].text.length
+          findings.splice(index, 1)
+        }
+        if (findings.length >= MAX_HIDDEN_CONTENT_ITEMS || characters + normalized.length > MAX_HIDDEN_CONTENT_CHARS) continue
+      }
+      findings.push(finding)
+      characters += normalized.length
+    }
+    findings.sort((left, right) => Number(right.instructionLike) - Number(left.instructionLike))
+    return {
+      items: findings,
+      scan: {
+        scannedElements,
+        truncated,
+        coverage: '扫描当前页面可访问 DOM 和 open Shadow DOM 的 hidden/aria-hidden、display、visibility、opacity、极小字号、裁剪、离屏定位和文字/背景对比度，并遮罩令牌、密码和 API Key 样式的值。不包括跨域 iframe、closed Shadow DOM、Canvas 内部对象或已从像素中完全消失的内容。',
+      },
+    }
   }
 
   function absoluteUrl(value) {
@@ -382,6 +549,7 @@
     const media = mediaForElement(element)
     const mediaText = media ? collectMediaText(media) : {}
     const text = elementText(element)
+    const hidden = collectHiddenContent()
     return {
       url: location.href,
       title: document.title,
@@ -401,6 +569,8 @@
       contextMenuKind: options.contextMenuKind,
       analysisMode: options.analysisMode,
       outputFormat: media ? 'summary' : 'adaptive',
+      hiddenContent: hidden.items,
+      hiddenContentScan: hidden.scan,
       media: media ? {
         kind: media.tagName.toLowerCase(),
         currentTime: Number(media.currentTime || 0),
