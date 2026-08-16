@@ -6,7 +6,7 @@
 
 LensQuery is a resident Windows/macOS Electron workbench. It refuses a marketing-like homepage and decorative dashboard. Its client follows the restrained information architecture of coding-agent applications: persistent navigation and local timelines on the left, one contextual top bar, and a focused conversation/composer canvas. The memorable interaction remains the system-wide question cursor that appears after one shortcut.
 
-The 2026-08 automatic-analysis revision removes the prompt console from recognition. The empty conversation state offers only direct screen selection and file selection, then explains that LensQuery will classify the evidence and generate the internal analysis task in the background.
+The 2026-08 automatic-analysis revision removes the prompt console from recognition. The empty conversation state offers only direct screen selection and file selection. LensQuery first identifies the exact subject and semantic subtype, then creates a content-specific internal task: tutorials preserve steps and troubleshooting; entertainment covers progression, jokes, reactions, and highlights; gameplay follows decisions and outcomes; commentary separates facts, claims, and forecasts. The client never asks the user to choose this route.
 
 ## Scene and color
 
@@ -35,6 +35,7 @@ Canonical tokens live in `src/index.css`.
 - Conversation: source/title bar, centered message stream, persistent follow-up dock.
 - The follow-up dock exposes one quiet `provider · model` control. Its anchored menu contains provider, editable model ID, reasoning effort, and conversation-context scope; it does not navigate away from the conversation.
 - Video sessions place an expanded local/web player at the top of the message stream, before evidence and the report, so playback is immediately available without displacing the conversation context.
+- Automatic video reports use topic-derived headings and a genre-specific coverage contract. Even the concise preference may shorten the opening orientation but never collapse the supplied video into a few generic sentences; short and medium videos cover each meaningful segment, while long videos cover every supplied transcript chapter.
 - New-conversation state uses a restrained two-action launcher for screen selection and file selection. It contains no question field, annotation, intent selector, or output-format selector. Follow-up text remains available only after the first automatic result.
 - Settings use ruled groups rather than decorative cards.
 - Extensions use two quiet tabs (Plugins and Skills), a compact reviewed-source block, one install source row, a list with enable/audit/remove actions, and an explicit capability boundary. It is not an app-store gallery; the reviewed block is evidence-first rather than promotional.

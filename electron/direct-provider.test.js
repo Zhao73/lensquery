@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  adaptiveVideoAnalysisInstruction,
+  inferVideoContentProfile,
   listDirectProviderModels,
   normalizeProviderBaseUrl,
   providerEndpoint,
@@ -49,8 +51,8 @@ describe('Electron direct provider adapter', () => {
     expect(observed.url).toBe('https://host/v1/chat/completions')
     expect(observed.options.headers.authorization).toBe('Bearer TOKEN')
     expect(observed.body.messages.at(-1).content[0].text).toContain('只读分析员')
-    expect(observed.body.messages.at(-1).content[0].text).toContain('统一自动分析任务')
-    expect(observed.body.messages.at(-1).content[0].text).toContain('自动判断它是界面对象')
+    expect(observed.body.messages.at(-1).content[0].text).toContain('内容感知自动分析')
+    expect(observed.body.messages.at(-1).content[0].text).toContain('生成针对该具体内容的分析问题')
     expect(result.answer).toBe('这是一个测试结果。')
   })
 
@@ -89,7 +91,7 @@ describe('Electron direct provider adapter', () => {
       },
     })
 
-    expect(prompt).toContain('统一自动分析任务')
+    expect(prompt).toContain('内容感知自动分析')
     expect(prompt).not.toContain('legacy annotation should be ignored')
     expect(prompt).not.toContain('legacy custom prompt should be ignored')
     expect(prompt).not.toContain('用户注释：')
@@ -326,9 +328,61 @@ describe('Electron direct provider adapter', () => {
       },
     })
     expect(prompt).toContain('这是长视频证据')
+    expect(prompt).toContain('内容感知视频路由')
+    expect(prompt).toContain('必须逐章覆盖')
     expect(prompt).toContain('长视频章节 01')
     expect(prompt).toContain('chapter topic 0')
     expect(prompt).toContain('chapter topic 24')
+  })
+
+  it('builds different detailed analysis routes for tutorial and entertainment videos', () => {
+    const tutorialRequest = {
+      ...request,
+      browserContext: {
+        title: 'Photoshop 人像修图入门教程',
+        tagName: 'VIDEO',
+        contextMenuKind: 'video',
+        transcript: '[00:00] 介绍学习目标\n[01:20] 第一步导入照片\n[03:10] 讲解参数与常见错误',
+        media: { kind: 'video', duration: 420 },
+      },
+    }
+    const entertainmentRequest = {
+      ...request,
+      browserContext: {
+        title: '朋友整活爆笑挑战',
+        tagName: 'VIDEO',
+        contextMenuKind: 'video',
+        transcript: '[00:00] 挑战开始\n[00:40] 第一次反转\n[02:10] 大家爆笑并吐槽',
+        media: { kind: 'video', duration: 260 },
+      },
+    }
+
+    expect(inferVideoContentProfile(tutorialRequest).id).toBe('tutorial')
+    expect(inferVideoContentProfile(entertainmentRequest).id).toBe('entertainment')
+    const tutorialInstruction = adaptiveVideoAnalysisInstruction(tutorialRequest)
+    const entertainmentInstruction = adaptiveVideoAnalysisInstruction(entertainmentRequest)
+    expect(tutorialInstruction).toContain('学习目标')
+    expect(tutorialInstruction).toContain('常见错误')
+    expect(tutorialInstruction).not.toContain('笑点的铺垫')
+    expect(entertainmentInstruction).toContain('笑点的铺垫')
+    expect(entertainmentInstruction).toContain('不要硬套“学习要点”')
+    expect(entertainmentInstruction).not.toBe(tutorialInstruction)
+  })
+
+  it('keeps short-video summaries detailed instead of capping them at five bullets', () => {
+    const instruction = adaptiveVideoAnalysisInstruction({
+      ...request,
+      files: [{
+        name: 'lesson.mp4',
+        kind: 'video',
+        mediaType: 'video/mp4',
+        video: { durationSeconds: 8 * 60 },
+        videoPreparation: { transcript: '[00:00] tutorial\n[04:20] step by step demo', originalDurationSeconds: 8 * 60 },
+      }],
+    })
+    expect(instruction).toContain('覆盖每个有意义的段落')
+    expect(instruction).toContain('不得只用一段话和不超过 5 个要点带过')
+    expect(instruction).toContain('[04:20](#video-t=260)')
   })
 
   it('tests a local provider without requiring an API key', async () => {
