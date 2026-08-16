@@ -78,12 +78,8 @@ pub fn start_capture(mode: String, app: AppHandle) -> Result<CaptureResponse, St
     if mode != "region" && mode != "element" {
         return Err("不支持的捕获模式。".into());
     }
-    let (analysis_mode, text_scope) = if mode == "region" {
-        ("explain", "screen")
-    } else {
-        ("identify", "object")
-    };
-    crate::request_capture_intent(&app, analysis_mode, text_scope)?;
+    let text_scope = if mode == "region" { "screen" } else { "object" };
+    crate::request_capture_intent(&app, text_scope)?;
     Ok(capture::started())
 }
 
@@ -111,18 +107,9 @@ pub async fn complete_capture(
                     capture: response.evidence.clone(),
                     files: detected_files,
                     browser_context: None,
-                    analysis_mode: response
-                        .evidence
-                        .as_ref()
-                        .and_then(|evidence| evidence.analysis_mode.clone()),
-                    output_format: response
-                        .evidence
-                        .as_ref()
-                        .and_then(|evidence| evidence.output_format.clone()),
-                    annotation: response
-                        .evidence
-                        .as_ref()
-                        .and_then(|evidence| evidence.annotation.clone()),
+                    analysis_mode: None,
+                    output_format: None,
+                    annotation: None,
                 },
             )
             .map_err(|error| format!("发送取景结果失败: {error}"))?;

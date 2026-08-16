@@ -330,9 +330,6 @@ export interface QueryEvidenceEvent {
   capture?: CaptureEvidence
   files?: FileEvidence[]
   browserContext?: BrowserContext
-  analysisMode?: AnalysisRequest['analysisMode']
-  outputFormat?: AnalysisRequest['outputFormat']
-  annotation?: string
 }
 
 export async function listenForCaptureRequests(handler: () => void): Promise<() => void> {
@@ -360,8 +357,6 @@ export async function listenForQueryEvidence(
 
 export async function listenForCaptureIntent(
   handler: (payload: {
-    analysisMode?: AnalysisRequest['analysisMode']
-    outputFormat?: AnalysisRequest['outputFormat']
     textScope?: string
     selectionMode?: 'auto' | 'region' | 'element'
   }) => void,

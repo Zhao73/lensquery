@@ -6,7 +6,7 @@
 
 LensQuery is a resident Windows/macOS Electron workbench. It refuses a marketing-like homepage and decorative dashboard. Its client follows the restrained information architecture of coding-agent applications: persistent navigation and local timelines on the left, one contextual top bar, and a focused conversation/composer canvas. The memorable interaction remains the system-wide question cursor that appears after one shortcut.
 
-The 2026-08 annotation expansion keeps that world but makes the empty conversation state an operational console: intent, optional annotation, file entry, output contract, and direct question are visible without turning the window into a homepage.
+The 2026-08 automatic-analysis revision removes the prompt console from recognition. The empty conversation state offers only direct screen selection and file selection, then explains that LensQuery will classify the evidence and generate the internal analysis task in the background.
 
 ## Scene and color
 
@@ -35,7 +35,7 @@ Canonical tokens live in `src/index.css`.
 - Conversation: source/title bar, centered message stream, persistent follow-up dock.
 - The follow-up dock exposes one quiet `provider · model` control. Its anchored menu contains provider, editable model ID, reasoning effort, and conversation-context scope; it does not navigate away from the conversation.
 - Video sessions place an expanded local/web player at the top of the message stream, before evidence and the report, so playback is immediately available without displacing the conversation context.
-- New-conversation state uses one centered, spacious composer with optional instruction, intent, output contract, attachment, and send controls. It is not a homepage or upload landing page.
+- New-conversation state uses a restrained two-action launcher for screen selection and file selection. It contains no question field, annotation, intent selector, or output-format selector. Follow-up text remains available only after the first automatic result.
 - Settings use ruled groups rather than decorative cards.
 - Extensions use two quiet tabs (Plugins and Skills), a compact reviewed-source block, one install source row, a list with enable/audit/remove actions, and an explicit capability boundary. It is not an app-store gallery; the reviewed block is evidence-first rather than promotional.
 - Providers use one search field and restrained category filters over a flat, scannable directory. Built-ins, local endpoints, and custom profiles share the same row grammar instead of separate dashboards.
@@ -61,12 +61,12 @@ Canonical tokens live in `src/index.css`.
 - Fully transparent full-desktop layer with a small arrow-plus-question-mark cursor; the current application remains visually unchanged.
 - The first click resolves and outlines the real object/file bounds; clicking that highlighted target again confirms it. Movement beyond eight logical pixels becomes a rectangular drag and submits on release.
 - The selected region is a blue outline with a very light interior and pixel dimensions. The exterior remains visually unchanged so the user never loses the surrounding desktop context.
-- No toolbar, instruction plaque, client confirmation, or busy card appears over the desktop. The configured intent is applied in the background, and Escape always cancels.
+- No toolbar, prompt field, instruction plaque, client confirmation, or busy card appears over the desktop. The unified automatic task is generated from the selected evidence in the background, and Escape always cancels.
 
 ## Background surfaces
 
 - The main window starts hidden. Closing it hides, not quits.
-- A left click on the resident icon starts smart selection immediately. The right-click menu contains only Start Recognition, Analyze Files, Timeline, Settings, and Quit; analysis modes and diagnostics live in the client/settings surface.
+- A left click on the resident icon starts smart selection immediately. The right-click menu contains only Start Recognition, Analyze Files, Timeline, Settings, and Quit; diagnostics live in settings, while analysis depth and structure are automatic.
 - The transparent selector never draws a fixed cursor-following frame. A first click highlights resolved text, image, PDF, file, or control bounds; a second click confirms it, while dragging selects a freeform region immediately.
 - A monochrome template icon lives in the macOS menu bar and adapts to appearance; Windows uses the colored app mark in the system tray.
 - Left click starts the default capture. Right click exposes only Start Recognition and Analyze Files, followed by Timeline, Settings, and Quit.

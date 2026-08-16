@@ -7,9 +7,9 @@ Chrome / Edge Manifest V3 companion extension. It adds exact page context that d
 - clicked text, buttons, links, images, form controls, and video/audio state;
 - bounded frontend-construction evidence: query-free script/stylesheet URLs, evidence-backed framework/platform hints with confidence, page structure and accessibility counts, responsive CSS, resource counts, and selected-element computed styles;
 - visible player captions, caption tracks already published by the active YouTube page, already-open generic transcript segments, cue counts, and an explicit truncation marker;
-- selected text, one word, the surrounding paragraph, the whole page, or the current object;
+- the selected text when present, otherwise the current object and its bounded surrounding context;
 - bounded nearby text, an element selector, accessible name, and sanitized `outerHTML`;
-- an optional short annotation plus identify/explain/how-to/deep/customer/code intent;
+- one automatic analysis task that classifies the selected evidence and chooses the useful depth and structure in the background;
 - active page URL and title.
 
 ## Development install
@@ -33,7 +33,7 @@ Chrome / Edge Manifest V3 companion extension. It adds exact page context that d
 5. Reload the extension once, then start LensQuery. You can now:
    - right-click selected text, an image, video/audio, link, editable area, control, or page background;
    - choose **使用 LensQuery 识别**; the extension resolves the current target type and starts the matching analysis in the background;
-   - press `Ctrl+Shift+Space` and use the two-click DOM picker. Hold Option/Alt on the confirming click only for the advanced range/intent/annotation composer.
+   - press `Ctrl+Shift+Space` and use the two-click DOM picker; the second click submits immediately without a prompt composer.
 
 The extension requests `activeTab` and `contextMenus`; page access starts only after an explicit toolbar, shortcut, or right-click action. It has no persistent all-sites content script. `nativeMessaging` passes the bounded DOM context and an optional compressed target crop to the resident desktop process. On browser-internal pages where script injection is restricted, the menu can still submit the limited title/URL fallback rather than claiming DOM access.
 

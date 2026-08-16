@@ -15,7 +15,7 @@
 - [x] Click/drag/keyboard region UX
 - [x] Windows and macOS region capture backend
 - [x] Windows UI Automation and macOS Accessibility click inspection baseline
-- [x] Configurable outbound-data preview
+- [x] Explicit selection as submission gesture; the retired outbound preview no longer interrupts recognition
 
 ## 0.3 Model connections
 
@@ -34,7 +34,7 @@
 - [x] Local FFprobe metadata and bounded FFmpeg keyframe/audio preparation
 - [x] Timestamped keyframe gallery
 - [ ] Audio-transcription transport
-- [x] Customer-answer prompt template and configurable output contracts
+- [x] Unified automatic task with evidence-driven customer-ready output
 - [x] Upper-right result card, conversation timeline, Markdown, speech, and follow-up
 - [x] Local history and capture-retention controls
 - [ ] Explorer integration

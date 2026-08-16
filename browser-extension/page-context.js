@@ -716,8 +716,6 @@
       transcriptCueCount: mediaText.transcriptCueCount,
       transcriptTruncated: mediaText.transcriptTruncated,
       contextMenuKind: options.contextMenuKind,
-      analysisMode: options.analysisMode,
-      outputFormat: media ? 'summary' : 'adaptive',
       hiddenContent: hidden.items,
       hiddenContentScan: hidden.scan,
       siteAnalysis: collectSiteAnalysis(element),
@@ -743,7 +741,6 @@
         kind: message.request?.kind,
         contextMenuKind: message.request?.kind,
         selectionText: message.request?.selectionText,
-        analysisMode: message.request?.kind === 'image' ? 'identify' : 'explain',
       })
       void enrichContext(context)
         .then((enriched) => sendResponse({ ok: true, context: enriched }))

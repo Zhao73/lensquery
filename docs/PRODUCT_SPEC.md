@@ -14,8 +14,8 @@
 ### Local file analysis
 
 1. User opens LensQuery from the tray, drags files onto the home screen, uses the picker, or invokes an operating-system file action.
-2. LensQuery classifies each attachment and immediately runs bounded local provenance inspection. Images show local provenance and prompt-recovery coverage; videos show duration, stream metadata, sampled timestamps, sidecar/Whisper transcript origin, chapter estimate, and any uncovered audio. Images/videos bypass the optional second client preview and proceed directly after system target confirmation or file import.
-3. Non-media manual imports may retain the configured preview; every submitted request then follows the same provider-independent analysis flow.
+2. LensQuery classifies each attachment and immediately runs bounded local provenance inspection. Images show local provenance and prompt-recovery coverage; videos show duration, stream metadata, sampled timestamps, sidecar/Whisper transcript origin, chapter estimate, and any uncovered audio. Every selected file proceeds directly after file-picker confirmation.
+3. Screen, browser, Finder, and file-picker inputs share one automatic task. The trusted prompt builder chooses evidence-specific analysis internally; the user does not enter or select a prompt before submission.
 
 ## Functional requirements
 
@@ -42,7 +42,7 @@
 | AI-03 | Switch model before retry | Evidence and question stay intact while profile changes |
 | CLI-01 | Detect Codex and Claude Code executables | Settings reports resolved path and an explicit health result |
 | CLI-02 | Run a read-only non-interactive query | Invocation has bounded turns/time and does not grant command tools by default |
-| PRIV-01 | Bound explicit capture | Only the shortcut plus the following click/drag is submitted; manual imports may use the optional preview |
+| PRIV-01 | Bound explicit capture | Only the shortcut plus the following click/drag, browser/Finder action, or explicit file-picker selection is submitted |
 | PRIV-02 | Redact protected UI fields | Password and secret-like accessible values are absent from request snapshots |
 | HIST-01 | Keep optional local history | User can disable screenshot retention and clear all history |
 

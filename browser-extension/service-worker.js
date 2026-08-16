@@ -176,8 +176,6 @@ function fallbackContext(kind, info, tab) {
     selectionMode: kind === 'selection' ? 'selection' : 'object',
     selectedText,
     contextMenuKind: kind,
-    analysisMode: kind === 'image' ? 'identify' : 'explain',
-    outputFormat: mediaKind ? 'summary' : 'adaptive',
     media: mediaKind ? {
       kind: mediaKind,
       currentTime: 0,

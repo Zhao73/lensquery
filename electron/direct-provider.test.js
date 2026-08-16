@@ -16,8 +16,8 @@ const settings = {
 }
 
 const request = {
-  question: '这是什么？',
-  promptId: 'explain',
+  question: '自动扫描所选内容，识别它的类型与周围上下文，直接给出最有用的结论、证据和下一步。',
+  promptId: 'auto-analysis',
   analysisMode: 'explain',
   outputFormat: 'adaptive',
   captures: [],
@@ -49,7 +49,33 @@ describe('Electron direct provider adapter', () => {
     expect(observed.url).toBe('https://host/v1/chat/completions')
     expect(observed.options.headers.authorization).toBe('Bearer TOKEN')
     expect(observed.body.messages.at(-1).content[0].text).toContain('只读分析员')
+    expect(observed.body.messages.at(-1).content[0].text).toContain('统一自动分析任务')
+    expect(observed.body.messages.at(-1).content[0].text).toContain('自动判断它是界面对象')
     expect(result.answer).toBe('这是一个测试结果。')
+  })
+
+  it('does not expose legacy prompt modes, annotations, or custom prompt text during recognition', async () => {
+    let prompt = ''
+    await runDirectProvider({
+      profile: { id: 'custom', name: 'Custom', kind: 'compatible', model: 'MODEL', baseUrl: 'https://HOST/v1', apiKeyRequired: true, secretConfigured: true },
+      secret: 'TOKEN',
+      request: {
+        ...request,
+        analysisMode: 'customer-reply',
+        outputFormat: 'report',
+        annotation: 'legacy annotation should be ignored',
+      },
+      settings: { ...settings, customReplyInstruction: 'legacy custom prompt should be ignored' },
+      fetchImpl: async (_url, options) => {
+        prompt = JSON.parse(options.body).messages.at(-1).content[0].text
+        return new Response(JSON.stringify({ model: 'MODEL', choices: [{ message: { content: '已完成。' } }] }), { status: 200 })
+      },
+    })
+
+    expect(prompt).toContain('统一自动分析任务')
+    expect(prompt).not.toContain('legacy annotation should be ignored')
+    expect(prompt).not.toContain('legacy custom prompt should be ignored')
+    expect(prompt).not.toContain('用户注释：')
   })
 
   it('passes verified provenance, forensic derivatives, and hidden prompt injections as evidence', async () => {
@@ -59,8 +85,6 @@ describe('Electron direct provider adapter', () => {
       secret: 'TOKEN',
       request: {
         ...request,
-        promptId: 'media-forensics',
-        analysisMode: 'media-forensics',
         browserContext: {
           title: 'Fixture',
           url: 'https://example.test',
@@ -203,8 +227,6 @@ describe('Electron direct provider adapter', () => {
       secret: 'TOKEN',
       request: {
         ...request,
-        promptId: 'website',
-        analysisMode: 'deep-dive',
         browserContext: {
           title: 'Fixture site',
           url: 'https://example.test',
@@ -263,9 +285,6 @@ describe('Electron direct provider adapter', () => {
       secret: 'TOKEN',
       request: {
         ...request,
-        question: '完整总结',
-        promptId: 'video',
-        outputFormat: 'summary',
         files: [{
           name: 'long.mp4',
           kind: 'video',

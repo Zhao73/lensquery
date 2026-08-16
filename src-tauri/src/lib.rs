@@ -353,33 +353,19 @@ pub(crate) fn request_capture(app: &AppHandle) -> Result<(), String> {
     show_capture_overlay(app)
 }
 
-pub(crate) fn request_capture_intent(
-    app: &AppHandle,
-    analysis_mode: &str,
-    text_scope: &str,
-) -> Result<(), String> {
-    request_capture_selection_intent(app, analysis_mode, text_scope, "auto")
+pub(crate) fn request_capture_intent(app: &AppHandle, text_scope: &str) -> Result<(), String> {
+    request_capture_selection_intent(app, text_scope, "auto")
 }
 
 fn request_capture_selection_intent(
     app: &AppHandle,
-    analysis_mode: &str,
     text_scope: &str,
     selection_mode: &str,
 ) -> Result<(), String> {
-    let output_format = app
-        .state::<AppState>()
-        .settings
-        .lock()
-        .map_err(|_| "设置存储被锁定。".to_string())?
-        .default_output_format
-        .clone();
     app.emit_to(
         "capture",
         "lensquery://capture-intent",
         serde_json::json!({
-            "analysisMode": analysis_mode,
-            "outputFormat": output_format,
             "textScope": text_scope,
             "selectionMode": selection_mode
         }),
@@ -389,13 +375,7 @@ fn request_capture_selection_intent(
 }
 
 pub(crate) fn request_default_capture(app: &AppHandle) -> Result<(), String> {
-    let settings = app
-        .state::<AppState>()
-        .settings
-        .lock()
-        .map_err(|_| "设置存储被锁定。".to_string())?
-        .clone();
-    request_capture_selection_intent(app, &settings.default_analysis_mode, "object", "auto")
+    request_capture_selection_intent(app, "object", "auto")
 }
 
 pub(crate) fn register_capture_shortcut(app: &AppHandle, shortcut: &str) -> Result<(), String> {

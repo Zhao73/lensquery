@@ -136,9 +136,9 @@ fn poll_once(app: &AppHandle) {
                         }
                         .into(),
                     ),
-                    annotation: browser_context.annotation.clone(),
-                    analysis_mode: browser_context.analysis_mode.clone(),
-                    output_format: browser_context.output_format.clone(),
+                    annotation: None,
+                    analysis_mode: None,
+                    output_format: None,
                 });
             let _ = app.emit_to(
                 "main",
@@ -146,9 +146,9 @@ fn poll_once(app: &AppHandle) {
                 QueryEvidenceEvent {
                     capture,
                     files: Vec::new(),
-                    analysis_mode: browser_context.analysis_mode.clone(),
-                    output_format: browser_context.output_format.clone(),
-                    annotation: browser_context.annotation.clone(),
+                    analysis_mode: None,
+                    output_format: None,
+                    annotation: None,
                     browser_context: Some(browser_context),
                 },
             );

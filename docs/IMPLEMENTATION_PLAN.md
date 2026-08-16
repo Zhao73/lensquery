@@ -19,7 +19,7 @@ The release is successful when a Windows user can leave LensQuery in the tray, p
 - Main-window close hides to tray.
 - Configurable global shortcut registration in Electron, with rollback to the previous shortcut if a new accelerator is occupied.
 - Separate transparent all-monitor capture overlay whose document/root canvas is explicitly transparent.
-- Transparent desktop, small question-mark cursor, real-target first-click highlight, second-click confirmation, drag threshold, Escape cancellation, and configured analysis intent.
+- Transparent desktop, small question-mark cursor, real-target first-click highlight, second-click confirmation, drag threshold, Escape cancellation, and one automatic-analysis contract.
 - Permission-independent upper-right result card, card/window/both result presentation, autostart preference, and system speech.
 
 macOS compilation is verified locally. Windows behavior must still be exercised on physical Windows 10/11, especially mixed-DPI coordinates and tray lifecycle.
@@ -41,7 +41,7 @@ Remaining: multi-monitor mixed-DPI test matrix, protected/elevated-surface error
 - Searchable local timeline, source metadata, answer states, semantic Markdown, copy/read-aloud/retry, deletion, and clear history.
 - Same-session follow-up with transcript context.
 - Inline per-session provider/model, reasoning-effort, and automatic/compact/full/evidence-only history controls.
-- Seven analysis modes including fixed AI-provenance/hidden-content forensics, six output contracts, and optional annotations.
+- One automatic-analysis contract: classify the confirmed evidence, scan surrounding context, select the relevant evidence-specific branch, and choose the clearest response structure. No pre-submit prompt, mode, format, or annotation input remains.
 - Plain Windows/macOS/Codex-like workbench styling with system typography and one action color.
 - Persistent coding-agent-style sidebar, centered new-conversation composer, provider chip, and dedicated Plugins/Skills capability view.
 
@@ -84,7 +84,7 @@ Acceptance: follow-ups append to the original agent session without replaying th
 - MV3 extension manifest.
 - Native context-menu actions for selected text, images, videos, and the current page.
 - Shortcut/action starts an in-page pointer picker.
-- Click extraction for selection/word/paragraph/page/object text, button/link roles, images, video/audio state, selector, nearby text, sanitized outer HTML, URL, title, intent, and annotation.
+- Click extraction for selected text or the current object, button/link roles, images, video/audio state, selector, nearby text, sanitized outer HTML, URL, and title. The collected evidence enters the automatic task directly.
 - Visible target crop is compressed in the extension worker, validated/materialized by the native host, attached to the model request, and shown in the local conversation.
 - `activeTab` limits access to explicit user invocation.
 - Bounded framed Native Messaging host and resident queue handoff.

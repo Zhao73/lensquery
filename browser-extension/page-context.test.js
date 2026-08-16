@@ -44,6 +44,8 @@ describe('LensQuery browser page context', () => {
     expect(context.nearbyText).toContain('Before context')
     expect(context.nearbyText).toContain('after context')
     expect(context.contextMenuKind).toBe('selection')
+    expect(context).not.toHaveProperty('analysisMode')
+    expect(context).not.toHaveProperty('outputFormat')
   })
 
   it('finds the requested image and returns visual crop metadata', () => {
@@ -58,6 +60,7 @@ describe('LensQuery browser page context', () => {
     expect(context.accessibleName).toBe('Product diagram')
     expect(context.nearbyText).toContain('Architecture overview')
     expect(context.__snapshot.rect).toEqual({ x: 12, y: 24, width: 320, height: 180 })
+    expect(context).not.toHaveProperty('analysisMode')
   })
 
   it('includes current video state without inventing a transcript', () => {

@@ -263,9 +263,9 @@ fn capture_native(selection: CaptureSelection) -> Result<CaptureResponse, String
         accessible_text,
         source_path,
         text_scope: selection.text_scope,
-        annotation: selection.annotation,
-        analysis_mode: selection.analysis_mode,
-        output_format: selection.output_format,
+        annotation: None,
+        analysis_mode: None,
+        output_format: None,
     };
 
     Ok(CaptureResponse {

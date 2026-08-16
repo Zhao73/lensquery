@@ -66,6 +66,19 @@ const defaultSettings = {
   autoPlayVoice: false,
 }
 
+function normalizeSettings(settings = {}) {
+  return {
+    ...defaultSettings,
+    ...settings,
+    // Initial recognition always follows the single automatic-analysis contract.
+    // Keep these legacy keys stable for persisted-state compatibility only.
+    showPreview: false,
+    defaultAnalysisMode: 'explain',
+    defaultOutputFormat: 'adaptive',
+    customReplyInstruction: '',
+  }
+}
+
 const defaultProviders = [
   provider('codex-cli', 'Codex CLI', 'codex-cli', 'default', true, true, { category: 'agent' }),
   provider('claude-cli', 'Claude Code', 'claude-cli', 'default', true, false, { category: 'agent' }),
@@ -170,7 +183,7 @@ async function loadState() {
     }
   })
   return {
-    settings: { ...defaultSettings, ...(persisted.settings || {}) },
+    settings: normalizeSettings(persisted.settings),
     providers,
     secrets,
     permissionPrompts: {
@@ -329,8 +342,6 @@ async function flushDeepLinks() {
       const files = await invokeSidecar('inspectFiles', { paths })
       sendEvent('lensquery://evidence-ready', {
         files,
-        analysisMode: state.settings.defaultAnalysisMode,
-        outputFormat: state.settings.defaultOutputFormat,
       })
       debugRuntime('finder-context-received', { count: files.length, paths })
     }
@@ -360,8 +371,6 @@ async function startCapture(mode = 'element') {
   const bottom = Math.max(...displays.map((display) => display.bounds.y + display.bounds.height))
   captureWindow.setBounds({ x: left, y: top, width: right - left, height: bottom - top })
   sendEvent('lensquery://capture-intent', {
-    analysisMode: mode === 'region' ? 'explain' : state.settings.defaultAnalysisMode,
-    outputFormat: state.settings.defaultOutputFormat,
     textScope: mode === 'region' ? 'screen' : 'object',
     selectionMode: mode === 'region' ? 'region' : 'auto',
   })
@@ -394,9 +403,6 @@ async function completeCapture(selection) {
     sendEvent('lensquery://evidence-ready', {
       capture: response.evidence,
       files,
-      analysisMode: response.evidence?.analysisMode,
-      outputFormat: response.evidence?.outputFormat,
-      annotation: response.evidence?.annotation,
     })
     return response
   } catch (error) {
@@ -566,9 +572,6 @@ async function completeCaptureWithElectron(selection) {
       accessibleText: target?.accessibleText,
       sourcePath: target?.sourcePath,
       textScope: selection.textScope,
-      annotation: selection.annotation,
-      analysisMode: selection.analysisMode,
-      outputFormat: selection.outputFormat,
     },
   }
 }
@@ -720,7 +723,7 @@ function registerIpc() {
   handle('stopSpeaking', async () => stopSpeaking())
   handle('saveSettings', async ({ settings }) => {
     const previousSettings = state.settings
-    const nextSettings = { ...defaultSettings, ...settings }
+    const nextSettings = normalizeSettings(settings)
     if (!registerShortcut(nextSettings.shortcut)) {
       registerShortcut(previousSettings.shortcut)
       throw new Error(`全局快捷键 ${nextSettings.shortcut} 被其他应用占用。`)
@@ -1004,9 +1007,6 @@ async function pollBrowserQueue() {
     sendEvent('lensquery://evidence-ready', {
       capture,
       files: [],
-      analysisMode: context.analysisMode,
-      outputFormat: context.outputFormat,
-      annotation: context.annotation,
       browserContext: context,
     })
   }
