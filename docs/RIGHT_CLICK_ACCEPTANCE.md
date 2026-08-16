@@ -1,6 +1,6 @@
 # Right-click integration acceptance
 
-Date: 2026-08-15 (Asia/Tokyo)
+Date: 2026-08-17 (Asia/Tokyo)
 
 ## Finder: installed runtime PASS
 
@@ -15,18 +15,21 @@ Date: 2026-08-15 (Asia/Tokyo)
 - Result screenshot: `/private/tmp/lensquery-finder-result.png` on the acceptance machine.
 - The temporary Desktop fixture was moved to Trash after the run.
 
-## Browser connector: source/package/bridge PASS; Chrome UI load pending
+## Browser connector: source/package/bridge/custom-menu fixture PASS; user Chrome reload pending
 
-- Manifest V3 extension version: `0.3.0`.
+- Manifest V3 extension version: `0.5.0`.
 - Fixed extension ID: `filelbpgenppllkeeofajalcgbnifgmi`.
 - The single **使用 LensQuery 识别** command declares `contexts: ["all"]` and routes selection, image, video, audio, link, editable, and generic object contexts independently.
+- Pages that cancel Chrome's native `contextmenu` event receive a compact injected **使用 LensQuery 识别** action next to the site's menu. This covers custom HTML5 players, Bilibili-style menus, canvas content, and web-app controls without replacing the site's own commands.
 - The packaged extension is present at `/Applications/LensQuery.app/Contents/Resources/browser-extension`.
 - Native Messaging manifest is installed for Chrome, Edge, Brave, and Chromium and points to the packaged Rust sidecar wrapper.
 - A framed native-host fixture returned `{ "ok": true }`, entered the installed LensQuery timeline, and produced a completed browser-object answer.
-- The current automation session did not expose the user's Chrome instance through the required Chrome control connector, so loading the unpacked extension into that live profile and visually confirming its Chrome context-menu item remain separate pending runtime gates.
+- An installed-package Chromium fixture loaded extension ID `filelbpgenppllkeeofajalcgbnifgmi` at version `0.5.0`; after a fixture player cancelled `contextmenu`, both its own menu and the injected **使用 LensQuery 识别** action were present.
+- The user's existing unpacked Chrome extension still needs one reload after this package update. Confirming the same interaction on the user's live Bilibili page remains a separate runtime gate.
 
 ## Reproduction
 
 1. Finder: select any local file or folder, right-click, and choose **使用 LensQuery 识别**.
 2. Chrome/Edge: open the extensions page, enable Developer mode, choose **Load unpacked**, and select `/Applications/LensQuery.app/Contents/Resources/browser-extension`.
 3. Confirm the extension ID is `filelbpgenppllkeeofajalcgbnifgmi`, reload it once, then right-click selected text, media, a link, an editable area, a control, or page background.
+4. On a Bilibili video or a local fixture that calls `event.preventDefault()` for `contextmenu`, confirm LensQuery appears beside the custom menu, keeps the site's menu available, and submits only after the LensQuery action is clicked.

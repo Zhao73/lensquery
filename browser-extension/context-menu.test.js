@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -5,6 +7,8 @@ import {
   contextRequestFor,
   UNIVERSAL_CONTEXT_MENU,
 } from './context-menu.js'
+
+const manifest = JSON.parse(readFileSync(resolve(process.cwd(), 'browser-extension/manifest.json'), 'utf8'))
 
 describe('LensQuery universal browser context menu', () => {
   it('is visible for every Chrome context', () => {
@@ -37,5 +41,17 @@ describe('LensQuery universal browser context menu', () => {
       srcUrl: 'https://example.test/image.png',
       linkUrl: 'https://example.test/details',
     })
+  })
+
+  it('loads a fallback action on pages that replace the native Chrome menu', () => {
+    expect(manifest.host_permissions).toEqual(expect.arrayContaining(['http://*/*', 'https://*/*']))
+    expect(manifest.content_scripts).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        all_frames: true,
+        match_about_blank: true,
+        match_origin_as_fallback: true,
+        js: ['page-context.js', 'custom-context-menu.js'],
+      }),
+    ]))
   })
 })
