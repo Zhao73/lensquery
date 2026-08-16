@@ -24,6 +24,8 @@ describe('media helpers', () => {
       .toBe('https://www.youtube-nocookie.com/embed/sPlBtKsmLK0?rel=0&start=123')
     expect(youtubeEmbedUrl('https://youtu.be/sPlBtKsmLK0'))
       .toBe('https://www.youtube-nocookie.com/embed/sPlBtKsmLK0?rel=0')
+    expect(youtubeEmbedUrl('https://youtu.be/sPlBtKsmLK0', 260, true))
+      .toBe('https://www.youtube-nocookie.com/embed/sPlBtKsmLK0?rel=0&start=260&autoplay=1')
     expect(youtubeEmbedUrl('https://example.com/video')).toBeUndefined()
   })
 

@@ -23,7 +23,7 @@ export function sampleVideoFrames(frames: VideoFrame[], maximum = 7): VideoFrame
   return [...sampled.values()]
 }
 
-export function youtubeEmbedUrl(rawUrl?: string, startSeconds = 0): string | undefined {
+export function youtubeEmbedUrl(rawUrl?: string, startSeconds = 0, autoplay = false): string | undefined {
   if (!rawUrl) return undefined
   try {
     const url = new URL(rawUrl)
@@ -38,6 +38,7 @@ export function youtubeEmbedUrl(rawUrl?: string, startSeconds = 0): string | und
     const embed = new URL(`https://www.youtube-nocookie.com/embed/${videoId}`)
     embed.searchParams.set('rel', '0')
     if (startSeconds > 0) embed.searchParams.set('start', String(Math.floor(startSeconds)))
+    if (autoplay) embed.searchParams.set('autoplay', '1')
     return embed.href
   } catch {
     return undefined

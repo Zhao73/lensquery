@@ -54,6 +54,7 @@ Canonical tokens live in `src/index.css`.
 - Brand mark: a lens/speech ring with three annotation strokes and one cobalt focus point. The colored mark is used for the app and extension; the menu-bar/tray template uses the same geometry without a background tile.
 - Session video player: retain native media controls in the 16:9 stage. Its titled header stays sticky inside the player, with discoverable named system-player and collapse/expand controls; collapsing pauses local playback and expanding returns the player to view. A local source also offers the system player as the fallback when embedded playback fails.
 - Video keyframes are uniformly sampled, timestamped jump targets. Keep them in a horizontally scrolling strip for narrow windows; each named target seeks (and resumes where supported), while a clear playback-error message keeps the recovery action available.
+- Every valid timecode in an assistant video summary is an inline playback control. Selecting `04:20` expands the session player, seeks to 260 seconds, starts local playback or reloads the YouTube embed at that point, and brings the player into view. Chapter headings and ranges use their starting time as the primary jump target.
 
 ## Capture overlay
 

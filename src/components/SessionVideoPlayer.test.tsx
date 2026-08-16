@@ -82,4 +82,17 @@ describe('SessionVideoPlayer', () => {
     expect(video.currentTime).toBe(60)
     expect(video.play).toHaveBeenCalled()
   })
+
+  it('opens the player and seeks when a report timestamp is selected', () => {
+    const session = sessionFixture()
+    const { container, rerender } = render(<SessionVideoPlayer session={session} />)
+    const video = container.querySelector('video') as HTMLVideoElement
+
+    fireEvent.click(screen.getByRole('button', { name: '收起视频' }))
+    rerender(<SessionVideoPlayer session={session} seekRequest={{ sessionId: session.id, seconds: 80, nonce: 1 }} />)
+
+    expect(container.querySelector('.video-player-body')?.hasAttribute('hidden')).toBe(false)
+    expect(video.currentTime).toBe(80)
+    expect(video.play).toHaveBeenCalled()
+  })
 })

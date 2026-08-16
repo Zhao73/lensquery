@@ -32,13 +32,13 @@ import {
   X,
 } from '@phosphor-icons/react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import './App.css'
 import { ProviderLogo } from './components/ProviderLogo'
-import { SessionVideoPlayer } from './components/SessionVideoPlayer'
+import { SessionVideoPlayer, type VideoSeekRequest } from './components/SessionVideoPlayer'
 import { SessionRuntimeControls, type SessionRuntimeUpdate } from './components/SessionRuntimeControls'
+import { VideoTimestampMarkdown } from './components/VideoTimestampMarkdown'
 import { containsAutoAnalyzedMedia, evidenceAccept, formatBytes, formatDuration, normalizeBrowserFiles } from './lib/files'
+import { resolveSessionVideo } from './lib/media'
 import {
   analyze,
   bootstrap,
@@ -800,10 +800,12 @@ function ConversationView(props: {
   const latestMessageRef = useRef<HTMLElement>(null)
   const displayedSessionRef = useRef<string | null>(null)
   const [speakingId, setSpeakingId] = useState<string | null>(null)
+  const [videoSeekRequest, setVideoSeekRequest] = useState<VideoSeekRequest>()
   const hasVideo = props.session.files.some(({ kind }) => kind === 'video') || props.session.browserContext?.media?.kind === 'video'
   const hasImage = props.session.files.some(({ kind }) => kind === 'image') || props.session.browserContext?.contextMenuKind === 'image'
   const hasMedia = hasVideo || hasImage
   const hasLongVideo = isLongVideoInput(props.session.files, props.session.browserContext)
+  const videoDuration = useMemo(() => resolveSessionVideo(props.session)?.durationSeconds ?? 0, [props.session])
   const latestMessage = props.session.messages.at(-1)
   useEffect(() => {
     if (displayedSessionRef.current !== props.session.id) {
@@ -825,7 +827,7 @@ function ConversationView(props: {
         <button type="button" className="icon-button" onClick={props.onDelete} aria-label="删除会话"><Trash size={18} /></button>
       </header>
       <div className="message-stream" ref={streamRef}>
-        {hasVideo && <SessionVideoPlayer key={props.session.id} session={props.session} />}
+        {hasVideo && <SessionVideoPlayer key={props.session.id} session={props.session} seekRequest={videoSeekRequest} />}
         <EvidenceStrip session={props.session} />
         {hasMedia && (
           <MediaQuickActions
@@ -843,7 +845,19 @@ function ConversationView(props: {
             ) : (
               message.role === 'assistant' ? (
                 <div className="message-content markdown-answer">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
+                  {hasVideo ? (
+                    <VideoTimestampMarkdown
+                      content={message.content}
+                      durationSeconds={videoDuration}
+                      onSeek={(seconds) => setVideoSeekRequest((current) => ({
+                        sessionId: props.session.id,
+                        seconds,
+                        nonce: (current?.nonce ?? 0) + 1,
+                      }))}
+                    />
+                  ) : (
+                    <VideoTimestampMarkdown content={message.content} />
+                  )}
                 </div>
               ) : (
                 <div className="message-content">{message.content}</div>

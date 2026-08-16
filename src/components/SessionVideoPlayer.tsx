@@ -5,13 +5,19 @@ import {
   FilmStrip,
   WarningCircle,
 } from '@phosphor-icons/react'
-import { useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { formatDuration } from '../lib/files'
 import { resolveSessionVideo, sampleVideoFrames, youtubeEmbedUrl } from '../lib/media'
 import { localFileUrl, openLocalPath } from '../lib/tauri'
 import type { QuerySession } from '../types/domain'
 
-export function SessionVideoPlayer({ session }: { session: QuerySession }) {
+export interface VideoSeekRequest {
+  sessionId: string
+  seconds: number
+  nonce: number
+}
+
+export function SessionVideoPlayer({ session, seekRequest }: { session: QuerySession; seekRequest?: VideoSeekRequest }) {
   const source = useMemo(() => resolveSessionVideo(session), [session])
   const rootRef = useRef<HTMLElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -20,6 +26,45 @@ export function SessionVideoPlayer({ session }: { session: QuerySession }) {
   const [reportedDuration, setReportedDuration] = useState(source?.durationSeconds ?? 0)
   const [playbackError, setPlaybackError] = useState('')
   const [youtubeStart, setYoutubeStart] = useState(0)
+  const [youtubeAutoplay, setYoutubeAutoplay] = useState(false)
+
+  const revealPlayer = useCallback(() => {
+    setCollapsed(false)
+    window.requestAnimationFrame(() => {
+      const root = rootRef.current
+      const scroller = root?.closest<HTMLElement>('.message-stream')
+      if (!root) return
+      if (scroller) scroller.style.scrollBehavior = 'auto'
+      root.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
+      window.requestAnimationFrame(() => {
+        if (scroller) scroller.style.removeProperty('scroll-behavior')
+      })
+    })
+  }, [])
+
+  const seekTo = useCallback((timestampSeconds: number) => {
+    if (!source) return
+    const knownDuration = reportedDuration || source.durationSeconds
+    const maximum = knownDuration > 0 ? Math.max(0, knownDuration - 0.1) : timestampSeconds
+    const target = Math.min(Math.max(0, timestampSeconds), maximum)
+    if (source.kind === 'youtube') {
+      setYoutubeAutoplay(true)
+      setYoutubeStart(target)
+      setCurrentTime(target)
+      return
+    }
+    const video = videoRef.current
+    if (!video) return
+    video.currentTime = target
+    setCurrentTime(target)
+    void video.play().catch(() => undefined)
+  }, [reportedDuration, source])
+
+  useEffect(() => {
+    if (!seekRequest || seekRequest.sessionId !== session.id || !source) return
+    revealPlayer()
+    seekTo(seekRequest.seconds)
+  }, [revealPlayer, seekRequest, seekTo, session.id, source])
 
   if (!source) return null
 
@@ -28,7 +73,7 @@ export function SessionVideoPlayer({ session }: { session: QuerySession }) {
   const timelineFrames = sampleVideoFrames(source.frames)
   const posterUrl = localFileUrl(source.frames[0]?.path) || source.frames[0]?.previewUrl
   const duration = reportedDuration || source.durationSeconds
-  const embedUrl = source.kind === 'youtube' ? youtubeEmbedUrl(source.url, youtubeStart) : undefined
+  const embedUrl = source.kind === 'youtube' ? youtubeEmbedUrl(source.url, youtubeStart, youtubeAutoplay) : undefined
 
   const toggleCollapsed = () => {
     if (!collapsed) videoRef.current?.pause()
@@ -45,18 +90,6 @@ export function SessionVideoPlayer({ session }: { session: QuerySession }) {
         })
       })
     }
-  }
-
-  const seekTo = (timestampSeconds: number) => {
-    if (source.kind === 'youtube') {
-      setYoutubeStart(timestampSeconds)
-      return
-    }
-    const video = videoRef.current
-    if (!video) return
-    video.currentTime = timestampSeconds
-    setCurrentTime(timestampSeconds)
-    void video.play().catch(() => undefined)
   }
 
   return (
