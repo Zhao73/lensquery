@@ -733,8 +733,7 @@ fn extract_json_object(value: &str) -> Option<&str> {
     let mut depth = 0_u32;
     let mut quoted = false;
     let mut escaped = false;
-    for index in start..bytes.len() {
-        let byte = bytes[index];
+    for (index, byte) in bytes.iter().copied().enumerate().skip(start) {
         if quoted {
             if escaped {
                 escaped = false;
