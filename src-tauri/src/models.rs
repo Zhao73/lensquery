@@ -417,6 +417,10 @@ pub struct ImageProvenance {
     pub ai_origin_status: Option<String>,
     #[serde(default)]
     pub forensic_variants: Vec<ForensicVariant>,
+    #[serde(default)]
+    pub prompt_evidence: Vec<PromptEvidence>,
+    #[serde(default)]
+    pub prompt_recovery_status: Option<String>,
     pub detector_coverage: String,
 }
 
@@ -450,6 +454,16 @@ pub struct C2paEvidence {
     pub embedded_watermark_declared: bool,
     #[serde(default)]
     pub validation_warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PromptEvidence {
+    pub source: String,
+    pub text: String,
+    pub format: String,
+    pub trust_state: String,
+    pub exact_embedded_text: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

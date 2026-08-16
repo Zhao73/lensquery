@@ -130,7 +130,17 @@ export interface ImageProvenance {
   cameraMetadataPresent: boolean
   aiOriginStatus?: 'verified-ai' | 'verified-ai-edited' | 'declared-ai' | 'verified-camera' | 'invalid-credential' | 'inconclusive'
   forensicVariants?: ForensicVariant[]
+  promptEvidence?: PromptEvidence[]
+  promptRecoveryStatus?: 'verified-exact' | 'embedded-unverified' | 'absent'
   detectorCoverage: string
+}
+
+export interface PromptEvidence {
+  source: string
+  text: string
+  format: string
+  trustState: 'trusted-c2pa' | 'bound-untrusted-c2pa' | 'invalid-c2pa' | 'untrusted-metadata'
+  exactEmbeddedText: boolean
 }
 
 export interface ForensicVariant {

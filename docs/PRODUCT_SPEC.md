@@ -14,8 +14,8 @@
 ### Local file analysis
 
 1. User opens LensQuery from the tray, drags files onto the home screen, uses the picker, or invokes an operating-system file action.
-2. LensQuery classifies each attachment and previews the local extraction result. Images show local provenance coverage; videos show duration, stream metadata, sampled timestamps, sidecar/Whisper transcript origin, chapter estimate, and any uncovered audio.
-3. The request follows the same provider-independent preview and submission flow.
+2. LensQuery classifies each attachment and immediately runs bounded local provenance inspection. Images show local provenance and prompt-recovery coverage; videos show duration, stream metadata, sampled timestamps, sidecar/Whisper transcript origin, chapter estimate, and any uncovered audio. Images/videos bypass the optional second client preview and proceed directly after system target confirmation or file import.
+3. Non-media manual imports may retain the configured preview; every submitted request then follows the same provider-independent analysis flow.
 
 ## Functional requirements
 
@@ -34,6 +34,8 @@
 | VIDEO-05 | Analyze an explicitly selected YouTube video | Page captions are preferred; otherwise bounded local yt-dlp + Whisper preparation accepts only HTTPS YouTube, rejects playlists/non-YouTube URLs, and reports dependency/access failures |
 | IMAGE-01 | Inspect image provenance locally | C2PA asset binding, signature/trust, exact source type, watermark declarations, EXIF, forensic derivatives, and visual inference remain distinct; missing signals resolve to inconclusive |
 | IMAGE-02 | Expose hidden pixel signals without inventing content | Bounded luminance stretch, local background difference, and meaningful Alpha views are shown and attached; exact same-value flattened pixels are declared unrecoverable |
+| IMAGE-03 | Recover prompts without invention | Trusted C2PA prompt ingredients are shown verbatim as verified embedded prompts; PNG generation metadata is shown verbatim but untrusted; absent prompt data produces only a labeled reconstruction |
+| TEXT-01 | Inspect AI-text provenance automatically | Only trusted signed provenance or the exact configured watermark detector can verify origin; writing style and generic detector scores resolve to insufficient evidence |
 | WEB-01 | Audit explicitly selected page context for hidden text | Accessible hidden/transparent/clipped/off-screen/low-contrast DOM text is bounded, quoted, and instruction-like content is labeled as untrusted prompt injection |
 | AI-01 | Configure multiple provider profiles | Profiles preserve endpoint/model settings without storing raw secrets in JSON |
 | AI-02 | Stream a multimodal answer | Partial output is visible and cancellation stops the request |

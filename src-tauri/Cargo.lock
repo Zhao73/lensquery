@@ -3205,6 +3205,7 @@ dependencies = [
  "c2pa",
  "chrono",
  "core-foundation-sys",
+ "flate2",
  "image",
  "kamadak-exif",
  "keyring",

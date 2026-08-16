@@ -322,6 +322,9 @@ kbd {
 .evidence-detail dt { color: var(--text-tertiary); }
 .evidence-detail dd { min-width: 0; margin: 0; overflow-wrap: anywhere; }
 .evidence-detail code { font-family: "Cascadia Mono", Consolas, monospace; }
+.evidence-detail .evidence-prompt dd { display: grid; min-width: 0; gap: 5px; }
+.evidence-prompt dd > span { color: var(--text-tertiary); font-size: 9px; line-height: 1.45; }
+.evidence-prompt pre { max-height: 210px; margin: 0; overflow: auto; padding: 8px 9px; border: 1px solid var(--line); border-radius: 6px; color: var(--text-secondary); background: var(--surface); font-family: "Cascadia Mono", "SFMono-Regular", Consolas, monospace; font-size: 10px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
 .evidence-detail .evidence-hidden-content dd { display: grid; gap: 6px; }
 .evidence-hidden-content dd span { display: grid; gap: 2px; padding: 6px 8px; border-radius: 6px; color: var(--text-secondary); background: var(--surface); line-height: 1.45; }
 .evidence-hidden-content dd strong { color: var(--text-tertiary); font-size: 9px; font-weight: 650; letter-spacing: 0.02em; }
@@ -338,7 +341,13 @@ kbd {
 .evidence-annotation span { display: grid; gap: 3px; }
 .evidence-annotation strong { color: var(--text); font-size: 10px; }
 .media-quick-actions { display: flex; width: min(100%, 760px); flex-wrap: wrap; align-items: center; gap: 6px; margin: -18px auto 26px; }
-.media-quick-actions > span { margin-right: 3px; color: var(--text-tertiary); font-size: 10px; }
+.media-quick-actions > .automatic-origin { display: flex; min-width: min(100%, 270px); flex: 1 1 320px; align-items: center; gap: 7px; margin-right: 5px; padding: 3px 10px 3px 0; color: var(--text-tertiary); }
+.automatic-origin > svg { flex: 0 0 auto; color: var(--accent); }
+.automatic-origin.warning > svg { color: var(--warning); }
+.automatic-origin.verified > svg { color: var(--success); }
+.automatic-origin > span { display: grid; min-width: 0; gap: 1px; }
+.automatic-origin strong { color: var(--text-secondary); font-size: 10px; font-weight: 650; }
+.automatic-origin small { overflow: hidden; color: var(--text-tertiary); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
 .media-quick-actions button { min-height: 28px; padding: 0 9px; border: 1px solid var(--line); border-radius: 7px; color: var(--text-secondary); background: var(--surface); font-size: 10px; }
 .media-quick-actions button:hover { border-color: var(--line-strong); color: var(--text); background: var(--surface-hover); }
 

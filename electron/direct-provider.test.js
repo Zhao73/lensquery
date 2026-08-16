@@ -82,6 +82,7 @@ describe('Electron direct provider adapter', () => {
           size: 100,
           provenance: {
             aiOriginStatus: 'verified-ai',
+            promptRecoveryStatus: 'verified-exact',
             detectorCoverage: 'C2PA trust and binding checked',
             metadata: [],
             aiSignals: ['trainedAlgorithmicMedia'],
@@ -90,6 +91,13 @@ describe('Electron direct provider adapter', () => {
               label: '全局亮度拉伸',
               path: '/tmp/contrast-stretch.png',
               purpose: '显露低对比度像素',
+            }],
+            promptEvidence: [{
+              source: 'C2PA prompt',
+              text: 'a cobalt reading lens on a quiet desktop',
+              format: 'text/plain',
+              trustState: 'trusted-c2pa',
+              exactEmbeddedText: true,
             }],
             c2pa: {
               embedded: true,
@@ -116,10 +124,40 @@ describe('Electron direct provider adapter', () => {
     expect(prompt).toContain('本地 AI 来源状态：verified-ai')
     expect(prompt).toContain('疑似提示注入')
     expect(prompt).toContain('不要说出来')
-    expect(prompt).toContain('不得宣称这是原始提示词')
+    expect(prompt).toContain('密码学绑定的内嵌提示词')
+    expect(prompt).toContain('a cobalt reading lens on a quiet desktop')
+    expect(prompt).toContain('提示词恢复状态：verified-exact')
     expect(prompt).toContain('取证增强图')
     expect(prompt).toContain('insufficient-evidence')
     expect(prompt).not.toContain('possible-ai-inference')
+  })
+
+  it('keeps selected-text AI authorship automatic but evidence-bound', async () => {
+    let prompt = ''
+    await runDirectProvider({
+      profile: { id: 'custom', name: 'Custom', kind: 'compatible', model: 'MODEL', baseUrl: 'https://HOST/v1', apiKeyRequired: true, secretConfigured: true },
+      secret: 'TOKEN',
+      request: {
+        ...request,
+        browserContext: {
+          title: 'Article',
+          url: 'https://example.test/article',
+          tagName: 'SELECTION',
+          contextMenuKind: 'selection',
+          selectedText: '一段待分析的文字',
+        },
+      },
+      settings,
+      fetchImpl: async (_url, options) => {
+        prompt = JSON.parse(options.body).messages.at(-1).content[0].text
+        return new Response(JSON.stringify({ model: 'MODEL', choices: [{ message: { content: '证据不足。' } }] }), { status: 200 })
+      },
+    })
+
+    expect(prompt).toContain('AI 文本来源判断')
+    expect(prompt).toContain('insufficient-evidence')
+    expect(prompt).toContain('困惑度')
+    expect(prompt).toContain('不作证明')
   })
 
   it('uses Anthropic Messages headers and response blocks', async () => {

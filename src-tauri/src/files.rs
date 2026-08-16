@@ -74,6 +74,7 @@ pub async fn inspect(paths: Vec<String>) -> Result<Vec<FileEvidence>, String> {
         let provenance = match kind {
             "image" => provenance::inspect_image(&path),
             "video" => provenance::inspect_video(&path),
+            "pdf" | "text" => provenance::inspect_document(&path),
             _ => None,
         };
         evidence.push(FileEvidence {

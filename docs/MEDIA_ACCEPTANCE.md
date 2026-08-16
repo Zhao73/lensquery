@@ -108,3 +108,30 @@ Disposable request/result envelopes are kept outside the repository:
 - `/tmp/lensquery-hidden-analyze-result.json`
 
 This rerun also confirms the negative boundary: re-encoding can strip provenance, proprietary watermarks need their issuer's verifier, and exact same-value flattened pixels have no remaining signal to recover. In all three cases LensQuery must report the gap rather than guess.
+
+## Automatic provenance and prompt recovery rerun — 2026-08-16
+
+The installed Electron client now begins media analysis immediately after a Finder/browser import or the existing target-selection confirmation. It does not open a second client-side preview or require a separate “AI source” action. The evidence row is passive and reports the provenance state before the provider answer completes.
+
+| Fixture | SHA-256 | Installed-client result |
+| --- | --- | --- |
+| Trusted OpenAI PNG | `632055eeb9c95e0889a374e7da294e8853a0fa4dfcdf2e33403275ebc65da586` | Automatic `verified-ai`; trusted `OpenAI OpCo, LLC` / `OpenAI Media Service`; `gpt-image 2.0`; the manifest has no prompt ingredient, so prompt recovery is `absent` |
+| PNG with exact `parameters` text | `ab69bb08b07d2f05d6588829f3897939d431629130764323805e93b804903c9a` | Automatic `inconclusive`; the exact embedded bytes are exposed as `embedded-unverified`, not promoted to a verified generator prompt |
+| Plain text fixture | `f58493ed7f337c8ddda9d75bf81b3f0fafe39be0e3eac6cc4f9ea0452fe4da2d` | Automatic `inconclusive`; no matching keyed text-watermark verifier result, and no style classifier is used as authorship proof |
+| Ordinary two-second MP4 | `fc89de5282c73e7a8df77214da4c0d2dee34b1da1edcc9ab58e214a9035aebf7` | Automatic video preparation, playback, keyframes and analysis; C2PA absent, so origin remains `inconclusive` and prompt recovery is `absent` |
+
+Prompt recovery has three explicit states:
+
+1. `verified-exact`: the exact prompt bytes are bound into a trusted C2PA prompt ingredient;
+2. `embedded-unverified`: exact bytes were stored in unsigned or otherwise untrusted metadata, so LensQuery displays them verbatim without claiming who wrote them;
+3. `absent`: no original prompt was retained, so LensQuery can only provide a clearly labelled reconstruction rather than claim an exact inverse.
+
+Installed-runtime checks used `/Applications/LensQuery.app/Contents/Resources/sidecar/lensquery-core` and the same deep-link path used by Finder integration. The packaged app passed deep code-signature verification, remained running in background mode, and rendered both the passive automatic status and media preview/player. Disposable local evidence:
+
+- `/tmp/lensquery-auto-provenance-installed-result.json`
+- `/tmp/lensquery-auto-video-installed.json`
+- `/tmp/lensquery-auto-deeplink-4s.png`
+- `/tmp/lensquery-auto-openai-5s.png`
+- `/tmp/lensquery-auto-video-5s.png`
+
+This is deliberately not described as a universal detector. A positive result requires a valid, file-bound credential or the corresponding issuer's official watermark verifier. A missing/stripped credential, unsupported proprietary watermark, copied text, or rewritten output remains insufficient evidence.

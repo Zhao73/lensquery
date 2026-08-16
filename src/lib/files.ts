@@ -1,4 +1,4 @@
-import type { FileEvidence } from '../types/domain'
+import type { BrowserContext, FileEvidence } from '../types/domain'
 
 const mediaTypeFor = (file: File) => file.type || 'application/octet-stream'
 
@@ -46,6 +46,12 @@ export function normalizeBrowserFiles(files: FileList | File[]): FileEvidence[] 
     size: file.size,
     kind: kindFor(file),
   }))
+}
+
+export function containsAutoAnalyzedMedia(files: FileEvidence[], browserContext?: BrowserContext): boolean {
+  return files.some(({ kind }) => kind === 'image' || kind === 'video')
+    || ['image', 'video'].includes(browserContext?.contextMenuKind ?? '')
+    || browserContext?.media?.kind === 'video'
 }
 
 export function formatBytes(bytes: number): string {

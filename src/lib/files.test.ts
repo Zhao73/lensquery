@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatBytes, normalizeBrowserFiles } from './files'
+import { containsAutoAnalyzedMedia, formatBytes, normalizeBrowserFiles } from './files'
 
 describe('file helpers', () => {
   it('classifies supported browser files', () => {
@@ -23,5 +23,18 @@ describe('file helpers', () => {
     const { formatDuration } = await import('./files')
     expect(formatDuration(65)).toBe('1:05')
     expect(formatDuration(3723)).toBe('1:02:03')
+  })
+
+  it('starts image and video provenance analysis without an extra preview confirmation', () => {
+    expect(containsAutoAnalyzedMedia([{
+      id: 'image', name: 'source.png', path: '/tmp/source.png', mediaType: 'image/png', size: 1, kind: 'image',
+    }])).toBe(true)
+    expect(containsAutoAnalyzedMedia([], {
+      url: 'https://example.test/watch', title: 'Video', tagName: 'VIDEO', contextMenuKind: 'video',
+      media: { kind: 'video', currentTime: 0, paused: true },
+    })).toBe(true)
+    expect(containsAutoAnalyzedMedia([{
+      id: 'pdf', name: 'brief.pdf', path: '/tmp/brief.pdf', mediaType: 'application/pdf', size: 1, kind: 'pdf',
+    }])).toBe(false)
   })
 })
