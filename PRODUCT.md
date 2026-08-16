@@ -29,7 +29,8 @@ The product treats the desktop itself as the input surface. One capture action p
 
 - Lives in the Windows system tray or macOS menu bar, starts hidden, and starts capture from a configurable global shortcut.
 - Left-clicking the resident icon starts smart selection without opening the client; the right-click menu stays limited to start, file import, timeline, settings, and quit.
-- Supports two-click object confirmation and drag-to-capture over the current desktop. No synthetic box follows the pointer: the first click resolves and highlights the real accessible element or file bounds, and the second click confirms it.
+- Supports two-click object confirmation and drag-to-capture over the current desktop. No synthetic box follows the pointer: the first click hit-tests behind LensQuery and highlights only the real accessible image, element, or file bounds, and the second click confirms it. Only actual pointer movement beyond the drag threshold may create an arbitrary region.
+- On macOS, single-object selection requires the one-time Accessibility permission. LensQuery requests it at most once per cooldown period and never substitutes a large contextual crop for an unresolvable click.
 - Accepts screenshots, images, videos, PDFs, and other local files via picker, drag-and-drop, or shell integration.
 - Creates a local conversation immediately, shows an optional upper-right result card, and preserves the selected evidence image, copy, read-aloud, retry, and follow-up actions in the timeline. Screen, browser, Finder, and manually selected files all enter the same direct automatic-analysis path without a prompt or preview step.
 - Routes requests to direct model APIs or installed local agent CLIs when available.

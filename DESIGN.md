@@ -61,7 +61,8 @@ Canonical tokens live in `src/index.css`.
 ## Capture overlay
 
 - Fully transparent full-desktop layer with a small arrow-plus-question-mark cursor; the current application remains visually unchanged.
-- The first click resolves and outlines the real object/file bounds; clicking that highlighted target again confirms it. Movement beyond eight logical pixels becomes a rectangular drag and submits on release.
+- The first click briefly removes the transparent LensQuery layer from native hit-testing, resolves the underlying image/object/file bounds, then outlines only that target; the capture layer itself and its contextual fallback crop are never presented as the clicked object. Clicking the highlighted target again confirms it. Movement beyond eight logical pixels becomes a rectangular drag and submits on release.
+- On macOS, exact object hit-testing requests Accessibility once with a persisted cooldown. Without that permission the picker explains the missing requirement and stays unarmed instead of drawing an invented context rectangle.
 - The selected region is a blue outline with a very light interior and pixel dimensions. The exterior remains visually unchanged so the user never loses the surrounding desktop context.
 - No toolbar, prompt field, instruction plaque, client confirmation, or busy card appears over the desktop. The unified automatic task is generated from the selected evidence in the background, and Escape always cancels.
 

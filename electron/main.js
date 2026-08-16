@@ -24,7 +24,12 @@ import {
   Tray,
 } from 'electron'
 
+import {
+  accessibilityPermissionMessage,
+  shouldRequestAccessibilityPermission,
+} from './accessibility-permission.js'
 import { createExtensionManager } from './extension-manager.js'
+import { inspectBehindCaptureOverlay } from './capture-overlay.js'
 import { isLensQueryDeepLink, pathsFromDeepLink } from './deep-link.js'
 import {
   isDirectProvider,
@@ -117,6 +122,8 @@ let screenPermissionStatusAtLaunch = process.platform === 'darwin' ? 'unknown' :
 let screenPermissionUnavailableThisRun = process.platform === 'darwin'
 let screenPermissionWatchTimer
 let screenPermissionRelaunching = false
+let accessibilityPermissionRequestedThisRun = false
+let accessibilityPermissionNoticeShown = false
 const activeAnalyses = new Map()
 
 function debugRuntime(event, details = {}) {
@@ -204,6 +211,7 @@ async function loadState() {
     secrets,
     permissionPrompts: {
       screenCaptureRequestedAt: Number(persisted.permissionPrompts?.screenCaptureRequestedAt) || 0,
+      accessibilityRequestedAt: Number(persisted.permissionPrompts?.accessibilityRequestedAt) || 0,
     },
   }
 }
@@ -384,6 +392,17 @@ async function startCapture(mode = 'element') {
     }
     return { status: 'unavailable', message: permission.message }
   }
+  if (mode !== 'region') {
+    const accessibility = await ensureAccessibilityPermission()
+    if (!accessibility.granted) {
+      sendEvent('lensquery://capture-error', accessibility.message)
+      if (!accessibilityPermissionNoticeShown) {
+        accessibilityPermissionNoticeShown = true
+        showNotification('LensQuery 需要一次辅助功能授权', accessibility.message)
+      }
+      return { status: 'unavailable', message: accessibility.message }
+    }
+  }
   if (!captureWindow || captureWindow.isDestroyed()) await createCaptureWindow()
   const displays = screen.getAllDisplays()
   const left = Math.min(...displays.map((display) => display.bounds.x))
@@ -461,6 +480,32 @@ async function ensureScreenCapturePermission() {
   return updated
 }
 
+async function ensureAccessibilityPermission() {
+  if (process.platform !== 'darwin') return { granted: true, message: '' }
+  const trusted = systemPreferences.isTrustedAccessibilityClient(false)
+  if (trusted) return { granted: true, message: '' }
+
+  if (shouldRequestAccessibilityPermission({
+    platform: process.platform,
+    trusted,
+    requestedThisRun: accessibilityPermissionRequestedThisRun,
+    lastRequestedAt: state.permissionPrompts.accessibilityRequestedAt,
+  })) {
+    accessibilityPermissionRequestedThisRun = true
+    state.permissionPrompts.accessibilityRequestedAt = Date.now()
+    await saveState()
+    systemPreferences.isTrustedAccessibilityClient(true)
+  }
+
+  return {
+    granted: false,
+    message: accessibilityPermissionMessage({
+      applicationName: app.getName(),
+      applicationPath: applicationBundlePath(),
+    }),
+  }
+}
+
 function applicationBundlePath() {
   const executable = app.getPath('exe')
   if (process.platform !== 'darwin') return executable
@@ -535,6 +580,13 @@ async function inspectCaptureTargetWithDisplay(point, textScope) {
     point,
     textScope,
     monitorBounds: display.bounds,
+  })
+}
+
+async function inspectCaptureTargetForPreview(point, textScope) {
+  return inspectBehindCaptureOverlay({
+    captureWindow,
+    inspect: () => inspectCaptureTargetWithDisplay(point, textScope),
   })
 }
 
@@ -779,7 +831,7 @@ function registerIpc() {
   handle('discoverCliProviders', discoverProviders)
   handle('startCapture', ({ mode }) => startCapture(mode))
   handle('completeCapture', ({ selection }) => completeCapture(selection))
-  handle('inspectCaptureTarget', ({ point, textScope }) => inspectCaptureTargetWithDisplay(point, textScope))
+  handle('inspectCaptureTarget', ({ point, textScope }) => inspectCaptureTargetForPreview(point, textScope))
   handle('cancelCapture', async () => { captureWindow?.hide() })
   handle('showMainWindow', async () => showMain())
   handle('permissionStatus', async () => screenPermissionStatusPayload())

@@ -40,6 +40,7 @@ import { SessionVideoPlayer, type VideoSeekRequest } from './components/SessionV
 import { SessionRuntimeControls, type SessionRuntimeUpdate } from './components/SessionRuntimeControls'
 import { VideoTimestampMarkdown } from './components/VideoTimestampMarkdown'
 import { AUTO_ANALYSIS_MODE, AUTO_ANALYSIS_PROMPT_ID, AUTO_ANALYSIS_QUESTION, AUTO_OUTPUT_FORMAT } from './lib/autoAnalysis'
+import { isRegionDrag } from './lib/captureSelection'
 import { evidenceAccept, formatBytes, formatDuration, normalizeBrowserFiles, supportsAiOriginAnalysis } from './lib/files'
 import { resolveSessionVideo } from './lib/media'
 import { providerDefaultReasoningEffort, providerSupportsReasoningEffort, reasoningOptions } from './lib/providerRuntime'
@@ -1623,7 +1624,8 @@ function CaptureOverlay() {
     const end = { x: event.clientX, y: event.clientY }
     const screenPoint = { x: event.screenX, y: event.screenY }
     const bounds = normalizeSelection(origin, end)
-    const isClick = bounds.width < 8 && bounds.height < 8
+    const isDrag = isRegionDrag(bounds)
+    const isClick = !isDrag
     startRef.current = null
     setStart(null)
     setCurrent(null)
@@ -1643,6 +1645,11 @@ function CaptureOverlay() {
           { x: screenPoint.x, y: screenPoint.y, width: 1, height: 1 },
           intent.textScope,
         )
+        if (target.fallback) {
+          setCaptureError('未读取到该对象的独立边界，请点击图片中心重试。单击不会自动改为区域框选。')
+          setLockedTarget(null)
+          return
+        }
         const originX = screenPoint.x - end.x
         const originY = screenPoint.y - end.y
         setLockedTarget({
@@ -1690,7 +1697,7 @@ function CaptureOverlay() {
         if (!startRef.current) return
         const point = { x: event.clientX, y: event.clientY }
         setCurrent(point)
-        if (Math.abs(point.x - startRef.current.x) >= 8 || Math.abs(point.y - startRef.current.y) >= 8) setLockedTarget(null)
+        if (isRegionDrag({ width: Math.abs(point.x - startRef.current.x), height: Math.abs(point.y - startRef.current.y) })) setLockedTarget(null)
       }}
       onPointerUp={finish}
       onPointerCancel={() => { startRef.current = null; setStart(null); setCurrent(null) }}

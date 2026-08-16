@@ -95,6 +95,7 @@ fn inspect_target_native(
             fallback: true,
         });
     };
+    let fallback = inspection.bounds.is_none();
     let source_path = inspection.source_path;
     let kind = source_path
         .as_deref()
@@ -113,7 +114,7 @@ fn inspect_target_native(
         kind,
         source_path,
         accessible_text: inspection.description,
-        fallback: false,
+        fallback,
     })
 }
 
@@ -390,7 +391,7 @@ fn macos_inspect_element(point: &Bounds, text_scope: Option<&str>) -> Option<Tar
     };
     use core_foundation_sys::{
         array::{CFArrayGetCount, CFArrayGetTypeID, CFArrayGetValueAtIndex, CFArrayRef},
-        base::{CFGetTypeID, CFRelease, CFTypeRef},
+        base::{CFGetTypeID, CFRelease, CFRetain, CFTypeRef},
         string::{
             CFStringGetCString, CFStringGetLength, CFStringGetMaximumSizeForEncoding,
             CFStringGetTypeID, CFStringRef,
@@ -644,6 +645,118 @@ fn macos_inspect_element(point: &Bounds, text_scope: Option<&str>) -> Option<Tar
         None
     }
 
+    struct AxCandidate {
+        element: AXUIElementRef,
+        priority: u8,
+        area: f64,
+        depth: usize,
+    }
+
+    unsafe fn element_bounds(element: AXUIElementRef) -> Option<Bounds> {
+        let position = copy_point(element)?;
+        let size = copy_size(element)?;
+        (position.x.is_finite()
+            && position.y.is_finite()
+            && size.width.is_finite()
+            && size.height.is_finite()
+            && size.width >= 2.0
+            && size.height >= 2.0)
+            .then_some(Bounds {
+                x: position.x,
+                y: position.y,
+                width: size.width,
+                height: size.height,
+            })
+    }
+
+    fn contains_point(bounds: &Bounds, x: f64, y: f64) -> bool {
+        x >= bounds.x
+            && x <= bounds.x + bounds.width
+            && y >= bounds.y
+            && y <= bounds.y + bounds.height
+    }
+
+    fn role_priority(role: &str) -> u8 {
+        match role {
+            "AXImage" | "AXIcon" => 0,
+            "AXButton" | "AXLink" | "AXCell" | "AXRow" | "AXStaticText" | "AXTextField"
+            | "AXTextArea" | "AXCheckBox" | "AXMenuItem" | "AXRadioButton" | "AXPopUpButton"
+            | "AXSlider" => 1,
+            "AXGroup" => 3,
+            "AXList" | "AXOutline" | "AXScrollArea" | "AXWebArea" | "AXDocument" => 4,
+            "AXWindow" | "AXApplication" => 5,
+            _ => 2,
+        }
+    }
+
+    fn candidate_is_better(priority: u8, area: f64, depth: usize, current: &AxCandidate) -> bool {
+        priority < current.priority
+            || (priority == current.priority && area < current.area)
+            || (priority == current.priority
+                && (area - current.area).abs() < f64::EPSILON
+                && depth > current.depth)
+    }
+
+    unsafe fn find_best_descendant(
+        element: AXUIElementRef,
+        point_x: f64,
+        point_y: f64,
+        depth: usize,
+        visited: &mut usize,
+        best: &mut Option<AxCandidate>,
+    ) {
+        const MAX_DEPTH: usize = 18;
+        const MAX_NODES: usize = 1_200;
+        if element.is_null() || depth > MAX_DEPTH || *visited >= MAX_NODES {
+            return;
+        }
+        *visited += 1;
+
+        let bounds = element_bounds(element);
+        if bounds
+            .as_ref()
+            .is_some_and(|bounds| !contains_point(bounds, point_x, point_y))
+        {
+            return;
+        }
+
+        if let Some(bounds) = bounds {
+            let role = copy_string(element, kAXRoleAttribute).unwrap_or_default();
+            let priority = role_priority(&role);
+            let area = bounds.width * bounds.height;
+            let replace = best
+                .as_ref()
+                .is_none_or(|current| candidate_is_better(priority, area, depth, current));
+            if replace {
+                if let Some(current) = best.take() {
+                    CFRelease(current.element as CFTypeRef);
+                }
+                *best = Some(AxCandidate {
+                    element: CFRetain(element as CFTypeRef) as AXUIElementRef,
+                    priority,
+                    area,
+                    depth,
+                });
+            }
+        }
+
+        let Some(children) = copy_attribute(element, kAXChildrenAttribute) else {
+            return;
+        };
+        if CFGetTypeID(children) == CFArrayGetTypeID() {
+            let children = children as CFArrayRef;
+            let count = CFArrayGetCount(children);
+            for index in 0..count {
+                let child = CFArrayGetValueAtIndex(children, index) as AXUIElementRef;
+                find_best_descendant(child, point_x, point_y, depth + 1, visited, best);
+                if *visited >= MAX_NODES {
+                    break;
+                }
+            }
+        }
+        CFRelease(children);
+    }
+
     unsafe {
         let system = AXUIElementCreateSystemWide();
         if system.is_null() {
@@ -656,22 +769,14 @@ fn macos_inspect_element(point: &Bounds, text_scope: Option<&str>) -> Option<Tar
         if status != kAXErrorSuccess || element.is_null() {
             return None;
         }
-        let position = copy_point(element);
-        let size = copy_size(element);
-        let bounds = position.zip(size).and_then(|(position, size)| {
-            (position.x.is_finite()
-                && position.y.is_finite()
-                && size.width.is_finite()
-                && size.height.is_finite()
-                && size.width >= 2.0
-                && size.height >= 2.0)
-                .then_some(Bounds {
-                    x: position.x,
-                    y: position.y,
-                    width: size.width,
-                    height: size.height,
-                })
-        });
+        let mut visited = 0;
+        let mut best = None;
+        find_best_descendant(element, point.x, point.y, 0, &mut visited, &mut best);
+        if let Some(candidate) = best {
+            CFRelease(element as CFTypeRef);
+            element = candidate.element;
+        }
+        let bounds = element_bounds(element);
         // The first click only previews this path and the second click confirms it.
         // This makes Finder icons and document surfaces in Preview/PDF readers
         // real file evidence instead of a one-pixel screenshot.
