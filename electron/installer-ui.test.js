@@ -28,7 +28,7 @@ describe.skipIf(process.platform !== 'darwin')('macOS installer terminal', () =>
     expect(output).toContain('Ready')
     expect(output).toContain('Next actions')
     expect(output).toContain("open -a 'Google Chrome' 'chrome://extensions'")
-    expect(output).toContain('gh api --method PUT /user/starred/Zhao73/lensquery')
+    expect(output).toContain('gh api --method PUT /user/starred/Zhao73/what-is-it')
     expect(output).not.toContain('\u001B')
   })
 

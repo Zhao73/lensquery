@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Ask AI about anything visible on your desktop or inside a local file."
 authors = ["LensQuery contributors"]
 license = "MIT"
-repository = "https://github.com/Zhao73/lensquery"
+repository = "https://github.com/Zhao73/what-is-it"
 edition = "2021"
 rust-version = "1.88.0"
 

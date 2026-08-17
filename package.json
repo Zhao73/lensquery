@@ -64,7 +64,12 @@
     "vite": "^8.2.0",
     "vitest": "^4.1.10"
   },
-  "description": "Ask AI about anything visible on your desktop or inside a local file.",
+  "description": "What is it — point at anything on your desktop and ask a local agent about it.",
+  "homepage": "https://github.com/Zhao73/what-is-it",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Zhao73/what-is-it.git"
+  },
   "author": "LensQuery contributors",
   "license": "MIT"
 }

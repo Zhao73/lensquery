@@ -63,8 +63,9 @@ The product treats the desktop itself as the input surface. One capture action p
 
 ## Brand Commitments
 
-- Working name: LensQuery. The brand mark combines a reading lens, three annotation strokes, and a cobalt focus point; tray/menu-bar variants preserve the silhouette in monochrome.
-- Open-source GitHub repository with an OSI-compatible license.
+- Public product name: What is it. The installed app binary remains LensQuery so existing macOS permissions and the menu-bar identity stay stable.
+- The brand mark combines a reading lens, three annotation strokes, and a cobalt focus point; tray/menu-bar variants preserve the silhouette in monochrome.
+- Open-source GitHub repository: https://github.com/Zhao73/what-is-it
 - Product voice is concise, calm, and explicit about what data will leave the computer.
 - The supplied menu-bar screenshot is interaction inspiration: a quiet resident tool invoked from the status area, not a visual asset to copy.
 
