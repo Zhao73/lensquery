@@ -13,5 +13,6 @@ describe('Electron result toast', () => {
       title: '视野环球',
     })
     expect(resultToastPayload('', 'empty title')).toBeNull()
+    expect(resultToastPayload('LensQuery 结果显示正常', '以后每次分析完成，回答摘要都会直接出现在右上角。')?.body).toContain('右上角')
   })
 })

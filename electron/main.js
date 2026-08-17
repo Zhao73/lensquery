@@ -113,6 +113,8 @@ const defaultProviders = [
 let mainWindow
 let captureWindow
 let resultToastWindow
+let resultToastReady = false
+let pendingResultToast
 let tray
 let speakingProcess
 let state
@@ -342,6 +344,14 @@ async function createResultToastWindow() {
   })
   resultToastWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
   resultToastWindow.on('closed', () => { resultToastWindow = undefined })
+  resultToastWindow.webContents.on('did-finish-load', () => {
+    resultToastReady = true
+    if (pendingResultToast) {
+      const queued = pendingResultToast
+      pendingResultToast = undefined
+      showResultToast(queued.title, queued.body)
+    }
+  })
   await resultToastWindow.loadURL(rendererUrl('result-toast'))
 }
 
@@ -358,13 +368,18 @@ function showResultToast(title, body) {
   if (!payload || !resultToastWindow || resultToastWindow.isDestroyed()) return false
   positionResultToastWindow()
   resultToastWindow.setAlwaysOnTop(true, 'status')
-  resultToastWindow.webContents.send('lensquery://result-toast', payload)
+  if (!resultToastReady) {
+    pendingResultToast = payload
+  } else {
+    resultToastWindow.webContents.send('lensquery://result-toast', payload)
+  }
   resultToastWindow.showInactive()
   return true
 }
 
 function hideResultToast() {
   if (!resultToastWindow || resultToastWindow.isDestroyed()) return
+  pendingResultToast = undefined
   resultToastWindow.hide()
 }
 
