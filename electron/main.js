@@ -32,6 +32,12 @@ import { createExtensionManager } from './extension-manager.js'
 import { inspectBehindCaptureOverlay } from './capture-overlay.js'
 import { isLensQueryDeepLink, pathsFromDeepLink } from './deep-link.js'
 import {
+  RESULT_TOAST_HEIGHT,
+  RESULT_TOAST_WIDTH,
+  resultToastPayload,
+  resultToastPosition,
+} from './result-toast.js'
+import {
   isDirectProvider,
   listDirectProviderModels,
   normalizeProviderBaseUrl,
@@ -106,6 +112,7 @@ const defaultProviders = [
 
 let mainWindow
 let captureWindow
+let resultToastWindow
 let tray
 let speakingProcess
 let state
@@ -311,6 +318,56 @@ async function createCaptureWindow() {
   await captureWindow.loadURL(rendererUrl('capture'))
 }
 
+async function createResultToastWindow() {
+  resultToastWindow = new BrowserWindow({
+    width: RESULT_TOAST_WIDTH,
+    height: RESULT_TOAST_HEIGHT,
+    show: false,
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    resizable: false,
+    movable: false,
+    hasShadow: false,
+    focusable: false,
+    fullscreenable: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  })
+  resultToastWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  resultToastWindow.on('closed', () => { resultToastWindow = undefined })
+  await resultToastWindow.loadURL(rendererUrl('result-toast'))
+}
+
+function positionResultToastWindow() {
+  if (!resultToastWindow || resultToastWindow.isDestroyed()) return
+  const display = screen.getPrimaryDisplay()
+  const bounds = display.workArea || display.bounds
+  const { x, y } = resultToastPosition(bounds.x, bounds.y, bounds.width, RESULT_TOAST_WIDTH, display.scaleFactor || 1)
+  resultToastWindow.setPosition(x, y)
+}
+
+function showResultToast(title, body) {
+  const payload = resultToastPayload(title, body)
+  if (!payload || !resultToastWindow || resultToastWindow.isDestroyed()) return false
+  positionResultToastWindow()
+  resultToastWindow.setAlwaysOnTop(true, 'status')
+  resultToastWindow.webContents.send('lensquery://result-toast', payload)
+  resultToastWindow.showInactive()
+  return true
+}
+
+function hideResultToast() {
+  if (!resultToastWindow || resultToastWindow.isDestroyed()) return
+  resultToastWindow.hide()
+}
+
 function createTray() {
   const iconPath = isDevelopment
     ? path.join(app.getAppPath(), 'src-tauri', 'icons', process.platform === 'darwin' ? 'tray-template-44.png' : 'icon.png')
@@ -348,6 +405,7 @@ function navigate(view) {
 function sendEvent(channel, payload) {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload)
   if (captureWindow && !captureWindow.isDestroyed()) captureWindow.webContents.send(channel, payload)
+  if (resultToastWindow && !resultToastWindow.isDestroyed()) resultToastWindow.webContents.send(channel, payload)
 }
 
 function enqueueDeepLink(value) {
@@ -837,8 +895,11 @@ function registerIpc() {
   handle('permissionStatus', async () => screenPermissionStatusPayload())
   handle('openPermissionSettings', ({ permission }) => openPermissionSettings(permission))
   handle('showNotification', ({ title, body }) => showNotification(title, body))
-  handle('hideResultToast', async () => undefined)
-  handle('openResultFromToast', async () => showMain())
+  handle('hideResultToast', async () => { hideResultToast() })
+  handle('openResultFromToast', async () => {
+    hideResultToast()
+    showMain()
+  })
   handle('speakText', ({ text }) => speakText(text))
   handle('stopSpeaking', async () => stopSpeaking())
   handle('saveSettings', async ({ settings }) => {
@@ -1097,6 +1158,7 @@ async function openPermissionSettings(permission) {
 }
 
 function showNotification(title, body) {
+  if (showResultToast(title, body)) return true
   if (!Notification.isSupported()) return false
   const notification = new Notification({ title: String(title).slice(0, 120), body: String(body).slice(0, 1_000), silent: false })
   notification.on('click', showMain)
@@ -1203,6 +1265,7 @@ if (!app.requestSingleInstanceLock()) {
     registerIpc()
     await createMainWindow()
     await createCaptureWindow()
+    await createResultToastWindow()
     createTray()
     registerShortcut(state.settings.shortcut)
     queueTimer = setInterval(() => void pollBrowserQueue(), 350)

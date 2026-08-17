@@ -29,7 +29,7 @@ Canonical tokens live in `src/index.css`.
 
 ## Layout
 
-- Main window: 268px persistent sidebar plus a flexible workbench canvas. Below 820px the sidebar becomes a temporary drawer.
+- Main window: 260px persistent sidebar plus a flexible workbench canvas. Below 820px the sidebar becomes a temporary drawer.
 - Sidebar: wordmark, new conversation, direct recognition action, search, recent local sessions, and bottom navigation for conversations, models, extensions, and settings. Following the Codex history pattern, a session row reveals a three-dot action on hover, selection, or keyboard focus; right-click opens the same menu. Single-session deletion and the recent-section clear-all action always name the local impact and require confirmation.
 - Top bar: 52px with the current surface name, resident status, current provider, and a direct recognition action.
 - Conversation: source/title bar, centered message stream, persistent follow-up dock.
@@ -74,7 +74,7 @@ Canonical tokens live in `src/index.css`.
 - The transparent selector never draws a fixed cursor-following frame. A first click highlights resolved text, image, PDF, file, or control bounds; a second click confirms it, while dragging selects a freeform region immediately.
 - A monochrome template icon lives in the macOS menu bar and adapts to appearance; Windows uses the colored app mark in the system tray.
 - Left click starts the default capture. Right click exposes only Start Recognition and Analyze Files, followed by Timeline, Settings, and Quit.
-- The upper-right result card is concise and bounded; the full Markdown answer and selected evidence thumbnail remain in the local timeline.
+- The upper-right result card is a resident Electron window, not a system notification. It shows the session title and a four-line answer excerpt; the full Markdown remains in the local timeline.
 - Finder and browser context menus each expose one direct, verb-led item: **使用 LensQuery 识别**. Do not split target types into a long submenu; the selected object determines whether LensQuery collects text, media, link, DOM, file, folder, or container evidence.
 
 ## Motion

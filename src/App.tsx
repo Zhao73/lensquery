@@ -177,6 +177,15 @@ function sourceFromEvidence(captures: CaptureEvidence[], files: FileEvidence[], 
   return { label: '文字询问', kind: 'text' as const }
 }
 
+function readableResultPreview(answer: string) {
+  const text = String(answer || '')
+    .replace(/[#>*_`]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!text) return '分析已完成。点击卡片查看完整会话。'
+  return text.slice(0, 280)
+}
+
 function shortcutParts(shortcut: string) {
   const isMac = /Mac|iPhone|iPad/.test(navigator.platform)
   return shortcut.split('+').map((part) => {
@@ -454,7 +463,7 @@ function ConversationApp() {
       })
       cancelledAnalysisIdsRef.current.delete(pending.id)
       if (settings?.notificationsEnabled && settings.resultPresentation !== 'window') {
-        const body = settings.notificationPreview ? result.answer.slice(0, 240) : '分析已完成，点击 LensQuery 查看。'
+        const body = settings.notificationPreview ? readableResultPreview(result.answer) : '分析已完成。点击卡片查看完整会话。'
         void showSystemNotification(session.title, body).catch(() => undefined)
       }
       if (settings?.autoPlayVoice && settings.voiceMode === 'system') {
@@ -483,7 +492,7 @@ function ConversationApp() {
       })
       setError(errorMessage)
       if (settings?.notificationsEnabled && settings.resultPresentation !== 'window') {
-        void showSystemNotification('LensQuery 分析失败', errorMessage.slice(0, 240)).catch(() => undefined)
+        void showSystemNotification('LensQuery 分析失败', readableResultPreview(errorMessage)).catch(() => undefined)
       }
     }
   }
@@ -1654,6 +1663,7 @@ function SettingsPanel(props: { settings: AppSettings; onSave: (settings: AppSet
       <div className="settings-group"><h2>自动分析</h2><div className="automatic-analysis-setting"><Scan size={18} /><span><strong>选择后直接开始</strong><small>LensQuery 先识别具体主题与子类型，再生成对应的分析问题和结构。教学、娱乐、游戏、评测、访谈和新闻观点不会复用同一份模板。</small></span></div><label>回答详细程度<select value={draft.replyStyle} onChange={(event) => setDraft({ ...draft, replyStyle: event.target.value as AppSettings['replyStyle'] })}><option value="customer-ready">自然导读 + 详细内容</option><option value="concise">简洁导读（视频仍完整覆盖）</option><option value="detailed">深入详细分析</option></select></label></div>
       <div className="settings-group"><h2>语言</h2><label>界面语言<select value={draft.language} onChange={(event) => setDraft({ ...draft, language: event.target.value as AppSettings['language'] })}><option value="zh-CN">简体中文</option><option value="en">English</option></select></label><Toggle checked={draft.detectCustomerLanguage} label="自动跟随顾客语言回答" onChange={(detectCustomerLanguage) => setDraft({ ...draft, detectCustomerLanguage })} /><label>无法识别时的语言<select value={draft.responseLanguage} onChange={(event) => setDraft({ ...draft, responseLanguage: event.target.value as AppSettings['responseLanguage'] })}><option value="zh-CN">简体中文</option><option value="en">English</option><option value="ja-JP">日本語</option><option value="ko-KR">한국어</option><option value="es-ES">Español</option><option value="fr-FR">Français</option><option value="de-DE">Deutsch</option></select></label></div>
       <div className="settings-group"><h2>后台与结果</h2><Toggle checked={draft.launchAtStartup} label="登录系统后自动在后台启动" onChange={(launchAtStartup) => setDraft({ ...draft, launchAtStartup })} /><Toggle checked={draft.notificationsEnabled} label="分析完成后在右上角显示结果卡片" onChange={(notificationsEnabled) => setDraft({ ...draft, notificationsEnabled })} /><Toggle checked={draft.notificationPreview} label="在结果卡片中显示回答摘要" onChange={(notificationPreview) => setDraft({ ...draft, notificationPreview })} /><label>结果呈现<select value={draft.resultPresentation} onChange={(event) => setDraft({ ...draft, resultPresentation: event.target.value as AppSettings['resultPresentation'] })}><option value="notification">只显示右上角结果，继续后台运行</option><option value="window">自动打开会话窗口</option><option value="both">右上角显示并打开窗口</option></select></label><div><button type="button" className="secondary-button" onClick={() => void showSystemNotification('LensQuery 结果显示正常', '以后每次分析完成，回答摘要都会直接出现在右上角。')}>测试右上角结果</button></div></div>
+
       <div className="settings-group"><h2>语音</h2><label>朗读方式<select value={draft.voiceMode} onChange={(event) => setDraft({ ...draft, voiceMode: event.target.value as AppSettings['voiceMode'] })}><option value="off">关闭</option><option value="system">系统语音（当前可用）</option><option value="codex-realtime" disabled>Codex Realtime Voice（本机暂不可用）</option></select><small>本机 Codex 0.146.1 的 App Server 已公开实验音频方法，但普通本地线程返回“不支持 realtime conversation”；因此本构建明确停用该选项，保留系统语音作为可验证路径。</small></label><div><button type="button" className="secondary-button" onClick={async () => { try { await speakText('LensQuery 语音测试。'); setVoiceCheck('系统语音已启动') } catch (cause) { setVoiceCheck(String(cause)) } }}>测试系统语音</button>{voiceCheck && <small className="voice-check">{voiceCheck}</small>}</div><Toggle checked={draft.autoPlayVoice} label="回答完成后自动朗读" onChange={(autoPlayVoice) => setDraft({ ...draft, autoPlayVoice })} /></div>
       <div className="settings-group"><h2>本地数据</h2><Toggle checked={draft.saveHistory} label="保存会话时间线" onChange={(saveHistory) => setDraft({ ...draft, saveHistory })} /><Toggle checked={draft.retainImages} label="保留捕获图片" onChange={(retainImages) => setDraft({ ...draft, retainImages })} /></div>
       <div className="settings-footer"><span>{saved ? '已保存' : '设置只保存在本机'}</span><button type="button" className="primary-button" onClick={async () => { await props.onSave(draft); setSaved(true); window.setTimeout(() => setSaved(false), 1800) }}>保存设置</button></div>

@@ -1,6 +1,6 @@
 .shell {
   display: grid;
-  grid-template-columns: 282px minmax(0, 1fr);
+  grid-template-columns: 260px minmax(0, 1fr);
   width: 100vw;
   height: 100dvh;
   overflow: hidden;
@@ -171,11 +171,11 @@ kbd {
 .main-surface { position: relative; display: flex; min-width: 0; min-height: 0; flex-direction: column; background: var(--surface); }
 .app-bar {
   display: flex;
-  min-height: 46px;
+  min-height: 44px;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  padding: 0 14px;
+  gap: 12px;
+  padding: 0 12px;
   border-bottom: 1px solid var(--line);
   background: var(--surface);
   -webkit-user-select: none;
@@ -197,7 +197,7 @@ kbd {
 .wordmark { display: inline-flex; align-items: center; gap: 7px; margin-left: 2px; border: 0; color: var(--text); background: transparent; font-size: 15px; font-weight: 720; letter-spacing: -0.02em; }
 .wordmark img { width: 22px; height: 22px; }
 .surface-title { max-width: min(42vw, 520px); overflow: hidden; color: var(--text); font-size: 12px; font-weight: 620; text-overflow: ellipsis; white-space: nowrap; }
-.resident-state { display: inline-flex; align-items: center; gap: 6px; margin-left: 8px; color: var(--text-tertiary); font-size: 11px; }
+.resident-state { display: inline-flex; align-items: center; gap: 6px; margin-left: 8px; color: var(--text-tertiary); font-size: 10px; }
 .resident-state i { width: 7px; height: 7px; border-radius: 50%; background: var(--success); }
 .top-nav {
   display: inline-flex;
@@ -237,10 +237,10 @@ kbd {
 .global-error button { display: grid; margin-left: auto; padding: 4px; border: 0; border-radius: 5px; color: inherit; background: transparent; }
 
 .conversation-view { display: grid; min-height: 0; flex: 1; grid-template-rows: auto minmax(0, 1fr) auto; }
-.conversation-titlebar { display: flex; align-items: flex-start; justify-content: space-between; padding: 24px clamp(24px, 5vw, 74px) 18px; border-bottom: 1px solid var(--line); }
+.conversation-titlebar { display: flex; align-items: flex-start; justify-content: space-between; padding: 16px clamp(20px, 4vw, 56px) 12px; border-bottom: 1px solid var(--line); }
 .conversation-titlebar > div { min-width: 0; }
-.conversation-titlebar h1 { overflow: hidden; margin: 0; color: var(--text); font-size: 19px; font-weight: 650; letter-spacing: -0.015em; text-overflow: ellipsis; white-space: nowrap; }
-.conversation-titlebar p { display: flex; align-items: center; gap: 7px; margin: 7px 0 0; overflow: hidden; color: var(--text-tertiary); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.conversation-titlebar h1 { overflow: hidden; margin: 0; color: var(--text); font-size: 16px; font-weight: 650; letter-spacing: -0.02em; text-overflow: ellipsis; white-space: nowrap; }
+.conversation-titlebar p { display: flex; align-items: center; gap: 7px; margin: 5px 0 0; overflow: hidden; color: var(--text-tertiary); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .conversation-actions-trigger { flex: 0 0 auto; margin-top: -5px; }
 
 .history-action-menu {
@@ -422,7 +422,7 @@ kbd {
 .technology-evidence > small { color: var(--text-tertiary); font-size: 10px; }
 
 .follow-up-dock { padding: 10px clamp(24px, 8vw, 116px) 18px; background: linear-gradient(transparent, var(--surface) 16px); }
-.follow-up-box { width: min(100%, 760px); margin: auto; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--surface); box-shadow: 0 8px 26px rgb(20 28 40 / 0.08); }
+.follow-up-box { width: min(100%, 780px); margin: auto; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--surface); box-shadow: 0 10px 28px rgb(20 28 40 / 0.08); }
 .follow-up-box:focus-within { border-color: var(--focus); box-shadow: 0 8px 28px rgb(20 28 40 / 0.1), 0 0 0 1px var(--focus); }
 .follow-up-box textarea { display: block; width: 100%; min-height: 62px; max-height: 160px; resize: vertical; padding: 13px 14px 4px; border: 0; outline: 0; color: var(--text); background: transparent; font-size: 13px; line-height: 1.5; }
 .follow-up-footer { display: flex; min-height: 36px; align-items: center; justify-content: space-between; padding: 3px 7px 7px 8px; }
@@ -488,14 +488,14 @@ kbd {
 .session-runtime-popover select:focus { border-color: var(--focus); background: var(--surface); box-shadow: 0 0 0 1px var(--focus); }
 .session-runtime-popover footer { padding: 9px 13px 10px; color: var(--text-tertiary); font-size: 9px; line-height: 1.55; }
 
-.empty-timeline { display: flex; width: min(760px, calc(100% - 48px)); min-height: 0; flex: 1; flex-direction: column; align-items: center; justify-content: center; margin: auto; padding: 36px 0 48px; text-align: center; }
+.empty-timeline { display: flex; width: min(640px, calc(100% - 48px)); min-height: 0; flex: 1; flex-direction: column; align-items: center; justify-content: center; margin: auto; padding: 28px 0 40px; text-align: center; }
 .empty-hero { display: grid; max-width: 620px; justify-items: center; }
 .empty-hero .question-cursor { margin-bottom: 15px; }
 .empty-hero h1 { font-size: clamp(22px, 3vw, 29px); font-weight: 640; letter-spacing: -0.032em; }
 .empty-hero p { max-width: 58ch; margin: 9px 0 0; color: var(--text-tertiary); font-size: 11px; line-height: 1.65; }
 .empty-instruction { display: grid; width: min(100%, 680px); grid-template-columns: 46px minmax(0, 1fr); align-items: start; gap: 15px; text-align: left; }
 .question-cursor { display: grid; width: 42px; height: 42px; place-items: center; border-radius: 11px; color: #fff; background: var(--accent); box-shadow: 0 8px 22px rgb(35 103 209 / 0.18); }
-.empty-timeline h1 { margin: 0; color: var(--text); font-size: 23px; font-weight: 680; letter-spacing: -0.025em; line-height: 1.22; }
+.empty-timeline h1 { margin: 0; color: var(--text); font-size: 20px; font-weight: 680; letter-spacing: -0.03em; line-height: 1.2; }
 .empty-instruction p { max-width: 62ch; margin: 8px 0 0; color: var(--text-secondary); font-size: 12px; line-height: 1.65; }
 .shortcut-line { display: flex; align-items: center; gap: 6px; color: var(--text-tertiary); }
 .shortcut-part { display: inline-flex; align-items: center; gap: 6px; }
@@ -762,6 +762,7 @@ html[data-lensquery-window="result-toast"] #root {
 .result-toast-copy button { display: grid; width: 24px; height: 24px; flex: 0 0 auto; place-items: center; margin: -5px -5px 0 0; padding: 0; border: 0; border-radius: 6px; color: var(--text-tertiary); background: transparent; }
 .result-toast-copy button:hover { color: var(--text); background: var(--surface-hover); }
 .result-toast-copy p { display: -webkit-box; min-height: 34px; margin: 5px 0 7px; overflow: hidden; color: var(--text-secondary); font-size: 11.5px; line-height: 1.5; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.result-toast-copy p { -webkit-line-clamp: 4; min-height: 68px; }
 .result-toast-copy .result-toast-open { display: inline-flex; width: auto; height: auto; align-items: center; gap: 3px; margin: 0; padding: 0; color: var(--accent); background: transparent; font-size: 10.5px; font-weight: 600; }
 .result-toast-copy .result-toast-open:hover { color: var(--accent-hover); background: transparent; }
 
