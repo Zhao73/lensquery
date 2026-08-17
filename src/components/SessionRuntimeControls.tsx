@@ -13,15 +13,16 @@ import type {
   ReasoningEffort,
 } from '../types/domain'
 import { providerDefaultReasoningEffort, providerSupportsReasoningEffort, reasoningOptions } from '../lib/providerRuntime'
+import { CONTEXT_MODE_WINDOWS, contextUsage } from '../lib/contextUsage'
 import { ProviderLogo } from './ProviderLogo'
 
 export type SessionRuntimeUpdate = Pick<QuerySession, 'providerId' | 'model' | 'reasoningEffort' | 'contextMode'>
 
 const contextOptions: Array<{ value: ContextMode; label: string }> = [
-  { value: 'auto', label: '自动（最近 12 条）' },
-  { value: 'compact', label: '精简（最近 4 条）' },
-  { value: 'full', label: '完整会话' },
-  { value: 'evidence-only', label: '仅本次证据' },
+  { value: 'auto', label: 'Auto · 200k' },
+  { value: 'compact', label: 'Compact · 32k' },
+  { value: 'full', label: '1m' },
+  { value: 'evidence-only', label: 'Evidence only' },
 ]
 
 export function SessionRuntimeControls(props: {
@@ -40,9 +41,7 @@ export function SessionRuntimeControls(props: {
     : 'auto'
   const contextMode = props.session.contextMode ?? 'auto'
   const readyProviders = props.providers.filter((item) => item.ready || item.id === props.session.providerId)
-  const contextCharacters = props.session.messages
-    .filter(({ status }) => status === 'complete')
-    .reduce((total, message) => total + message.content.length, 0)
+  const usage = contextUsage(props.session, provider?.kind)
 
   useEffect(() => {
     if (!open) return
@@ -82,14 +81,18 @@ export function SessionRuntimeControls(props: {
         <ProviderLogo provider={provider} size={14} />
         <span>{provider?.name ?? '模型不可用'}</span>
         <small>{model}</small>
+        <em className="session-runtime-window">{usage.summary}</em>
         <CaretDown size={12} />
       </button>
       {open && (
         <section className="session-runtime-popover" role="dialog" aria-label="会话模型与上下文">
           <header>
             <div><strong>会话运行参数</strong><small>从下一条追问开始使用</small></div>
-            <span>约 {contextCharacters.toLocaleString('zh-CN')} 字</span>
+            <span className={`session-runtime-usage is-${usage.tone}`}>{usage.summary}</span>
           </header>
+          <div className="session-runtime-meter" role="meter" aria-label="上下文用量" aria-valuemin={0} aria-valuemax={100} aria-valuenow={usage.percent}>
+            <i style={{ width: `${Math.max(4, usage.percent)}%` }} />
+          </div>
           <label>
             <span><TerminalWindow size={15} /><i>提供商</i></span>
             <select
@@ -136,7 +139,7 @@ export function SessionRuntimeControls(props: {
               {contextOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
             </select>
           </label>
-          <footer>{supportsReasoning ? '思考强度从下一条请求开始生效。' : '当前适配器未单独传递思考强度，由模型自身决定。'} 证据文件与选区始终保留；「上下文」只控制历史对话。</footer>
+          <footer>{supportsReasoning ? '思考强度从下一条请求开始生效。' : '当前适配器未单独传递思考强度，由模型自身决定。'} 当前窗口 {usage.windowLabel}（{CONTEXT_MODE_WINDOWS[contextMode].label}）。证据文件与选区始终保留；上下文模式只控制历史对话。</footer>
         </section>
       )}
     </div>

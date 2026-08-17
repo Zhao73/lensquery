@@ -1,179 +1,102 @@
-<p align="center"><img src="assets/brand/lensquery-wordmark.svg" alt="LensQuery" width="260"></p>
+# <img src="assets/brand/lensquery-mark.svg" alt="" width="28" height="28"> LensQuery
 
-Press one shortcut, point at anything on screen, and ask an AI agent about it.
+Press one shortcut. Point at anything on screen. Ask the local agent about it.
 
-LensQuery is an open-source resident utility for Windows and macOS. Press a global shortcut, click once to highlight an interface element/file and again to confirm it, or hold-drag a region; LensQuery then starts analysis in the background through Codex, Claude Code, OpenCode, Grok, or a configured API. Its normal window is a quiet local conversation timeline for evidence, previous queries, and follow-ups.
+LensQuery is a resident Windows / macOS workbench. It stays in the menu bar, keeps the current desktop visible, and sends the confirmed object, file, or region to Codex, Claude Code, OpenCode, Grok, or a configured API. The client itself is only a quiet local timeline.
 
-> Current status: the repository now has one Electron workbench modeled on quiet coding-agent clients, while the Rust implementation runs as a bounded native sidecar for accessibility, PDF/text/video preparation, local Whisper transcription, long-video chaptering, local C2PA/EXIF provenance inspection, CLI discovery, and local-agent calls. Electron owns the window, tray, shortcut, macOS pixel capture, notifications, encrypted settings, direct API transports, and plugin/Skill manager. `/Applications/LensQuery.app` is the only installed macOS client; the retired Tauri shell remains source-only for comparison. Physical Windows mixed-DPI testing, richer arbitrary-app macOS text ranges, automatic browser-host packaging, Codex App Server/OpenCode session adapters, hosted/provider-native audio transcription, Realtime audio playback, and full OCR remain implementation gates.
+<p align="center">
+  <img src=".impeccable/screenshots/annotation-conversation-desktop-final.png" alt="LensQuery conversation timeline" width="920">
+</p>
 
-## Intended workflow
+| Capture | Analyze | Stay out of the way |
+| --- | --- | --- |
+| `⌘ ⇧ Space` or a left click on the menu-bar icon | Two-click object confirm, or hold-drag a region | Results appear in the upper-right card; the client stays closed |
+| Finder / Chrome / Edge right-click | Local files, PDFs, images, videos, and page context | Follow-ups live in the same local session |
+| Current-page analysis from the extension icon or `lq` | Automatic task from the selected evidence | Compact, 200k, or 1m context is visible before the next turn |
 
-1. Leave LensQuery running in the system tray/menu bar. A left click on its icon or `Ctrl+Shift+Space` (`Command+Shift+Space` on macOS) starts smart selection immediately; neither action opens the client window.
-2. The current desktop stays visible and the pointer changes to a small question mark.
-3. Click once to resolve and highlight the real object/file bounds, then click the highlighted target again to confirm it. Dragging a rectangle submits the region on release. LensQuery hides the picker, captures bounded context, and starts the selected agent in the background. There is no client confirmation page in the shortcut path.
-4. By default the answer appears in a compact card at the upper-right without opening the client. Choose upper-right card, window, or both in Settings.
-5. Open the conversation timeline to copy, hear, retry, or continue the same query.
-
-Right-clicking the tray/menu-bar icon stays intentionally short: Start Recognition, Analyze Files, Conversation Timeline, Settings, and Quit. Text scope, default intent, model routing, permissions, and result diagnostics live in the client settings instead of crowding the resident menu.
-
-There is no upload-style homepage. Point at a Desktop/Finder/Explorer file and click it in the selector; the file target highlights before selection and then enters the same background conversation flow. The packaged macOS client also installs a Finder Sync action named **使用 LensQuery 识别** directly into file, folder, and Finder-background context menus. Drag/drop remains a secondary path.
-
-## Local CLI discovery and reply language
-
-- On startup, the desktop runtime scans `PATH` and common per-user install directories for `codex`, `claude`, `opencode`/`opencode2`, and `grok`.
-- Version probes run in parallel with a two-second timeout. A slow version command is reported separately and never blocks the whole app indefinitely; authentication is verified only by the first real request.
-- Model discovery is evidence-based rather than a static catalog: Codex reads its local visible-model cache and configured model, OpenCode runs `opencode models --pure`, Grok runs `grok models`, and Claude Code shows its configured model plus aliases declared by the installed CLI because Claude does not expose a complete `models` command. Ollama and LM Studio use their loopback `/models` endpoints. Each row distinguishes a complete, partial, unavailable, or configured-only result.
-- The model page shows the resolved executable path, real vendor/product mark, exact selected model, discovered model count, and discovery status. Users can choose and persist a concrete model per provider, refresh one catalog, rescan all local agents, or enter an explicit model ID in provider/session settings. Codex CLI and the native OpenAI adapter also expose a persisted automatic/low/medium/high/extra-high default reasoning effort; adapters that do not forward a separate effort parameter say that the model decides it instead of presenting a fake control.
-- CLI calls are built from fixed argument arrays rather than shell strings. Codex uses a read-only sandbox; Claude Code receives no built-in or MCP tools; Grok receives an empty tool allowlist; OpenCode receives only explicitly selected attachments with every tool permission denied. Grok's current adapter is text-only until its structured local-media input is verified end to end.
-- Codex analysis runs in a private LensQuery state/SQLite directory so the resident client neither scans nor writes the user's Codex conversation history. Existing Codex configuration and authentication are linked by reference into that state, parent thread/session variables are removed, and timeout cleanup terminates the full CLI process tree.
-- Settings can automatically infer the customer's language from the question and visible evidence, or force a fallback reply language. Reply style and a bounded custom instruction are included in every local CLI request.
-- Simplified Chinese and English interface copy are included for the main navigation and complete settings screen. The setting is persisted locally by the desktop runtime.
-- Recognition uses one automatic task. After the second confirming click, drag release, right-click action, or file selection, LensQuery scans the bounded evidence and surrounding context, classifies the target, and chooses the useful depth and response structure in the background. There is no prompt field, intent picker, output-format picker, annotation composer, or second client preview in this path. Images and videos include provenance inspection automatically.
-- Every conversation has an inline runtime menu in the follow-up composer. It can switch the ready provider, override the model ID, choose automatic/low/medium/high/extra-high reasoning, and use automatic, compact, full-session, or evidence-only history without changing already completed answers.
-
-## What it is designed to analyze
-
-- Anything visible on screen: controls, icons, error dialogs, charts, screenshots, and surrounding application context.
-- Website elements through the companion extension: two-click confirmed text, controls, images, video/audio state, visible captions, page-published YouTube caption tracks, already-open generic transcript segments, bounded nearby DOM, URL, and title. Page analysis also collects bounded script/stylesheet URLs with query strings removed, framework/platform evidence with confidence, structural and accessibility counts, responsive CSS evidence, resource counts, and selected-element computed styles. It can explain the visible frontend construction while explicitly distinguishing rendered evidence from unavailable server source and build configuration. An explicit invocation also audits accessible DOM for hidden attributes, `display`/`visibility`/opacity, clipped/off-screen text, extreme font sizes, and near-identical foreground/background colors; instruction-like findings are surfaced as untrusted prompt-injection evidence rather than obeyed.
-- Images, videos, PDFs, text, code, logs, and other bounded local files. Text and machine-readable PDFs are extracted locally before the model request.
-- Visual answers describe the subject, visible text, composition, style, lighting, and surrounding context. Image inspection separates visible pixels, locally parsed provenance, forensic derivatives, and visual inference. The Rust sidecar validates embedded C2PA structure, asset binding, signature, and a release-pinned official trust-list snapshot, then reads common EXIF fields plus the GB 45438-2025/TC260 `AIGC` metadata used by supported Chinese image/video containers. A trusted `trainedAlgorithmicMedia` claim is direct machine-readable AI-origin evidence; TC260 `Label=1` is surfaced as an unsigned AI declaration rather than a verified credential; trusted edit/composite source types are labeled separately; EXIF, encoder names, missing credentials, and visual style are never promoted to proof.
-- Prompt recovery follows explicit evidence tiers. A complete trusted C2PA `c2pa.types.generator.prompt` ingredient is displayed byte-for-byte as a cryptographically bound embedded prompt. Common PNG `prompt`, `parameters`, `generation_data`, and ComfyUI text-node metadata are recovered exactly but labeled **untrusted embedded metadata**. If neither is present, LensQuery creates a clearly labeled reconstruction; pixels alone cannot uniquely recover the original prompt, seed, hidden system instructions, or model internals.
-- Image forensics generates bounded global-luminance, local-background-difference, and meaningful Alpha-channel views. These expose low-contrast or transparent signals that still exist in the file and are attached alongside the original for reading. Pixels flattened to exactly the same value as their background contain no recoverable distinction; absence of a signal is reported as inconclusive.
-- Visible AI disclosures are read by the selected vision model. A C2PA `c2pa.watermarked.*` action is reported as an embedded-watermark declaration, not as an independent SynthID pixel-level detection. TC260 metadata and content watermarks are separate mechanisms: the metadata is removable/forgeable without another integrity mechanism, while content-watermark detection requires the exact issuer/configuration verifier. Issuer-specific invisible watermark verification remains a separate provider/API capability; there is no universal watermark reader across Seedance, SynthID, OpenAI, TikTok, and unrelated generators.
-- Text files, PDFs, and selected browser text receive an automatic provenance boundary too. Trusted signed provenance or a result from the exact generator watermark detector may verify origin; prose style, perplexity, burstiness, grammar, and generic AI-detector scores never become proof. SynthID Text detectors are tied to the watermark configuration/key used at generation, so LensQuery reports `insufficient-evidence` when that verifier result is unavailable instead of guessing.
-- Videos are probed and sampled locally as part of file submission. Vision routes receive ordered timestamped frames and return a quick summary, important moments, and learning takeaways. LensQuery first uses bounded same-name `.vtt`/`.srt` subtitles; when they are absent and a local `whisper` CLI is available, it transcribes the extracted mono audio with time codes. Videos at least 20 minutes long are split into at most 12 chronological evidence chapters, and the final prompt must cover every supplied chapter rather than summarizing only the opening.
-- Video conversations keep the playable source above the report. The installed client uses native media controls, can collapse the player, opens the source in the system player, and turns evenly sampled evidence frames into time-jump buttons. Prepared public web media plays from the local cache; an unprepared YouTube page can use a privacy-enhanced embed fallback.
-- A right-clicked web video uses page-published captions/transcript when available. Otherwise the desktop runtime sends the explicitly selected public HTTPS page/direct-media URL to local `yt-dlp`, with DNS/private-network checks plus playlist, size, and duration bounds, then runs the same frame/audio/Whisper pipeline. This covers sites supported by the installed `yt-dlp` extractor and direct HTTPS media; login-only, DRM, live/indefinite, expiring or unsupported blob-only streams remain explicit failures. Repeated analysis stays inside the resulting conversation evidence instead of downloading again.
-- Customer-ready answers are selected automatically from the detected language and evidence instead of requiring a separate prompt template.
-
-## Architecture
-
-- Electron main/preload process for the coding-agent-style client, tray, global shortcut, secure settings, notifications, and extension management
-- React 19 + TypeScript + Zustand renderer with context isolation and a narrow IPC allowlist
-- Rust native core exposed as a one-request/one-response sidecar for accessibility, files/media, CLI discovery, and analysis
-- Tauri 2 shell retained as source-only comparison code, not as a second installed application
-- Provider-independent request/result contracts
-- XCap screen-region capture and Windows UI Automation behind platform modules
-- Codex App Server as the primary planned session runtime; OpenCode Server/SDK and ACP as additional protocol adapters
-
-See [the architecture](docs/ARCHITECTURE.md), [product specification](docs/PRODUCT_SPEC.md), [implementation plan](docs/IMPLEMENTATION_PLAN.md), and [roadmap](docs/ROADMAP.md).
-
-## Run the interface preview
-
-Requirements: Node.js 22+.
+## Install on this Mac
 
 ```bash
-npm ci
-npm run dev
-```
-
-The browser preview exercises the timeline, settings, and local file workflow. It deliberately uses a mock analysis adapter and does not capture the desktop or send content to a model.
-
-## Run the desktop app
-
-Requirements: Node.js 22+, Rust 1.88 or newer, and platform build tools.
-
-### Electron client on macOS
-
-Build, sign, install, and launch the Electron client:
-
-```bash
+git clone https://github.com/Zhao73/lensquery.git
+cd lensquery
 npm run install:electron:macos
 ```
 
-The installer uses a compact six-stage terminal interface, keeps full build output in a diagnostic log, and ends with explicit Chrome activation and GitHub actions. Press `C` to open `chrome://extensions` with the packaged connector path copied, press `S` to opt into starring the repository through an authenticated GitHub CLI, or press Enter to finish. It never stars the repository without that explicit keypress. Use `NO_COLOR=1` for plain logs, `LENSQUERY_INSTALLER_NONINTERACTIVE=1` for CI, or preview the terminal without changing the machine:
+The installer builds, signs, and launches `/Applications/LensQuery.app`. After it finishes:
 
-```bash
-bash scripts/install-electron-macos.sh --preview-terminal
+1. Keep LensQuery in the menu bar.
+2. Press `Command + Shift + Space`.
+3. Click once to highlight the real object, click again to confirm, or drag a region.
+4. Open `chrome://extensions`, load `/Applications/LensQuery.app/Contents/Resources/browser-extension`, then reload it once.
+
+The first macOS capture asks for **Screen Recording**. Object highlighting also needs **Accessibility**.
+
+## How it works
+
+```text
+shortcut / tray / Finder / Chrome
+        │
+        ▼
+confirmed object, file, or URL
+        │
+        ▼
+bounded local evidence
+pixels · text · captions · file extract · provenance
+        │
+        ▼
+Codex / Claude Code / OpenCode / Grok / API
+        │
+        ▼
+upper-right card + local timeline
 ```
 
-The Electron client is the only installed LensQuery application at `/Applications/LensQuery.app`. The installer removes the previous Tauri bundle and the former `/Applications/LensQuery Electron Preview.app` path only after the new signed Electron bundle passes verification and remains running. Electron includes a Chromium runtime, so its bundle is materially larger than the retired Tauri client; that is the intentional cost of using one Codex-like renderer and main-process API surface across macOS and Windows.
+- The shortcut never opens a homepage or prompt composer.
+- Recognition chooses the analysis structure from the selected evidence.
+- Each conversation can switch provider, model, reasoning, and context window without rewriting finished answers.
+- Context is shown like Claude Code / Codex: `12k / 1m`, `Compact · 32k`, `Auto · 200k`, or `Evidence only`.
 
-For development:
+<p align="center">
+  <img src=".impeccable/screenshots/shortcut-timeline-desktop-fixed.png" alt="LensQuery shortcut timeline" width="720">
+</p>
+
+## What it can read
+
+- Screen controls, icons, dialogs, charts, and surrounding application text
+- Finder files and folders through **使用 LensQuery 识别**
+- Chrome / Edge pages: selected text, images, video, links, the current URL, and bounded frontend evidence
+- Local images, videos, PDFs, and text, including long-video chapters and playable timestamps
+- Image / video provenance when a signed credential or official declaration is actually present
+
+It does not invent missing speech, pretend pixels are a verified watermark decoder, or treat unsigned metadata as proof.
+
+## Project layout
+
+```text
+src/                  React workbench
+electron/             tray, shortcut, settings, notifications
+src-tauri/            Rust sidecar for files, capture helpers, CLI adapters
+browser-extension/    Chrome / Edge connector
+native/macos/         Finder Sync action
+```
+
+## Development
 
 ```bash
 npm ci
-npm run build:sidecar
+npm run check
 npm run dev:electron
 ```
 
-Closing the client window returns it to the menu bar. A left click on the menu-bar item starts recognition; Timeline, Plugins & Skills, and Settings remain available from its short right-click menu.
+Source checks are not the same as a live capture. Screen recording, Accessibility, mixed-DPI Windows selection, and packaged browser/Finder actions still need a real machine.
 
-The first actual capture on macOS requires **Privacy & Security → Screen & System Audio Recording → LensQuery**. The signed Electron process owns pixel capture, while its packaged helper has a stable certificate-backed identifier; the first shortcut can ask once, and later shortcuts do not launch a new helper identity or keep reopening the request. Enable the switch; LensQuery automatically restarts so the permission takes effect. If LensQuery is absent from the list, press `+` and choose `/Applications/LensQuery.app`. Accessibility permission is separate and supplies exact object/file bounds and exposed text.
+## Docs
 
-### Tauri source-only comparison
-
-The Tauri source remains available for development comparison but is not installed alongside Electron.
-
-`npm run tauri dev` is the development runner; it compiles and launches a debug build but does **not** install an application into `/Applications`.
-
-### Tauri development
-
-```bash
-npm ci
-npm run tauri dev
-```
-
-Windows 10/11 and macOS share the tray, shortcut, region capture, file, top-right result card, speech, and conversation baseline. Windows additionally reads element/word/paragraph/document ranges through UI Automation. macOS reads exposed Accessibility element bounds/text and promotes confirmed Finder/Desktop icons plus document surfaces in Preview/PDF readers to real local-file evidence; exact arbitrary-app character-range geometry remains follow-up work.
-
-## Plugins and Skills
-
-Open **Extensions** in the Electron sidebar. Install a local folder or a Git repository, enable/disable each package, open its location, or move a managed package to the system Trash.
-
-- A LensQuery plugin contains `lensquery.plugin.json` plus a Markdown instruction entry such as `PLUGIN.md`.
-- A compatible Skill contains `SKILL.md`; managed Skills are installed in `~/.codex/skills`, and existing `~/.agents/skills` packages are discovered read-only.
-- The reviewed GitHub catalog currently exposes the Apache-2.0 PDF and transcription workflows from `openai/skills`; script-bearing workflows install disabled and require an explicit user opt-in.
-- GitHub `/tree/<ref>/<subdirectory>` URLs and `repository.git#subdirectory` sources install a single package from a monorepo without copying unrelated packages.
-- Enabled Markdown instructions are added to the bounded analysis context. LensQuery does not execute plugin JavaScript, shell scripts, or self-declared permissions; current MCP/connector-heavy packages from `openai/plugins` are therefore not presented as working prompt-only extensions.
-- Install validation rejects symbolic links and limits each package to 800 files / 32 MB. Prompt additions are separately bounded to 40,000 characters total.
-
-See [the extension format and security model](docs/EXTENSIONS.md) and [`examples/extensions`](examples/extensions).
-
-## Browser connector
-
-Load [`browser-extension`](browser-extension) as an unpacked Chrome/Edge extension. Its single **使用 LensQuery 识别** command appears for every supported right-click context and routes selected text, images, video, audio, links, editable areas, controls, and page background into the matching bounded collector, plus the existing two-click DOM picker. LensQuery receives bounded nearby text, DOM/accessibility metadata, frontend construction evidence, a bounded hidden-content audit, page URL/title, available captions/transcript, and a compressed target crop for visual grounding. On YouTube it first reads a caption-track URL already published in the page and locally assembles time-coded text. When a selected public HTTPS video has no page transcript, the desktop runtime can use local `yt-dlp` and local Whisper; it never invents missing speech. The extension ID is fixed at `filelbpgenppllkeeofajalcgbnifgmi`; the macOS Electron installer installs its `com.lensquery.desktop` Native Messaging host automatically. See [the connector README](browser-extension/README.md).
-
-Video preparation detects `ffmpeg` and `ffprobe` on `PATH` or in common user install locations; `LENSQUERY_FFMPEG_BIN` and `LENSQUERY_FFPROBE_BIN` can point to explicit executables. Captionless audio transcription similarly detects `whisper` and defaults to the multilingual `base` model; `LENSQUERY_WHISPER_MODEL`, `LENSQUERY_WHISPER_DEVICE`, and `LENSQUERY_WHISPER_LANGUAGE` can tune it. Public web-video import detects `yt-dlp` or `LENSQUERY_YTDLP_BIN`, requires explicit HTTPS URLs, rejects local/private-network targets and playlists, limits a video to four hours and 1.5 GB, and keeps temporary media local. The interface reports a direct recovery message when a dependency is missing or a source requires login, DRM, region access, or an unsupported live/blob stream. Scanned/image-only PDFs still need the planned OCR fallback.
-
-The reproducible ordinary-photo, OpenAI-generated image, visible/embedded-watermark, and NASA YouTube acceptance run is documented in [`docs/MEDIA_ACCEPTANCE.md`](docs/MEDIA_ACCEPTANCE.md). Long-form YouTube/Whisper coverage is documented in [`docs/LONG_VIDEO_ACCEPTANCE.md`](docs/LONG_VIDEO_ACCEPTANCE.md).
-
-## Background, results, and voice
-
-- The main window starts hidden; closing it returns LensQuery to the tray/menu bar instead of quitting.
-- Left-click the icon for Quick Ask. Right-click offers Start Recognition, Analyze Files, Timeline, Settings, and Quit; intent, model, permissions, and diagnostics stay in the client.
-- On notched Macs, the first run seeds the LensQuery item into the visible right-side safe area. Hold Command and drag it to choose another position; macOS remembers that choice.
-- Login auto-start and the completed-result card are user-configurable. The upper-right card is rendered by LensQuery itself, so it works without macOS or Windows notification permission. Use “Test upper-right result” in Settings to verify it at any time.
-- macOS `say`, Windows SAPI, and the browser Speech Synthesis fallback provide working local read-aloud. Codex App Server 0.146.1 exposes experimental Realtime audio methods, but an authenticated smoke test reported that an ordinary local thread does not support realtime conversation. The option is therefore disabled in Settings instead of pretending to be available; protocol/session eligibility and PCM playback remain separate gates.
-
-## Verification
-
-```bash
-npm run check
-cargo fmt --manifest-path src-tauri/Cargo.toml --check
-cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
-cargo test --manifest-path src-tauri/Cargo.toml
-```
-
-Source checks and builds are separate from Windows runtime verification. Capture, global shortcuts, tray behavior, mixed-DPI selection, UI Automation, and packaging require real Windows evidence.
-
-## Provider safety
-
-- Electron supports OpenAI Chat Completions, Anthropic Messages, and OpenAI-compatible endpoints. Built-in profiles cover OpenAI, Anthropic, Gemini, xAI, DeepSeek, OpenRouter, Groq Cloud, Mistral, Together, Fireworks, SiliconFlow, Ollama, and LM Studio; users can add/remove arbitrary compatible profiles.
-- Provider marks come from the MIT-licensed LobeHub icon collection and remain trademarks of their respective owners; attribution ships in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
-- Direct transports send the bounded question, extracted text, browser context, and at most eight individually bounded images after the existing confirmation path. Remote plaintext HTTP endpoints and URLs containing embedded credentials are rejected; HTTP is limited to loopback local-model servers.
-- The UI never stores a raw API key in JSON or browser local storage.
-- Codex, Claude Code, OpenCode, and Grok adapters use non-interactive, bounded invocations and do not grant command/file-write tools for ordinary analysis.
-- The reproducible installed-client acceptance covers an ordinary camera photo, an OpenAI-generated image with visible/C2PA watermark evidence, and a 60-second NASA YouTube video; see [`docs/MEDIA_ACCEPTANCE.md`](docs/MEDIA_ACCEPTANCE.md).
-- Screenshot retention is off by default in the product contract.
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md). Security reports belong in a private GitHub Security Advisory; see [SECURITY.md](SECURITY.md).
+- [Product](docs/PRODUCT_SPEC.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Implementation](docs/IMPLEMENTATION_PLAN.md)
+- [Right-click acceptance](docs/RIGHT_CLICK_ACCEPTANCE.md)
+- [Media acceptance](docs/MEDIA_ACCEPTANCE.md)
 
 ## License
 
 [MIT](LICENSE)
-
-### Global and undisclosed watermark coverage
-
-LensQuery pins the official C2PA soft-binding algorithm directory and displays its 48 registered algorithms, media compatibility, declared `c2pa.soft-binding` algorithms, and available public resolvers. It also runs a bounded, separate blind-signal layer for private container chunks, marker strings, transparent-pixel payloads, bit planes, and forensic derivatives. Blind candidates never become an AI-origin verdict without attribution. EU and Chinese marking evidence are presented as separate technical layers rather than a universal compliance badge. The architecture, impossibility boundary, current registry counts, and Seedance 2.0/2.5 blind-control experiment are documented in [`docs/GLOBAL_WATERMARK_RESEARCH.md`](docs/GLOBAL_WATERMARK_RESEARCH.md).

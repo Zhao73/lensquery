@@ -36,6 +36,7 @@ describe('SessionRuntimeControls', () => {
     fireEvent.click(screen.getByRole('button', { name: /Codex CLI/ }))
     expect(screen.getByRole('dialog', { name: '会话模型与上下文' })).toBeVisible()
     expect(document.querySelector('datalist option[value="gpt-5.6-sol"]')).toHaveTextContent('GPT-5.6-Sol')
+    expect(screen.getAllByText(/0 \/ 200k/).length).toBeGreaterThan(0)
 
     fireEvent.change(screen.getByLabelText('提供商'), { target: { value: 'openai' } })
     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ providerId: 'openai', model: 'gpt-5' }))
@@ -45,5 +46,10 @@ describe('SessionRuntimeControls', () => {
 
     fireEvent.change(screen.getByLabelText('上下文'), { target: { value: 'full' } })
     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ contextMode: 'full' }))
+  })
+
+  it('shows a 1m window after the session selects full context', () => {
+    render(<SessionRuntimeControls session={{ ...session, contextMode: 'full' }} provider={providers[0]} providers={providers} onChange={vi.fn()} />)
+    expect(screen.getByText('0 / 1m')).toBeVisible()
   })
 })
