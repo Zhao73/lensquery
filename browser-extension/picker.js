@@ -74,7 +74,7 @@
   function showFailure(message) {
     const notice = document.createElement('div')
     notice.id = 'lensquery-picker-error'
-    notice.textContent = `LensQuery 连接失败：${message || '请先启动桌面应用并安装 Native Messaging Host。'}`
+    notice.textContent = `What is it 连接失败：${message || '请先启动桌面应用并安装 Native Messaging Host。'}`
     document.documentElement.appendChild(notice)
     setTimeout(() => notice.remove(), 6000)
   }

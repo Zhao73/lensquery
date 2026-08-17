@@ -3,5 +3,5 @@
   <path d="M42.5 42.5 56 56" stroke="#1A2434" stroke-width="7" stroke-linecap="round"/>
   <path d="M21 22h15M21 28h12M21 34h8" stroke="#4C8BEA" stroke-width="3" stroke-linecap="round"/>
   <circle cx="49" cy="12" r="5" fill="#4C8BEA" stroke="white" stroke-width="2"/>
-  <text x="76" y="42" font-family="Segoe UI,Inter,Arial,sans-serif" font-size="31" font-weight="680" letter-spacing="-1.2" fill="#1A2434">LensQuery</text>
+  <text x="76" y="42" font-family="Segoe UI,Inter,Arial,sans-serif" font-size="31" font-weight="680" letter-spacing="-1.2" fill="#1A2434">What is it</text>
 </svg>

@@ -3,6 +3,7 @@
 set -Eeuo pipefail
 
 APP_NAME="LensQuery"
+DISPLAY_NAME="What is it"
 APP_BUNDLE_ID="com.lensquery.desktop.electron-preview"
 OLD_APP_BUNDLE_ID="com.lensquery.desktop"
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -85,7 +86,7 @@ ui_pair() {
 }
 
 ui_banner() {
-  printf '\n  %b%bLensQuery%b  %s\n' "$UI_BLUE" "$UI_BOLD" "$UI_RESET" \
+  printf '\n  %b%bWhat is it%b  %s\n' "$UI_BLUE" "$UI_BOLD" "$UI_RESET" \
     "$(ui_text "Desktop installer" "桌面安装程序")"
   printf '  %b%s%b\n' "$UI_DIM" \
     "$(ui_text "Ask anything visible. Keep the desktop in context." "一键选择屏幕内容，在原处获取答案。")" "$UI_RESET"
@@ -260,7 +261,7 @@ show_preview() {
     "$(ui_text "Renderer, native sidecar, and Finder integration" "渲染器、本地辅助程序与 Finder 集成")"
   ui_status ok "$(ui_text "Electron package" "Electron 安装包")" "$(ui_text "complete" "完成")"
   ui_stage "$(ui_text "Install" "安装")" \
-    "$(ui_text "Replacing only the existing LensQuery bundle" "仅替换现有 LensQuery 应用")"
+    "$(ui_text "Replacing only the existing What is it bundle" "仅替换现有 What is it 应用")"
   ui_status ok "$(ui_text "Application" "应用")" "$APP_DESTINATION"
   ui_status ok "$(ui_text "Code signature" "代码签名")" "$(ui_text "verified" "已验证")"
   ui_stage "$(ui_text "Launch" "启动")" \
@@ -339,8 +340,11 @@ ui_stage "$(ui_text "Build" "构建")" \
 run_task "$(ui_text "Electron package" "Electron 安装包")" npm run build:electron \
   || fail "the Electron build failed."
 
-APP_SOURCE="$(/usr/bin/find "$RELEASE_ROOT" -maxdepth 3 -type d -name "$APP_NAME.app" -print -quit)"
-[[ -n "$APP_SOURCE" && -d "$APP_SOURCE" ]] || fail "the build completed without producing $APP_NAME.app under $RELEASE_ROOT."
+APP_SOURCE="$(/usr/bin/find "$RELEASE_ROOT" -maxdepth 3 -type d -name "$DISPLAY_NAME.app" -print -quit)"
+if [[ -z "$APP_SOURCE" ]]; then
+  APP_SOURCE="$(/usr/bin/find "$RELEASE_ROOT" -maxdepth 3 -type d -name "$APP_NAME.app" -print -quit)"
+fi
+[[ -n "$APP_SOURCE" && -d "$APP_SOURCE" ]] || fail "the build completed without producing $DISPLAY_NAME.app under $RELEASE_ROOT."
 
 staging="/Applications/.LensQueryElectron.install.$$"
 backup="/private/tmp/${APP_NAME// /-}.legacy.app.backup.$(date +%Y%m%d-%H%M%S)"
@@ -358,6 +362,7 @@ run_install_command() {
 
 stop_existing_clients() {
   local patterns=(
+    "$APP_DESTINATION/Contents/MacOS/What is it"
     "$APP_DESTINATION/Contents/MacOS/LensQuery"
     "$APP_DESTINATION/Contents/MacOS/lensquery"
     "$LEGACY_PREVIEW_DESTINATION/Contents/MacOS/LensQuery Electron Preview"
@@ -384,7 +389,7 @@ stop_existing_clients() {
     fi
     /bin/sleep 0.25
   done
-  fail "quit every running LensQuery client, then rerun this installer."
+  fail "quit every running What is it client, then rerun this installer."
 }
 
 install_bundle() {
@@ -420,7 +425,7 @@ install_bundle() {
 }
 
 ui_stage "$(ui_text "Install" "安装")" \
-  "$(ui_text "Replacing only the existing LensQuery bundle" "仅替换现有 LensQuery 应用")"
+  "$(ui_text "Replacing only the existing What is it bundle" "仅替换现有 What is it 应用")"
 if (( requires_sudo )); then
   ui_status next "$(ui_text "Administrator" "管理员权限")" \
     "$(ui_text "macOS will ask once" "macOS 将询问一次")"
@@ -442,7 +447,7 @@ ui_stage "$(ui_text "Launch" "启动")" \
 /usr/bin/open "$APP_DESTINATION" --args --background
 launched=0
 for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do
-  if /usr/bin/pgrep -f "$APP_DESTINATION/Contents/MacOS/$APP_NAME" >/dev/null 2>&1; then
+  if /usr/bin/pgrep -f "$APP_DESTINATION/Contents/MacOS/$DISPLAY_NAME" >/dev/null 2>&1; then
     launched=1
     break
   fi
@@ -502,7 +507,7 @@ else
   ui_pair "$(ui_text "Signature" "签名")" "$SIGNING_IDENTITY"
 fi
 ui_pair "$(ui_text "Screen access" "屏幕权限")" \
-  "$(ui_text "LensQuery · requested on first capture" "LensQuery · 首次识别时申请")"
+  "$(ui_text "What is it · requested on first capture" "What is it · 首次识别时申请")"
 ui_pair "$(ui_text "Browser files" "浏览器扩展文件")" \
   "$APP_DESTINATION/Contents/Resources/browser-extension"
 ui_pair "$(ui_text "Install log" "安装日志")" "$INSTALL_LOG"

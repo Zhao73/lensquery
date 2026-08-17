@@ -20,7 +20,15 @@
 </p>
 
 <p align="center">
-  <img src="docs/media/what-is-it-workbench.png" alt="What is it workbench" width="920">
+  <img src="docs/media/what-is-it-workbench-zh.png" alt="What is it 中文工作台" width="920">
+</p>
+
+<p align="center">
+  <img src="docs/media/what-is-it-workbench-en.png" alt="What is it English workbench" width="920">
+</p>
+
+<p align="center">
+  <img src="docs/media/what-is-it-workbench-ja.png" alt="What is it 日本語ワークベンチ" width="920">
 </p>
 
 ## Why this exists
@@ -81,7 +89,7 @@ shortcut · tray · Finder · Chrome
 
 - Context is shown like Claude Code / Codex: `1.9k / 200k`, `Compact · 32k`, or `1m`.
 - Each session can switch provider, model, reasoning, and window size without rewriting finished answers.
-- Finder and Chrome both expose **使用 LensQuery 识别**. Chrome also has **分析当前网址**, the toolbar icon, and the `lq` omnibox keyword.
+- Finder and Chrome both expose **使用 What is it 识别**. Chrome also has **分析当前网址**, the toolbar icon, and the `lq` omnibox keyword.
 
 ## Repo map
 

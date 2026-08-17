@@ -25,6 +25,6 @@ export function normalizeAnalysisUrl(input, currentUrl = '') {
 
 export function omniboxSuggestion(input, currentUrl = '') {
   const normalized = normalizeAnalysisUrl(input, currentUrl)
-  if (normalized) return `使用 LensQuery 分析：${normalized}`
+  if (normalized) return `使用 What is it 分析：${normalized}`
   return '输入完整网址，或留空分析当前页面'
 }

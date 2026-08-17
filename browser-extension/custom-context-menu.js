@@ -14,15 +14,15 @@
   ].join(',')
   const chinese = /^zh(?:-|$)/i.test(navigator.language || '')
   const copy = chinese ? {
-    action: '使用 LensQuery 识别',
-    loading: '正在发送到 LensQuery…',
+    action: '使用 What is it 识别',
+    loading: '正在发送到 What is it…',
     success: '已发送，正在后台分析',
-    failure: 'LensQuery 连接失败 · 点击重试',
+    failure: 'What is it 连接失败 · 点击重试',
   } : {
-    action: 'Analyze with LensQuery',
-    loading: 'Sending to LensQuery…',
+    action: 'Analyze with What is it',
+    loading: 'Sending to What is it…',
     success: 'Sent for background analysis',
-    failure: 'LensQuery connection failed · Retry',
+    failure: 'What is it connection failed · Retry',
   }
 
   const state = {
@@ -301,7 +301,7 @@
       context.browserTrigger = 'custom-context-menu'
       const enriched = await contextApi.enrichContext(context)
       const response = await chrome.runtime.sendMessage({ type: 'lensquery-context', context: enriched })
-      if (!response?.ok) throw new Error(response?.error || 'LensQuery desktop did not accept the context.')
+      if (!response?.ok) throw new Error(response?.error || 'What is it desktop did not accept the context.')
       updateSurface(copy.success, 'success')
       state.removeTimer = window.setTimeout(closeMenu, 1_400)
     } catch (error) {

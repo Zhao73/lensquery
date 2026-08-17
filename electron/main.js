@@ -52,7 +52,12 @@ import {
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const devUrl = process.env.LENSQUERY_DEV_URL
 const isDevelopment = Boolean(devUrl)
-app.setName(isDevelopment ? 'LensQuery Development' : 'LensQuery')
+app.setName(isDevelopment ? 'What is it Development' : 'What is it')
+if (!isDevelopment) {
+  const existingUserData = app.getPath('userData')
+  const legacyUserData = path.join(app.getPath('appData'), 'lensquery')
+  if (existingUserData !== legacyUserData) app.setPath('userData', legacyUserData)
+}
 const stateFileName = 'desktop-state.json'
 const eventQueueDirectory = path.join(os.tmpdir(), 'lensquery-native-messaging')
 
@@ -137,7 +142,7 @@ const activeAnalyses = new Map()
 
 function debugRuntime(event, details = {}) {
   if (process.env.LENSQUERY_DEBUG !== '1') return
-  process.stdout.write(`[LensQuery] ${event} ${JSON.stringify(details)}\n`)
+  process.stdout.write(`[What is it] ${event} ${JSON.stringify(details)}\n`)
 }
 
 function normalizedAnalysisId(value) {
@@ -245,12 +250,15 @@ function rendererUrl(windowName = 'main') {
   const file = path.join(__dirname, '..', 'dist', 'index.html')
   const url = pathToFileURL(file)
   if (windowName !== 'main') url.searchParams.set('window', windowName)
+  if (windowName === "main" && process.env.LENSQUERY_CAPTURE_SESSION) {
+    url.searchParams.set("session", process.env.LENSQUERY_CAPTURE_SESSION)
+  }
   return url.href
 }
 
 async function createMainWindow() {
   mainWindow = new BrowserWindow({
-    title: 'LensQuery',
+    title: 'What is it',
     width: 1240,
     height: 820,
     minWidth: 820,
@@ -390,7 +398,7 @@ function createTray() {
   const icon = nativeImage.createFromPath(iconPath).resize({ width: 20, height: 20 })
   if (process.platform === 'darwin') icon.setTemplateImage(true)
   tray = new Tray(icon)
-  tray.setToolTip('LensQuery')
+  tray.setToolTip('What is it')
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: '开始识别', click: () => void startCapture('element') },
     { label: '分析文件…', click: () => sendEvent('lensquery://pick-files') },
@@ -399,7 +407,7 @@ function createTray() {
     { label: '插件与 Skills', click: () => navigate('extensions') },
     { label: '设置', click: () => navigate('settings') },
     { type: 'separator' },
-    { label: '退出 LensQuery', click: () => { app.isQuitting = true; app.quit() } },
+    { label: '退出 What is it', click: () => { app.isQuitting = true; app.quit() } },
   ]))
   tray.on('click', () => void startCapture('element'))
 }
@@ -449,7 +457,7 @@ async function flushDeepLinks() {
     }
   } catch (error) {
     sendEvent('lensquery://capture-error', String(error))
-    showNotification('LensQuery 右键识别失败', String(error).slice(0, 240))
+    showNotification('What is it 右键识别失败', String(error).slice(0, 240))
   } finally {
     processingExternalPaths = false
   }
@@ -461,7 +469,7 @@ async function startCapture(mode = 'element') {
     sendEvent('lensquery://capture-error', permission.message)
     if (!screenPermissionNoticeShown) {
       screenPermissionNoticeShown = true
-      showNotification('LensQuery 需要一次录屏授权', permission.message)
+      showNotification('What is it 需要一次录屏授权', permission.message)
     }
     return { status: 'unavailable', message: permission.message }
   }
@@ -471,7 +479,7 @@ async function startCapture(mode = 'element') {
       sendEvent('lensquery://capture-error', accessibility.message)
       if (!accessibilityPermissionNoticeShown) {
         accessibilityPermissionNoticeShown = true
-        showNotification('LensQuery 需要一次辅助功能授权', accessibility.message)
+        showNotification('What is it 需要一次辅助功能授权', accessibility.message)
       }
       return { status: 'unavailable', message: accessibility.message }
     }
@@ -685,7 +693,7 @@ async function completeCaptureWithElectron(selection) {
     })
     ?? sources[0]
   if (!source || source.thumbnail.isEmpty()) {
-    throw new Error('屏幕画面尚未授权给 LensQuery，请开启录屏权限后重新打开应用。')
+    throw new Error('屏幕画面尚未授权给 What is it，请开启录屏权限后重新打开应用。')
   }
 
   const sourceSize = source.thumbnail.getSize()
@@ -1285,7 +1293,7 @@ if (!app.requestSingleInstanceLock()) {
     registerShortcut(state.settings.shortcut)
     queueTimer = setInterval(() => void pollBrowserQueue(), 350)
     if (process.argv.includes('--screen-permission-restarted') && currentScreenCapturePermission().granted) {
-      setTimeout(() => showNotification('LensQuery 录屏权限已生效', '快捷键可以直接选择屏幕对象或区域。'), 700)
+      setTimeout(() => showNotification('What is it 录屏权限已生效', '快捷键可以直接选择屏幕对象或区域。'), 700)
     }
     if (process.env.LENSQUERY_CAPTURE_PATH) {
       const targetView = process.env.LENSQUERY_CAPTURE_VIEW
@@ -1294,7 +1302,7 @@ if (!app.requestSingleInstanceLock()) {
         await new Promise((resolve) => setTimeout(resolve, 650))
         const image = await mainWindow.webContents.capturePage()
         await fs.writeFile(process.env.LENSQUERY_CAPTURE_PATH, image.toPNG())
-        process.stdout.write(`LensQuery screenshot: ${process.env.LENSQUERY_CAPTURE_PATH}\n`)
+        process.stdout.write(`What is it screenshot: ${process.env.LENSQUERY_CAPTURE_PATH}\n`)
       }, 1_200)
     }
   })

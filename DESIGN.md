@@ -1,10 +1,10 @@
-# LensQuery design system
+# What is it design system
 
 <!-- impeccable:design-schema 1 -->
 
 ## Direction
 
-LensQuery is a resident Windows/macOS Electron workbench. It refuses a marketing-like homepage and decorative dashboard. Its client follows the restrained information architecture of coding-agent applications: persistent navigation and local timelines on the left, one contextual top bar, and a focused conversation/composer canvas. The memorable interaction remains the system-wide question cursor that appears after one shortcut.
+What is it is a resident Windows/macOS Electron workbench. It refuses a marketing-like homepage and decorative dashboard. Its client follows the restrained information architecture of coding-agent applications: persistent navigation and local timelines on the left, one contextual top bar, and a focused conversation/composer canvas. The memorable interaction remains the system-wide question cursor that appears after one shortcut.
 
 The 2026-08 automatic-analysis revision removes the prompt console from recognition. The empty conversation state offers only direct screen selection and file selection. LensQuery first identifies the exact subject and semantic subtype, then creates a content-specific internal task: tutorials preserve steps and troubleshooting; entertainment covers progression, jokes, reactions, and highlights; gameplay follows decisions and outcomes; commentary separates facts, claims, and forecasts. The client never asks the user to choose this route.
 
@@ -75,7 +75,7 @@ Canonical tokens live in `src/index.css`.
 - A monochrome template icon lives in the macOS menu bar and adapts to appearance; Windows uses the colored app mark in the system tray.
 - Left click starts the default capture. Right click exposes only Start Recognition and Analyze Files, followed by Timeline, Settings, and Quit.
 - The upper-right result card is a resident Electron window, not a system notification. It shows the session title and a four-line answer excerpt; the full Markdown remains in the local timeline.
-- Finder and browser context menus each expose one direct, verb-led item: **使用 LensQuery 识别**. Do not split target types into a long submenu; the selected object determines whether LensQuery collects text, media, link, DOM, file, folder, or container evidence.
+- Finder and browser context menus each expose one direct, verb-led item: **使用 What is it 识别**. Do not split target types into a long submenu; the selected object determines whether LensQuery collects text, media, link, DOM, file, folder, or container evidence.
 
 ## Motion
 

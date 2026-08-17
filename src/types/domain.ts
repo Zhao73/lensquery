@@ -424,7 +424,7 @@ export interface CaptureSelection {
 
 export interface AppSettings {
   shortcut: string
-  language: 'zh-CN' | 'en'
+  language: 'zh-CN' | 'en' | 'ja-JP'
   responseLanguage: 'zh-CN' | 'en' | 'ja-JP' | 'ko-KR' | 'es-ES' | 'fr-FR' | 'de-DE'
   detectCustomerLanguage: boolean
   replyStyle: 'concise' | 'customer-ready' | 'detailed'

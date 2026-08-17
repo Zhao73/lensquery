@@ -21,7 +21,7 @@ describe.skipIf(process.platform !== 'darwin')('macOS installer terminal', () =>
       },
     })
 
-    expect(output).toContain('LensQuery  Desktop installer')
+    expect(output).toContain('What is it  Desktop installer')
     expect(output).toContain('01/06  Preflight')
     expect(output).toContain('06/06  Integrations')
     expect(output).toContain('Chrome extension  one-time activation required')
@@ -47,7 +47,7 @@ describe.skipIf(process.platform !== 'darwin')('macOS installer terminal', () =>
       },
     })
 
-    expect(output).toContain('LensQuery  桌面安装程序')
+    expect(output).toContain('What is it  桌面安装程序')
     expect(output).toContain('01/06  安装检查')
     expect(output).toContain('06/06  系统集成')
     expect(output).toContain('Chrome 扩展：需要一次激活')

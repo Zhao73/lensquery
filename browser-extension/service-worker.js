@@ -31,7 +31,7 @@ chrome.commands.onCommand.addListener((command) => {
   if (command === 'ask-lensquery') void startPicker()
 })
 
-chrome.omnibox.setDefaultSuggestion({ description: '使用 LensQuery 分析当前网址' })
+chrome.omnibox.setDefaultSuggestion({ description: '使用 What is it 分析当前网址' })
 chrome.omnibox.onInputChanged.addListener((text, suggest) => {
   if (!text.trim()) {
     suggest([])
@@ -69,7 +69,7 @@ async function analyzeCurrentPage(tab) {
 async function reportAnalysisError(error, tab) {
   const activeTab = tab?.id ? tab : (await chrome.tabs.query({ active: true, currentWindow: true }))[0]
   if (!activeTab?.id) return
-  await showPageNotice(activeTab.id, 0, `LensQuery 网址分析失败：${String(error).slice(0, 180)}`, false)
+  await showPageNotice(activeTab.id, 0, `What is it 网址分析失败：${String(error).slice(0, 180)}`, false)
 }
 
 async function analyzeOmniboxUrl(text, disposition) {
@@ -155,9 +155,9 @@ async function handleContextMenu(action, info, tab) {
     }
 
     await submitContext(context, tab, frameId)
-    await showPageNotice(tab.id, frameId, '已发送到 LensQuery，正在后台分析。', true)
+    await showPageNotice(tab.id, frameId, '已发送到 What is it，正在后台分析。', true)
   } catch (error) {
-    await showPageNotice(tab.id, frameId, `LensQuery 连接失败：${String(error).slice(0, 180)}`, false)
+    await showPageNotice(tab.id, frameId, `What is it 连接失败：${String(error).slice(0, 180)}`, false)
   }
 }
 
@@ -315,7 +315,7 @@ async function sendToDesktop(context) {
     chrome.runtime.sendNativeMessage(NATIVE_HOST, { type: 'browser-context', context }, (reply) => {
       const error = chrome.runtime.lastError
       if (error) reject(new Error(error.message))
-      else if (!reply?.ok) reject(new Error(reply?.error || 'LensQuery desktop did not accept the context.'))
+      else if (!reply?.ok) reject(new Error(reply?.error || 'What is it desktop did not accept the context.'))
       else resolve(reply)
     })
   })

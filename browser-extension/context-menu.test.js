@@ -15,14 +15,14 @@ const manifest = JSON.parse(readFileSync(resolve(process.cwd(), 'browser-extensi
 describe('LensQuery universal browser context menu', () => {
   it('is visible for every Chrome context', () => {
     expect(UNIVERSAL_CONTEXT_MENU).toMatchObject({
-      title: '使用 LensQuery 识别',
+      title: '使用 What is it 识别',
       contexts: ['all'],
     })
   })
 
   it('offers direct current-URL analysis on page and extension-action menus', () => {
     expect(PAGE_CONTEXT_MENU).toMatchObject({
-      title: '使用 LensQuery 分析当前网址',
+      title: '使用 What is it 分析当前网址',
       contexts: ['page', 'action'],
     })
     expect(pageContextRequestFor()).toEqual({ kind: 'page' })
@@ -67,6 +67,6 @@ describe('LensQuery universal browser context menu', () => {
 
   it('registers the lq omnibox keyword and direct-page toolbar action', () => {
     expect(manifest.omnibox).toEqual({ keyword: 'lq' })
-    expect(manifest.action.default_title).toBe('使用 LensQuery 分析当前网址')
+    expect(manifest.action.default_title).toBe('使用 What is it 分析当前网址')
   })
 })

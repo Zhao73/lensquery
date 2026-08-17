@@ -45,6 +45,7 @@ import { SessionVideoPlayer, type VideoSeekRequest } from './components/SessionV
 import { SessionRuntimeControls, type SessionRuntimeUpdate } from './components/SessionRuntimeControls'
 import { VideoTimestampMarkdown } from './components/VideoTimestampMarkdown'
 import { AUTO_ANALYSIS_MODE, AUTO_ANALYSIS_PROMPT_ID, AUTO_ANALYSIS_QUESTION, AUTO_OUTPUT_FORMAT } from './lib/autoAnalysis'
+import { createTranslator, formatAbsoluteTime, formatRelativeTime, normalizeUiLanguage } from './lib/i18n'
 import { isRegionDrag } from './lib/captureSelection'
 import { evidenceAccept, formatBytes, formatDuration, normalizeBrowserFiles, supportsAiOriginAnalysis } from './lib/files'
 import { resolveSessionVideo } from './lib/media'
@@ -214,6 +215,7 @@ function App() {
 
 function ResultToast() {
   const [result, setResult] = useState<{ title: string; body: string } | null>(null)
+  const t = createTranslator(normalizeUiLanguage(document.documentElement.lang))
 
   useEffect(() => {
     let dispose: (() => void) | undefined
@@ -249,10 +251,10 @@ function ResultToast() {
         <div className="result-toast-copy">
           <header>
             <strong>{result.title}</strong>
-            <button type="button" aria-label="关闭结果提示" onClick={closeResult}><X size={14} /></button>
+            <button type="button" aria-label={t('toastClose')} onClick={closeResult}><X size={14} /></button>
           </header>
           <p>{result.body}</p>
-          <button className="result-toast-open" type="button" onClick={openResult}>查看完整会话 <ArrowRight size={13} /></button>
+          <button className="result-toast-open" type="button" onClick={openResult}>{t('toastOpen')} <ArrowRight size={13} /></button>
         </div>
       </article>
     </main>
@@ -300,6 +302,13 @@ function ConversationApp() {
     if (!settings) return
     document.documentElement.lang = settings.language
   }, [settings])
+
+  useEffect(() => {
+    const wanted = new URLSearchParams(window.location.search).get("session")
+    if (!wanted || !ready) return
+    const match = sessions.find((session) => session.title.includes(wanted) || session.id === wanted)
+    if (match) setActiveSession(match.id)
+  }, [ready, sessions, setActiveSession])
 
   useEffect(() => {
     const media = window.matchMedia('(max-width: 760px)')
@@ -363,7 +372,7 @@ function ConversationApp() {
     if (!provider?.ready) {
       setError('还没有可用的模型通道。请先在“模型”中扫描本机 CLI 或配置 API。')
       setView('providers')
-      void showSystemNotification('LensQuery 未开始分析', '未找到可用的模型通道，请在 LensQuery 的“模型”页面检查配置。').catch(() => undefined)
+      void showSystemNotification('What is it 未开始分析', '未找到可用的模型通道，请在 What is it 的“模型”页面检查配置。').catch(() => undefined)
       return
     }
     let preparedFiles = input.files
@@ -378,7 +387,7 @@ function ConversationApp() {
       } catch (cause) {
         const message = `网页视频准备失败：${String(cause)}`
         setError(message)
-        void showSystemNotification('LensQuery 未能读取此网页视频', message.slice(0, 240)).catch(() => undefined)
+        void showSystemNotification('What is it 未能读取此网页视频', message.slice(0, 240)).catch(() => undefined)
         const hasBoundedFallback = input.captures.length > 0
           || Boolean(input.browserContext?.snapshotPath)
           || Boolean(input.browserContext?.captions)
@@ -406,7 +415,7 @@ function ConversationApp() {
       const failedVideo = preparedFiles.find(({ kind, videoPreparation }) => kind === 'video' && !videoPreparation)
       if (failedVideo) {
         setError(failedVideo.processingError || `视频 ${failedVideo.name} 的本地关键帧提取失败。`)
-        void showSystemNotification('LensQuery 视频准备失败', failedVideo.processingError || `无法读取 ${failedVideo.name}。`).catch(() => undefined)
+        void showSystemNotification('What is it 视频准备失败', failedVideo.processingError || `无法读取 ${failedVideo.name}。`).catch(() => undefined)
         return
       }
     }
@@ -492,7 +501,7 @@ function ConversationApp() {
       })
       setError(errorMessage)
       if (settings?.notificationsEnabled && settings.resultPresentation !== 'window') {
-        void showSystemNotification('LensQuery 分析失败', readableResultPreview(errorMessage)).catch(() => undefined)
+        void showSystemNotification('What is it 分析失败', readableResultPreview(errorMessage)).catch(() => undefined)
       }
     }
   }
@@ -734,19 +743,21 @@ function ConversationApp() {
 
   if (!ready || !settings) return <LoadingScreen />
 
+  const language = normalizeUiLanguage(settings.language)
+  const t = createTranslator(language)
   const navigation: Array<{ id: View; label: string; icon: typeof ClockCounterClockwise }> = [
-    { id: 'timeline', label: '会话', icon: ClockCounterClockwise },
-    { id: 'providers', label: '模型', icon: TerminalWindow },
-    { id: 'extensions', label: '扩展', icon: PuzzlePiece },
-    { id: 'settings', label: '设置', icon: Gear },
+    { id: 'timeline', label: t('navTimeline'), icon: ClockCounterClockwise },
+    { id: 'providers', label: t('navProviders'), icon: TerminalWindow },
+    { id: 'extensions', label: t('navExtensions'), icon: PuzzlePiece },
+    { id: 'settings', label: t('navSettings'), icon: Gear },
   ]
   const viewTitle = view === 'timeline'
-    ? activeSession?.title || '新会话'
+    ? activeSession?.title || t('viewNewConversation')
     : view === 'providers'
-      ? '模型与本机智能体'
+      ? t('viewProviders')
       : view === 'extensions'
-        ? '插件与 Skills'
-        : '设置'
+        ? t('viewExtensions')
+        : t('viewSettings')
   const shellClass = [
     'shell',
     !sidebarOpen && 'sidebar-collapsed',
@@ -755,7 +766,7 @@ function ConversationApp() {
   return (
     <div className={shellClass}>
       {/*
-        THESIS: LensQuery is a resident shortcut instrument, not a homepage; conversation is the only durable surface.
+        THESIS: What is it is a resident shortcut instrument, not a homepage; conversation is the only durable surface.
         OWN-WORLD: Windows workbench neutrals, one cobalt action color, thin dividers, native controls, no decorative scenery.
         STORY: invoke, point or drag, receive an answer, continue in the same local timeline.
         FIRST VIEWPORT: compact session rail, quiet conversation canvas, persistent follow-up dock, settings one step away.
@@ -763,30 +774,30 @@ function ConversationApp() {
         FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md
       */}
       {sidebarOpen && (
-        <aside className="conversation-sidebar" aria-label="查询时间线">
+        <aside className="conversation-sidebar" aria-label={t('recentSessions')}>
           <div className="sidebar-brand">
-            <button type="button" className="wordmark" onClick={() => setView('timeline')}><img src="./brand/lensquery-mark.svg" alt="" />LensQuery</button>
-            <button type="button" className="icon-button" aria-label="搜索会话" onClick={() => document.querySelector<HTMLInputElement>('.search-box input')?.focus()}><MagnifyingGlass size={17} /></button>
+            <button type="button" className="wordmark" onClick={() => setView('timeline')}><img src="./brand/lensquery-mark.svg" alt="" />{t('productName')}</button>
+            <button type="button" className="icon-button" aria-label={t('searchSessions')} onClick={() => document.querySelector<HTMLInputElement>('.search-box input')?.focus()}><MagnifyingGlass size={17} /></button>
           </div>
           <div className="sidebar-head">
             <button type="button" className="new-session-button" onClick={() => { setActiveSession(null); setView('timeline') }}>
-              <Plus size={17} />新建会话
+              <Plus size={17} />{t('newConversation')}
             </button>
             <button type="button" className="capture-button" onClick={beginCapture}>
-              <Question size={17} weight="bold" />开始识别<kbd>{shortcutParts(settings.shortcut).join(' ')}</kbd>
+              <Question size={17} weight="bold" />{t('startRecognition')}<kbd>{shortcutParts(settings.shortcut).join(' ')}</kbd>
             </button>
             <div className="search-box">
               <MagnifyingGlass size={16} />
-              <input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="搜索会话" aria-label="搜索会话" />
+              <input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder={t('searchSessionsPlaceholder')} aria-label={t('searchSessions')} />
             </div>
           </div>
           <div className="sidebar-section-label">
-            <span>最近会话</span>
+            <span>{t('recentSessions')}</span>
             <span className="sidebar-section-actions">
               <small>{visibleSessions.length}</small>
               {sessions.length > 0 && (
                 <HistoryMenuTrigger
-                  label="管理最近会话"
+                  label={t('manageRecent')}
                   expanded={historyMenu?.origin === 'all'}
                   className="sidebar-section-menu-trigger"
                   onClick={(event) => openHistoryMenuFromButton({ kind: 'all', count: sessions.length }, 'all', event)}
@@ -818,20 +829,20 @@ function ConversationApp() {
                   }}
                 >
                   <SourceIcon kind={session.sourceKind} />
-                  <span><strong>{session.title}</strong><small>{relativeTime(session.updatedAt)} · {session.sourceLabel}</small></span>
+                  <span><strong>{session.title}</strong><small>{formatRelativeTime(session.updatedAt, language)} · {session.sourceLabel}</small></span>
                 </button>
                 <HistoryMenuTrigger
-                  label={`管理会话：${session.title}`}
+                  label={t("manageSession", { title: session.title })}
                   expanded={historyMenu?.origin === `row:${session.id}`}
                   className="session-row-menu-trigger"
                   onClick={(event) => openHistoryMenuFromButton({ kind: 'session', id: session.id, title: session.title }, `row:${session.id}`, event)}
                 />
               </div>
             )) : (
-              <div className="sidebar-empty">按快捷键开始第一条查询。</div>
+              <div className="sidebar-empty">{t("emptySessions")}</div>
             )}
           </div>
-          <nav className="sidebar-navigation" aria-label="主导航">
+          <nav className="sidebar-navigation" aria-label={t("navTimeline")}>
             {navigation.map((item) => {
               const Icon = item.icon
               return <button type="button" key={item.id} className={view === item.id ? 'sidebar-nav-item active' : 'sidebar-nav-item'} onClick={() => { setView(item.id); if (isNarrow) setSidebarOpen(false) }}><Icon size={17} /><span>{item.label}</span></button>
@@ -841,19 +852,19 @@ function ConversationApp() {
       )}
 
       {isNarrow && sidebarOpen && (
-        <button type="button" className="sidebar-backdrop" aria-label="关闭会话侧栏" onClick={() => setSidebarOpen(false)} />
+        <button type="button" className="sidebar-backdrop" aria-label={t("closeSidebar")} onClick={() => setSidebarOpen(false)} />
       )}
 
       <main className="main-surface" inert={isNarrow && sidebarOpen ? true : undefined}>
         <header className="app-bar">
           <div className="app-bar-left">
-            <button type="button" className="icon-button" onClick={() => setSidebarOpen((value) => !value)} aria-label="切换侧栏"><SidebarSimple size={19} /></button>
+            <button type="button" className="icon-button" onClick={() => setSidebarOpen((value) => !value)} aria-label={t("toggleSidebar")}><SidebarSimple size={19} /></button>
             <strong className="surface-title">{viewTitle}</strong>
-            <span className="resident-state"><i />后台待命</span>
+            <span className="resident-state"><i />{t("residentReady")}</span>
           </div>
           <div className="app-bar-actions">
             {selectedProvider && <button type="button" className="runtime-chip" onClick={() => setView('providers')}><ProviderLogo provider={selectedProvider} size={15} /><span>{selectedProvider.name}</span><small>{selectedProvider.model}</small></button>}
-            <button type="button" className="toolbar-capture" onClick={beginCapture}><CursorClick size={16} />识别屏幕</button>
+            <button type="button" className="toolbar-capture" onClick={beginCapture}><CursorClick size={16} />{t("captureScreen")}</button>
           </div>
         </header>
 
@@ -868,6 +879,7 @@ function ConversationApp() {
               session={activeSession}
               provider={providers.find(({ id }) => id === activeSession.providerId)}
               providers={providers}
+              language={language}
               followUp={followUp}
               onFollowUp={setFollowUp}
               onSubmit={submitFollowUp}
@@ -884,7 +896,7 @@ function ConversationApp() {
               }}
             />
           ) : (
-            <EmptyTimeline shortcut={settings.shortcut} onCapture={beginCapture} onOpenFiles={openFiles} />
+            <EmptyTimeline language={language} shortcut={settings.shortcut} onCapture={beginCapture} onOpenFiles={openFiles} />
           )
         )}
         {view === 'providers' && (
@@ -937,6 +949,7 @@ function ConversationView(props: {
   session: QuerySession
   provider?: ProviderProfile
   providers: ProviderProfile[]
+  language: ReturnType<typeof normalizeUiLanguage>
   followUp: string
   onFollowUp: (value: string) => void
   onSubmit: () => void
@@ -947,6 +960,8 @@ function ConversationView(props: {
   onRetry: () => void
   onRuntimeChange: (update: SessionRuntimeUpdate) => void
 }) {
+  const language = props.language
+  const t = createTranslator(language)
   const streamRef = useRef<HTMLDivElement>(null)
   const tailRef = useRef<HTMLDivElement>(null)
   const latestMessageRef = useRef<HTMLElement>(null)
@@ -976,10 +991,10 @@ function ConversationView(props: {
       <header className="conversation-titlebar">
         <div>
           <h1>{props.session.title}</h1>
-          <p><SourceIcon kind={props.session.sourceKind} />{props.session.sourceLabel}<span>·</span>自动扫描<span>·</span>智能回复<span>·</span>{props.provider?.name ?? '模型'}<span>·</span>{formatFullTime(props.session.createdAt)}</p>
+          <p><SourceIcon kind={props.session.sourceKind} />{props.session.sourceLabel}<span>·</span>{t('autoScan')}<span>·</span>{t('smartReply')}<span>·</span>{props.provider?.name ?? t('modelFallback')}<span>·</span>{formatAbsoluteTime(props.session.createdAt, language)}</p>
         </div>
         <HistoryMenuTrigger
-          label="会话操作"
+          label={t('sessionActions')}
           expanded={props.actionsExpanded}
           className="conversation-actions-trigger"
           onClick={props.onOpenActions}
@@ -999,11 +1014,11 @@ function ConversationView(props: {
         {hasWebsite && <WebsiteQuickActions session={props.session} onQuickAsk={props.onQuickAsk} />}
         {props.session.messages.map((message) => (
           <article ref={message.id === latestMessage?.id ? latestMessageRef : undefined} key={message.id} className={`message ${message.role} ${message.status}`}>
-            <div className="message-author">{message.role === 'user' ? '你' : props.provider?.name ?? 'LensQuery'}</div>
+            <div className="message-author">{message.role === 'user' ? t('you') : props.provider?.name ?? t('productName')}</div>
             {message.status === 'pending' ? (
-              <div className="thinking"><span className="thinking-dots" aria-hidden="true"><i /><i /><i /></span><span>{hasLongVideo ? '正在按章节阅读长视频并汇总完整内容' : '正在分析选择内容'}</span></div>
+              <div className="thinking"><span className="thinking-dots" aria-hidden="true"><i /><i /><i /></span><span>{hasLongVideo ? t('analyzingLongVideo') : t('analyzing')}</span></div>
             ) : message.status === 'cancelled' ? (
-              <div className="message-cancelled"><X size={15} />{message.content || '已取消分析。'}</div>
+              <div className="message-cancelled"><X size={15} />{message.content || t('cancelled')}</div>
             ) : (
               message.role === 'assistant' ? (
                 <div className="message-content markdown-answer">
@@ -1027,7 +1042,7 @@ function ConversationView(props: {
             )}
             {message.role === 'assistant' && message.status === 'complete' && (
               <div className="message-actions">
-                <button type="button" onClick={() => void navigator.clipboard.writeText(message.content)}><Copy size={15} />复制</button>
+                <button type="button" onClick={() => void navigator.clipboard.writeText(message.content)}><Copy size={15} />{t('copy')}</button>
                 <button type="button" onClick={async () => {
                   if (speakingId === message.id) {
                     await stopSpeaking()
@@ -1036,8 +1051,8 @@ function ConversationView(props: {
                     await speakText(message.content)
                     setSpeakingId(message.id)
                   }
-                }}>{speakingId === message.id ? <><SpeakerSlash size={15} />停止</> : <><SpeakerHigh size={15} />朗读</>}</button>
-                <button type="button" onClick={props.onRetry}><ArrowCounterClockwise size={15} />重试</button>
+                }}>{speakingId === message.id ? <><SpeakerSlash size={15} />{t('stopSpeak')}</> : <><SpeakerHigh size={15} />{t('speak')}</>}</button>
+                <button type="button" onClick={props.onRetry}><ArrowCounterClockwise size={15} />{t('retry')}</button>
               </div>
             )}
           </article>
@@ -1049,8 +1064,8 @@ function ConversationView(props: {
           <textarea
             value={props.followUp}
             onChange={(event) => props.onFollowUp(event.target.value)}
-            placeholder="在这个会话里继续追问…"
-            aria-label="继续追问"
+            placeholder={t('followUpPlaceholder')}
+            aria-label={t('followUpLabel')}
             onKeyDown={(event) => {
               if (event.key === 'Enter' && !event.shiftKey) {
                 event.preventDefault()
@@ -1070,8 +1085,8 @@ function ConversationView(props: {
               className={pendingMessage ? 'composer-action is-cancel' : 'composer-action'}
               disabled={!pendingMessage && !props.followUp.trim()}
               onClick={() => pendingMessage ? props.onCancel(pendingMessage.id) : props.onSubmit()}
-              aria-label={pendingMessage ? '取消本次分析' : '发送追问'}
-              title={pendingMessage ? '取消分析 (Esc)' : '发送追问'}
+              aria-label={pendingMessage ? t('cancelAnalysis') : t('sendFollowUp')}
+              title={pendingMessage ? t('cancelAnalysisHint') : t('sendFollowUp')}
             >{pendingMessage ? <Stop size={15} weight="fill" /> : <PaperPlaneTilt size={18} weight="fill" />}</button>
           </div>
         </div>
@@ -1281,23 +1296,25 @@ function EvidenceStrip({ session }: { session: QuerySession }) {
 }
 
 function EmptyTimeline(props: {
+  language: ReturnType<typeof normalizeUiLanguage>
   shortcut: string
   onCapture: () => void
   onOpenFiles: () => void
 }) {
+  const t = createTranslator(props.language)
   return (
     <section className="empty-timeline workbench-empty">
       <div className="empty-hero">
         <div className="question-cursor"><HighlighterCircle size={25} weight="duotone" /></div>
-        <h1>选择后自动分析</h1>
-        <p>无需填写问题。选择文字、图片、PDF、视频、程序或一块区域，LensQuery 会识别具体主题和内容类型，再自动生成不同的分析任务。</p>
+        <h1>{t('emptyTitle')}</h1>
+        <p>{t('emptyBody')}</p>
       </div>
       <div className="auto-analysis-launch">
         <div className="auto-launch-actions">
-          <button type="button" className="primary-button" onClick={props.onCapture}><CursorClick size={17} />开始识别<span className="shortcut-line">{shortcutParts(props.shortcut).map((part, index) => <span className="shortcut-part" key={`${part}-${index}`}>{index > 0 && <span>+</span>}<kbd>{part}</kbd></span>)}</span></button>
-          <button type="button" className="secondary-button" onClick={props.onOpenFiles}><Plus size={17} />选择文件</button>
+          <button type="button" className="primary-button" onClick={props.onCapture}><CursorClick size={17} />{t("startRecognition")}<span className="shortcut-line">{shortcutParts(props.shortcut).map((part, index) => <span className="shortcut-part" key={`${part}-${index}`}>{index > 0 && <span>+</span>}<kbd>{part}</kbd></span>)}</span></button>
+          <button type="button" className="secondary-button" onClick={props.onOpenFiles}><Plus size={17} />{t("chooseFiles")}</button>
         </div>
-        <div className="auto-scan-note"><Scan size={17} /><span><strong>内容感知分析</strong><small>教学还原步骤，娱乐找笑点与高光，观点视频分清事实与立场；结构和详细度由实际内容决定。</small></span></div>
+        <div className="auto-scan-note"><Scan size={17} /><span><strong>{t("contentAware")}</strong><small>{t("contentAwareHelp")}</small></span></div>
       </div>
     </section>
   )
@@ -1578,7 +1595,7 @@ function ExtensionsPanel() {
             <button type="button" className="secondary-button" disabled={!electronAvailable || Boolean(busy) || installed} onClick={() => void installRecommended(item.source, item.defaultEnabled, item.name)}>{installed ? <><Check size={15} />已安装</> : busy === item.source ? '正在审查安装' : <><DownloadSimple size={15} />安装</>}</button>
           </article>
         })}</div>
-        <footer>OpenAI 当前的 <code>openai/plugins</code> 以 MCP、连接器和可执行智能体为主；LensQuery 现阶段不将这些外部权限伪装成可用的“提示词插件”。</footer>
+        <footer>OpenAI 当前的 <code>openai/plugins</code> 以 MCP、连接器和可执行智能体为主；What is it 现阶段不将这些外部权限伪装成可用的“提示词插件”。</footer>
       </section>}
 
       <form className="extension-source" onSubmit={(event) => { event.preventDefault(); void installSource() }}>
@@ -1603,7 +1620,7 @@ function ExtensionsPanel() {
             </div>
           </article>
         )) : (
-          <div className="extension-empty"><div>{kind === 'plugin' ? <PlugsConnected size={25} /> : <PuzzlePiece size={25} />}</div><strong>{kind === 'plugin' ? '还没有安装插件' : '没有发现 Skill'}</strong><p>{kind === 'plugin' ? '插件包需要 lensquery.plugin.json 和一个 Markdown 指令入口。' : 'LensQuery 会扫描 ~/.codex/skills 和 ~/.agents/skills，也可直接安装包含 SKILL.md 的目录。'}</p></div>
+          <div className="extension-empty"><div>{kind === 'plugin' ? <PlugsConnected size={25} /> : <PuzzlePiece size={25} />}</div><strong>{kind === 'plugin' ? '还没有安装插件' : '没有发现 Skill'}</strong><p>{kind === 'plugin' ? '插件包需要 lensquery.plugin.json 和一个 Markdown 指令入口。' : 'What is it 会扫描 ~/.codex/skills 和 ~/.agents/skills，也可直接安装包含 SKILL.md 的目录。'}</p></div>
         )}
       </div>
       <div className="extension-safety"><strong>扩展边界</strong><p>当前只读取已启用包的 Markdown 指令并作为分析指导；不直接执行 JavaScript、Shell 或扩展声称的任何外部动作。安装时拒绝符号链接，限制为 800 个文件和 32 MB。</p></div>
@@ -1624,7 +1641,7 @@ function ProviderEditor(props: { profile: ProviderProfile; onClose: () => void; 
       <label>显示名称<input value={profile.name} onChange={(event) => setProfile({ ...profile, name: event.target.value })} /></label>
       <label>模型 ID<input list={`provider-editor-models-${profile.id}`} value={profile.model} onChange={(event) => setProfile({ ...profile, model: event.target.value })} /><datalist id={`provider-editor-models-${profile.id}`}>{(profile.models ?? []).map((model) => <option key={model.id} value={model.id}>{model.name}</option>)}</datalist><small>可从已发现目录选择，也可填写该 CLI 或 API 接受的模型 ID。</small></label>
       <label>默认思考强度<select disabled={!providerSupportsReasoningEffort(profile)} value={providerDefaultReasoningEffort(profile)} onChange={(event) => setProfile({ ...profile, reasoningEffort: event.target.value as ProviderProfile['reasoningEffort'] })}>{!providerSupportsReasoningEffort(profile) && <option value="auto">由模型决定</option>}{providerSupportsReasoningEffort(profile) && reasoningOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select><small>{providerSupportsReasoningEffort(profile) ? '将作为新会话的默认值；每个会话仍可单独修改。' : '当前适配器没有独立思考强度参数，由具体模型决定。'}</small></label>
-      {direct && <><label>API 根地址<input value={profile.baseUrl ?? ''} onChange={(event) => setProfile({ ...profile, baseUrl: event.target.value })} placeholder="https://HOST/v1" /><small>LensQuery 会自动追加 /chat/completions 或 /v1/messages。</small></label>{props.profile.builtIn === false && <label className="drawer-check"><input type="checkbox" checked={profile.apiKeyRequired !== false} onChange={(event) => setProfile({ ...profile, apiKeyRequired: event.target.checked, category: event.target.checked ? 'custom' : 'local' })} /><span><strong>需要 API Key</strong><small>Ollama、LM Studio 等本机端点可取消勾选。</small></span></label>}{profile.apiKeyRequired !== false && <label>API Key<input type="password" autoComplete="off" value={secret} placeholder={profile.secretConfigured ? '已加密保存；留空表示保留' : '输入 API Key'} onChange={(event) => setSecret(event.target.value)} /><small>密钥只交给 Electron 主进程的系统安全存储。</small>{profile.secretConfigured && <button type="button" className="clear-secret" disabled={busy} onClick={async () => { setBusy(true); setError(''); try { const saved = await props.onClearSecret(profile); setProfile(saved); setSecret('') } catch (cause) { setError(String(cause)) } finally { setBusy(false) } }}>清除已保存的 Key</button>}</label>}</>}
+      {direct && <><label>API 根地址<input value={profile.baseUrl ?? ''} onChange={(event) => setProfile({ ...profile, baseUrl: event.target.value })} placeholder="https://HOST/v1" /><small>What is it 会自动追加 /chat/completions 或 /v1/messages。</small></label>{props.profile.builtIn === false && <label className="drawer-check"><input type="checkbox" checked={profile.apiKeyRequired !== false} onChange={(event) => setProfile({ ...profile, apiKeyRequired: event.target.checked, category: event.target.checked ? 'custom' : 'local' })} /><span><strong>需要 API Key</strong><small>Ollama、LM Studio 等本机端点可取消勾选。</small></span></label>}{profile.apiKeyRequired !== false && <label>API Key<input type="password" autoComplete="off" value={secret} placeholder={profile.secretConfigured ? '已加密保存；留空表示保留' : '输入 API Key'} onChange={(event) => setSecret(event.target.value)} /><small>密钥只交给 Electron 主进程的系统安全存储。</small>{profile.secretConfigured && <button type="button" className="clear-secret" disabled={busy} onClick={async () => { setBusy(true); setError(''); try { const saved = await props.onClearSecret(profile); setProfile(saved); setSecret('') } catch (cause) { setError(String(cause)) } finally { setBusy(false) } }}>清除已保存的 Key</button>}</label>}</>}
       {error && <div className="drawer-error"><WarningCircle size={16} />{error}</div>}
       <div className="drawer-actions">{props.onRemove && <button type="button" className="secondary-button danger-button" disabled={busy} onClick={async () => { setBusy(true); setError(''); try { await props.onRemove?.() } catch (cause) { setError(String(cause)); setBusy(false) } }}><Trash size={16} />删除</button>}<span /><button type="button" className="secondary-button" disabled={busy} onClick={props.onClose}>取消</button><button type="button" className="primary-button" disabled={busy || !profile.name.trim() || !profile.model.trim() || (direct && !profile.baseUrl?.trim())} onClick={async () => { setBusy(true); setError(''); try { await props.onSave(profile, secret) } catch (cause) { setError(String(cause)); setBusy(false) } }}>{busy ? '正在保存' : '保存'}</button></div>
     </div>
@@ -1633,6 +1650,7 @@ function ProviderEditor(props: { profile: ProviderProfile; onClose: () => void; 
 
 function SettingsPanel(props: { settings: AppSettings; onSave: (settings: AppSettings) => Promise<void> }) {
   const [draft, setDraft] = useState(props.settings)
+  const t = createTranslator(normalizeUiLanguage(draft.language))
   const [saved, setSaved] = useState(false)
   const [voiceCheck, setVoiceCheck] = useState('')
   const [permissions, setPermissions] = useState<DesktopPermissionStatus | null>(null)
@@ -1653,18 +1671,18 @@ function SettingsPanel(props: { settings: AppSettings; onSave: (settings: AppSet
     : permissions?.screenCaptureRestartRequired
       ? '正在自动重启'
       : '需要开启'
-  const electronPermissionName = permissions?.applicationName || 'LensQuery'
+  const electronPermissionName = permissions?.applicationName || 'What is it'
   const electronPermissionPath = permissions?.applicationPath || '/Applications/LensQuery.app'
   return (
     <section className="settings-surface narrow">
-      <header className="section-heading"><div><h1>设置</h1><p>快捷键、语言、自动回复和本地记录。</p></div></header>
+      <header className="section-heading"><div><h1>{t('settingsTitle')}</h1><p>{t('settingsLead')}</p></div></header>
       <div className="settings-group"><h2>取景</h2><label>全局快捷键<input value={draft.shortcut} onChange={(event) => setDraft({ ...draft, shortcut: event.target.value })} /><small>单击一次高亮文本、图片、PDF、文件或程序对象，再单击确认；按住鼠标并拖动可选择大范围区域，松开后立即在后台分析。</small></label></div>
-      <div className="settings-group"><h2>系统权限</h2><div className="permission-row"><span><strong>录屏</strong><small>框选和对象图片预览</small></span><i className={permissions?.screenCapture ? 'permission-ok' : 'permission-needed'} role="status">{screenPermissionLabel}</i><button type="button" className="secondary-button" onClick={async () => { await openPermissionSettings('screen'); setPermissions(await getPermissionStatus()) }}>打开设置</button></div><div className="permission-row"><span><strong>辅助功能</strong><small>识别单个 PDF、文件、文本和控件</small></span><i className={permissions?.accessibility ? 'permission-ok' : 'permission-needed'}>{permissions?.accessibility ? '已允许' : '需要开启'}</i><button type="button" className="secondary-button" onClick={async () => { await openPermissionSettings('accessibility'); setPermissions(await getPermissionStatus()) }}>打开设置</button></div>{isElectronRuntime() ? <span className="permission-help">请在列表中打开 <strong>{electronPermissionName}</strong>。完整路径：<code>{electronPermissionPath}</code>。打开开关后应用会自动重启。</span> : <small>如果系统列表中没有 LensQuery，点“+”并选择 /Applications/LensQuery.app。</small>}</div>
-      <div className="settings-group"><h2>自动分析</h2><div className="automatic-analysis-setting"><Scan size={18} /><span><strong>选择后直接开始</strong><small>LensQuery 先识别具体主题与子类型，再生成对应的分析问题和结构。教学、娱乐、游戏、评测、访谈和新闻观点不会复用同一份模板。</small></span></div><label>回答详细程度<select value={draft.replyStyle} onChange={(event) => setDraft({ ...draft, replyStyle: event.target.value as AppSettings['replyStyle'] })}><option value="customer-ready">自然导读 + 详细内容</option><option value="concise">简洁导读（视频仍完整覆盖）</option><option value="detailed">深入详细分析</option></select></label></div>
-      <div className="settings-group"><h2>语言</h2><label>界面语言<select value={draft.language} onChange={(event) => setDraft({ ...draft, language: event.target.value as AppSettings['language'] })}><option value="zh-CN">简体中文</option><option value="en">English</option></select></label><Toggle checked={draft.detectCustomerLanguage} label="自动跟随顾客语言回答" onChange={(detectCustomerLanguage) => setDraft({ ...draft, detectCustomerLanguage })} /><label>无法识别时的语言<select value={draft.responseLanguage} onChange={(event) => setDraft({ ...draft, responseLanguage: event.target.value as AppSettings['responseLanguage'] })}><option value="zh-CN">简体中文</option><option value="en">English</option><option value="ja-JP">日本語</option><option value="ko-KR">한국어</option><option value="es-ES">Español</option><option value="fr-FR">Français</option><option value="de-DE">Deutsch</option></select></label></div>
-      <div className="settings-group"><h2>后台与结果</h2><Toggle checked={draft.launchAtStartup} label="登录系统后自动在后台启动" onChange={(launchAtStartup) => setDraft({ ...draft, launchAtStartup })} /><Toggle checked={draft.notificationsEnabled} label="分析完成后在右上角显示结果卡片" onChange={(notificationsEnabled) => setDraft({ ...draft, notificationsEnabled })} /><Toggle checked={draft.notificationPreview} label="在结果卡片中显示回答摘要" onChange={(notificationPreview) => setDraft({ ...draft, notificationPreview })} /><label>结果呈现<select value={draft.resultPresentation} onChange={(event) => setDraft({ ...draft, resultPresentation: event.target.value as AppSettings['resultPresentation'] })}><option value="notification">只显示右上角结果，继续后台运行</option><option value="window">自动打开会话窗口</option><option value="both">右上角显示并打开窗口</option></select></label><div><button type="button" className="secondary-button" onClick={() => void showSystemNotification('LensQuery 结果显示正常', '以后每次分析完成，回答摘要都会直接出现在右上角。')}>测试右上角结果</button></div></div>
+      <div className="settings-group"><h2>系统权限</h2><div className="permission-row"><span><strong>录屏</strong><small>框选和对象图片预览</small></span><i className={permissions?.screenCapture ? 'permission-ok' : 'permission-needed'} role="status">{screenPermissionLabel}</i><button type="button" className="secondary-button" onClick={async () => { await openPermissionSettings('screen'); setPermissions(await getPermissionStatus()) }}>打开设置</button></div><div className="permission-row"><span><strong>辅助功能</strong><small>识别单个 PDF、文件、文本和控件</small></span><i className={permissions?.accessibility ? 'permission-ok' : 'permission-needed'}>{permissions?.accessibility ? '已允许' : '需要开启'}</i><button type="button" className="secondary-button" onClick={async () => { await openPermissionSettings('accessibility'); setPermissions(await getPermissionStatus()) }}>打开设置</button></div>{isElectronRuntime() ? <span className="permission-help">请在列表中打开 <strong>{electronPermissionName}</strong>。完整路径：<code>{electronPermissionPath}</code>。打开开关后应用会自动重启。</span> : <small>如果系统列表中没有 What is it，点“+”并选择 /Applications/LensQuery.app。</small>}</div>
+      <div className="settings-group"><h2>自动分析</h2><div className="automatic-analysis-setting"><Scan size={18} /><span><strong>选择后直接开始</strong><small>What is it 先识别具体主题与子类型，再生成对应的分析问题和结构。教学、娱乐、游戏、评测、访谈和新闻观点不会复用同一份模板。</small></span></div><label>回答详细程度<select value={draft.replyStyle} onChange={(event) => setDraft({ ...draft, replyStyle: event.target.value as AppSettings['replyStyle'] })}><option value="customer-ready">自然导读 + 详细内容</option><option value="concise">简洁导读（视频仍完整覆盖）</option><option value="detailed">深入详细分析</option></select></label></div>
+      <div className="settings-group"><h2>{t('language')}</h2><label>{t('interfaceLanguage')}<select value={draft.language} onChange={(event) => setDraft({ ...draft, language: event.target.value as AppSettings['language'] })}><option value="zh-CN">简体中文</option><option value="en">English</option><option value="ja-JP">日本語</option></select></label><Toggle checked={draft.detectCustomerLanguage} label={t('followCustomer')} onChange={(detectCustomerLanguage) => setDraft({ ...draft, detectCustomerLanguage })} /><label>{t('fallbackLanguage')}<select value={draft.responseLanguage} onChange={(event) => setDraft({ ...draft, responseLanguage: event.target.value as AppSettings['responseLanguage'] })}><option value="zh-CN">简体中文</option><option value="en">English</option><option value="ja-JP">日本語</option><option value="ko-KR">한국어</option><option value="es-ES">Español</option><option value="fr-FR">Français</option><option value="de-DE">Deutsch</option></select></label></div>
+      <div className="settings-group"><h2>后台与结果</h2><Toggle checked={draft.launchAtStartup} label="登录系统后自动在后台启动" onChange={(launchAtStartup) => setDraft({ ...draft, launchAtStartup })} /><Toggle checked={draft.notificationsEnabled} label="分析完成后在右上角显示结果卡片" onChange={(notificationsEnabled) => setDraft({ ...draft, notificationsEnabled })} /><Toggle checked={draft.notificationPreview} label="在结果卡片中显示回答摘要" onChange={(notificationPreview) => setDraft({ ...draft, notificationPreview })} /><label>结果呈现<select value={draft.resultPresentation} onChange={(event) => setDraft({ ...draft, resultPresentation: event.target.value as AppSettings['resultPresentation'] })}><option value="notification">只显示右上角结果，继续后台运行</option><option value="window">自动打开会话窗口</option><option value="both">右上角显示并打开窗口</option></select></label><div><button type="button" className="secondary-button" onClick={() => void showSystemNotification('What is it 结果显示正常', '以后每次分析完成，回答摘要都会直接出现在右上角。')}>测试右上角结果</button></div></div>
 
-      <div className="settings-group"><h2>语音</h2><label>朗读方式<select value={draft.voiceMode} onChange={(event) => setDraft({ ...draft, voiceMode: event.target.value as AppSettings['voiceMode'] })}><option value="off">关闭</option><option value="system">系统语音（当前可用）</option><option value="codex-realtime" disabled>Codex Realtime Voice（本机暂不可用）</option></select><small>本机 Codex 0.146.1 的 App Server 已公开实验音频方法，但普通本地线程返回“不支持 realtime conversation”；因此本构建明确停用该选项，保留系统语音作为可验证路径。</small></label><div><button type="button" className="secondary-button" onClick={async () => { try { await speakText('LensQuery 语音测试。'); setVoiceCheck('系统语音已启动') } catch (cause) { setVoiceCheck(String(cause)) } }}>测试系统语音</button>{voiceCheck && <small className="voice-check">{voiceCheck}</small>}</div><Toggle checked={draft.autoPlayVoice} label="回答完成后自动朗读" onChange={(autoPlayVoice) => setDraft({ ...draft, autoPlayVoice })} /></div>
+      <div className="settings-group"><h2>语音</h2><label>朗读方式<select value={draft.voiceMode} onChange={(event) => setDraft({ ...draft, voiceMode: event.target.value as AppSettings['voiceMode'] })}><option value="off">关闭</option><option value="system">系统语音（当前可用）</option><option value="codex-realtime" disabled>Codex Realtime Voice（本机暂不可用）</option></select><small>本机 Codex 0.146.1 的 App Server 已公开实验音频方法，但普通本地线程返回“不支持 realtime conversation”；因此本构建明确停用该选项，保留系统语音作为可验证路径。</small></label><div><button type="button" className="secondary-button" onClick={async () => { try { await speakText('What is it 语音测试。'); setVoiceCheck('系统语音已启动') } catch (cause) { setVoiceCheck(String(cause)) } }}>测试系统语音</button>{voiceCheck && <small className="voice-check">{voiceCheck}</small>}</div><Toggle checked={draft.autoPlayVoice} label="回答完成后自动朗读" onChange={(autoPlayVoice) => setDraft({ ...draft, autoPlayVoice })} /></div>
       <div className="settings-group"><h2>本地数据</h2><Toggle checked={draft.saveHistory} label="保存会话时间线" onChange={(saveHistory) => setDraft({ ...draft, saveHistory })} /><Toggle checked={draft.retainImages} label="保留捕获图片" onChange={(retainImages) => setDraft({ ...draft, retainImages })} /></div>
       <div className="settings-footer"><span>{saved ? '已保存' : '设置只保存在本机'}</span><button type="button" className="primary-button" onClick={async () => { await props.onSave(draft); setSaved(true); window.setTimeout(() => setSaved(false), 1800) }}>保存设置</button></div>
     </section>
@@ -1864,19 +1882,7 @@ function SourceIcon({ kind }: { kind: QuerySession['sourceKind'] }) {
 }
 
 function LoadingScreen() {
-  return <div className="loading-screen" role="status"><Question size={25} weight="bold" /><span>LensQuery 正在后台就绪</span></div>
-}
-
-function relativeTime(value: string) {
-  const delta = Math.max(0, Date.now() - new Date(value).getTime())
-  if (delta < 60_000) return '刚刚'
-  if (delta < 3_600_000) return `${Math.floor(delta / 60_000)} 分钟前`
-  if (delta < 86_400_000) return `${Math.floor(delta / 3_600_000)} 小时前`
-  return new Intl.DateTimeFormat('zh-CN', { month: 'short', day: 'numeric' }).format(new Date(value))
-}
-
-function formatFullTime(value: string) {
-  return new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(value))
+  return <div className="loading-screen" role="status"><Question size={25} weight="bold" /><span>{createTranslator(normalizeUiLanguage(document.documentElement.lang))("loading")}</span></div>
 }
 
 export default App

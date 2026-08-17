@@ -1,6 +1,6 @@
 appId: com.lensquery.desktop.electron-preview
-productName: LensQuery
-copyright: Copyright LensQuery contributors
+productName: What is it
+copyright: Copyright What is it contributors
 directories:
   output: release-electron
 files:
@@ -10,7 +10,7 @@ files:
   - THIRD_PARTY_NOTICES.md
   - package.json
 protocols:
-  - name: LensQuery Recognition
+  - name: What is it Recognition
     schemes:
       - lensquery
 extraResources:
@@ -37,10 +37,12 @@ mac:
   identity: null
   extendInfo:
     LSUIElement: false
-    NSAudioCaptureUsageDescription: LensQuery reads system audio only when the user explicitly analyzes a video or audio source.
-    NSLocalNetworkUsageDescription: LensQuery connects only to local AI and CLI gateways that you configure.
-    NSMicrophoneUsageDescription: LensQuery uses audio only when the user explicitly analyzes media.
-    NSScreenCaptureUsageDescription: LensQuery captures only the region the user explicitly confirms.
+    NSAudioCaptureUsageDescription: What is it reads system audio only when the user explicitly analyzes a video or audio source.
+    NSLocalNetworkUsageDescription: What is it connects only to local AI and CLI gateways that you configure.
+    NSMicrophoneUsageDescription: What is it uses audio only when the user explicitly analyzes media.
+    NSScreenCaptureUsageDescription: What is it captures only the region the user explicitly confirms.
+    CFBundleDisplayName: What is it
+    CFBundleName: What is it
 win:
   icon: src-tauri/icons/icon.ico
   target:

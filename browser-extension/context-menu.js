@@ -3,13 +3,13 @@ export const PAGE_CONTEXT_MENU_ID = 'lensquery-analyze-current-url'
 
 export const UNIVERSAL_CONTEXT_MENU = {
   id: UNIVERSAL_CONTEXT_MENU_ID,
-  title: '使用 LensQuery 识别',
+  title: '使用 What is it 识别',
   contexts: ['all'],
 }
 
 export const PAGE_CONTEXT_MENU = {
   id: PAGE_CONTEXT_MENU_ID,
-  title: '使用 LensQuery 分析当前网址',
+  title: '使用 What is it 分析当前网址',
   contexts: ['page', 'action'],
 }
 

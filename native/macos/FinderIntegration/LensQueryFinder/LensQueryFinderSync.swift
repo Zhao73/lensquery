@@ -14,14 +14,14 @@ final class LensQueryFinderSync: FIFinderSync {
         guard menuKind == .contextualMenuForItems || menuKind == .contextualMenuForContainer else {
             return nil
         }
-        let menu = NSMenu(title: "LensQuery")
+        let menu = NSMenu(title: "What is it")
         let item = NSMenuItem(
-            title: "使用 LensQuery 识别",
+            title: "使用 What is it 识别",
             action: #selector(analyzeSelection(_:)),
             keyEquivalent: ""
         )
         item.target = self
-        item.image = NSImage(systemSymbolName: "questionmark.circle", accessibilityDescription: "LensQuery")
+        item.image = NSImage(systemSymbolName: "questionmark.circle", accessibilityDescription: "What is it")
         menu.addItem(item)
         return menu
     }
